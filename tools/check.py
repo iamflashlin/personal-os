@@ -42,14 +42,16 @@ def build_steps() -> list[Step]:
     pnpm = shutil.which("pnpm")
     no_pnpm = None if pnpm else "pnpm not found on PATH; see docs/SETUP.md"
     pn = pnpm or "pnpm"
+    lint_imports = shutil.which("lint-imports", path=str(Path(py).parent))
+    no_lint_imports = None if lint_imports else "lint-imports not found next to python; uv sync"
     return [
         Step("ruff lint", [py, "-m", "ruff", "check", "."]),
         Step("ruff format", [py, "-m", "ruff", "format", "--check", "."]),
         Step("pyright", [pn, "exec", "pyright"], fail_reason=no_pnpm),
         Step(
             "module boundaries",
-            [],
-            skip_reason="no Hub modules yet; enabled by T-0001 (import-linter)",
+            [lint_imports or "lint-imports", "--no-cache"],
+            fail_reason=no_lint_imports,
         ),
         Step("pytest", [py, "-m", "pytest"]),
         Step("tsc", [pn, "run", "typecheck"], fail_reason=no_pnpm),
