@@ -5,6 +5,8 @@ in the same transaction as the change when it succeeds, or on its own after a ro
 when it is rejected or fails.
 """
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -206,6 +208,12 @@ def _audited[T](
     return outcome.value
 
 
+def _request_hash(payload: BaseModel) -> str:
+    """SHA-256 of the validated body, so omitted defaults and key order do not matter."""
+    canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def create(
     session: Session,
     actor: Actor,
@@ -214,6 +222,7 @@ def create(
     idempotency_key: str | None = None,
 ) -> tuple[BaseModel, bool]:
     """Return the created resource and whether it is a replay of an earlier request."""
+    request_hash = _request_hash(payload)
 
     def op() -> _Outcome[tuple[BaseModel, bool]]:
         if idempotency_key is not None:
@@ -226,6 +235,8 @@ def create(
             if seen is not None:
                 if seen.scope != kind.name:
                     raise Invalid("Idempotency-Key was already used for a different request")
+                if seen.request_hash != request_hash:
+                    raise Invalid("Idempotency-Key was already used with a different body")
                 original = get(session, actor, kind, seen.entity_id)
                 return _Outcome(seen.entity_id, (original, True), result="replayed")
 
@@ -242,6 +253,7 @@ def create(
                     source=actor.source,
                     key=idempotency_key,
                     scope=kind.name,
+                    request_hash=request_hash,
                     entity_id=row.id,
                 )
             )

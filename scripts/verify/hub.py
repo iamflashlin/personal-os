@@ -144,6 +144,10 @@ def verify_crud(client: httpx.Client, data_dir: Path, args: argparse.Namespace) 
     )
     check(replay.json()["id"] == goal["id"], "repeated POST with same Idempotency-Key replays")
     check(len(client.get("/goals").json()) == 1, "no duplicate goal created")
+    reused = client.post(
+        "/goals", json={"title": "Different goal"}, headers={"Idempotency-Key": "verify-goal"}
+    )
+    check(reused.status_code == 422, "same Idempotency-Key with a different body returns 422")
 
     patched = client.patch(f"/tasks/{task['id']}", json={"version": 1, "status": "in_progress"})
     check(patched.status_code == 200 and patched.json()["version"] == 2, "PATCH bumps version")
@@ -165,8 +169,10 @@ def verify_crud(client: httpx.Client, data_dir: Path, args: argparse.Namespace) 
     sample = json.dumps(rows, indent=2, ensure_ascii=False)
     results = [(r["action"], r["result"]) for r in rows]
     check(
-        results.count(("goal.create", "replayed")) == 1 and len(rows) == 8,
-        f"7 writes + 1 replay produced 8 audit events (got {results})",
+        results.count(("goal.create", "replayed")) == 1
+        and results.count(("goal.create", "invalid")) == 1
+        and len(rows) == 9,
+        f"7 writes + 1 replay + 1 rejected reuse produced 9 audit events (got {results})",
     )
     check("abc123" not in sample and "token=[REDACTED]" in sample, "audit detail is redacted")
     if args.audit_out:

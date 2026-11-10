@@ -56,6 +56,7 @@ def upgrade() -> None:
         "idempotency_key",
         sa.Column("key", sa.String(length=200), nullable=False),
         sa.Column("scope", sa.String(length=32), nullable=False),
+        sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("entity_id", sa.String(length=26), nullable=False),
         sa.Column("id", sa.String(length=26), nullable=False),
         sa.Column("owner_id", sa.String(length=64), nullable=False),

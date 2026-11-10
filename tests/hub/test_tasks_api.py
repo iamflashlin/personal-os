@@ -100,6 +100,25 @@ def test_repeated_post_with_same_idempotency_key_returns_original(client: TestCl
     assert creates == ["ok", "replayed"]
 
 
+def test_same_idempotency_key_with_different_body_is_422(client: TestClient) -> None:
+    first = post(client, "goal", {"title": "once"}, **{"Idempotency-Key": "k-3"})
+    other = client.post("/goals", json={"title": "changed"}, headers={"Idempotency-Key": "k-3"})
+    assert other.status_code == 422
+    assert "different body" in other.json()["detail"]
+    assert [g["id"] for g in client.get("/goals").json()] == [first["id"]]
+    assert [e.result for e in events(client) if e.action == "goal.create"] == ["ok", "invalid"]
+
+
+def test_idempotency_body_match_ignores_key_order_and_explicit_defaults(
+    client: TestClient,
+) -> None:
+    first = post(client, "goal", {"title": "g", "notes": "n"}, **{"Idempotency-Key": "k-4"})
+    same = {"notes": "n", "title": "g", "status": "active"}
+    again = client.post("/goals", json=same, headers={"Idempotency-Key": "k-4"})
+    assert again.status_code == 201
+    assert again.json()["id"] == first["id"]
+
+
 def test_idempotency_key_reused_for_another_kind_is_rejected(client: TestClient) -> None:
     post(client, "goal", {"title": "g"}, **{"Idempotency-Key": "k-2"})
     reused = client.post("/projects", json={"title": "p"}, headers={"Idempotency-Key": "k-2"})

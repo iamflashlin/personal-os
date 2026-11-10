@@ -24,10 +24,12 @@ No new dependencies.
 4. **Idempotency.**
    - Keys are unique per owner and never expire.
    - A replay returns 201, the resource's *current* state, and the header
-     `Idempotent-Replayed: true`. The request body is not compared.
+     `Idempotent-Replayed: true`.
    - Reusing a key for a different entity type returns 422.
-   - Same key with a *different* body also replays the original (no body hash yet).
-     The IETF idempotency-key draft would return 422 there; storing a body hash fixes it.
+   - Reusing a key with a *different* body returns 422 (user decision, 2026-11-10,
+     matching the IETF idempotency-key draft). The key row stores a SHA-256 of the
+     validated body, so key order and explicitly sent defaults do not count as different.
+     The column was added to migration 0002 directly because 0002 had not been merged.
    - The key table lives in the `tasks` module because it is the only user. Move it
      to a shared module when a second module needs it.
 5. **Audit.**
@@ -48,6 +50,7 @@ No new dependencies.
    - Replaying a key whose resource was since deleted returns 404 (audited `not_found`).
    - A request that fails schema validation never reaches the service, so it is not
      audited.
+   - Known limits are tracked in `docs/backlog.md`.
    - Only the audit copy is redacted. The entity itself stores what the user sent.
 6. **Delete.** Deletes are hard, with no version check. A goal, project or task that is
    still referenced (foreign key, or another task's `depends_on`) returns 409.

@@ -65,4 +65,5 @@ class IdempotencyKeyRow(Entity, Base):
 
     key: Mapped[str] = mapped_column(String(200))
     scope: Mapped[str] = mapped_column(String(32))
+    request_hash: Mapped[str] = mapped_column(String(64))
     entity_id: Mapped[str] = mapped_column(String(26))
