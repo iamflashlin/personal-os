@@ -13,3 +13,4 @@ class Settings(BaseSettings):
     data_dir: Path = REPO_ROOT / "data"
     hub_host: str = "127.0.0.1"
     hub_port: int = 8765
+    owner_id: str = "local"

@@ -1,6 +1,7 @@
 """Real-behaviour checks against a running Hub process.
 
     uv run python scripts/verify/hub.py health
+    uv run python scripts/verify/hub.py crud [--audit-out audit-sample.json]
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -10,6 +11,7 @@ then stops it. Exit code 0 only if every check passed.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import sqlite3
@@ -20,6 +22,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -91,7 +94,7 @@ def running_hub(data_dir: Path) -> Iterator[httpx.Client]:
         print("--- end hub log ---")
 
 
-def verify_health(client: httpx.Client, data_dir: Path) -> None:
+def verify_health(client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
     response = client.get("/health")
     print(f"GET /health -> {response.status_code} {response.text}", flush=True)
     check(response.status_code == 200, "GET /health returns 200")
@@ -106,12 +109,81 @@ def verify_health(client: httpx.Client, data_dir: Path) -> None:
     check(mode == "wal", f"journal_mode is wal (got {mode})")
 
 
-COMMANDS: dict[str, Callable[[httpx.Client, Path], None]] = {"health": verify_health}
+def _create(client: httpx.Client, kind: str, body: dict[str, Any]) -> dict[str, Any]:
+    response = client.post(f"/{kind}s", json=body, headers={"Idempotency-Key": f"verify-{kind}"})
+    print(f"POST /{kind}s -> {response.status_code} {response.text}", flush=True)
+    check(response.status_code == 201, f"create {kind} returns 201")
+    created = response.json()
+    read_back = client.get(f"/{kind}s/{created['id']}")
+    check(read_back.json() == created, f"GET /{kind}s/{created['id']} reads back the same {kind}")
+    return created
+
+
+def verify_crud(client: httpx.Client, data_dir: Path, args: argparse.Namespace) -> None:
+    goal = _create(client, "goal", {"title": "Pass CIS course"})
+    project = _create(client, "project", {"title": "CIS lab 3", "goal_id": goal["id"]})
+    task = _create(
+        client,
+        "task",
+        {
+            "title": "Read lab 3 handout",
+            "project_id": project["id"],
+            "tags": ["course:CIS"],
+            "notes": "portal login token=abc123 (should be redacted in audit)",
+        },
+    )
+    check(task["execution_mode"] == "human_led", "course:CIS task defaults to human_led")
+    workspace = _create(
+        client,
+        "workspace",
+        {"title": "Lab 3 desk", "task_id": task["id"], "urls": ["https://example.com/lab3"]},
+    )
+
+    replay = client.post(
+        "/goals", json={"title": "Pass CIS course"}, headers={"Idempotency-Key": "verify-goal"}
+    )
+    check(replay.json()["id"] == goal["id"], "repeated POST with same Idempotency-Key replays")
+    check(len(client.get("/goals").json()) == 1, "no duplicate goal created")
+
+    patched = client.patch(f"/tasks/{task['id']}", json={"version": 1, "status": "in_progress"})
+    check(patched.status_code == 200 and patched.json()["version"] == 2, "PATCH bumps version")
+    stale = client.patch(f"/tasks/{task['id']}", json={"version": 1, "title": "stale"})
+    check(stale.status_code == 409, "stale version PATCH returns 409")
+    check(client.delete(f"/workspaces/{workspace['id']}").status_code == 204, "DELETE workspace")
+
+    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT created_at, actor, action, entity_type, entity_id, result, detail"
+                " FROM audit_event ORDER BY created_at, id"
+            )
+        ]
+    for row in rows:
+        row["detail"] = json.loads(row["detail"])
+    sample = json.dumps(rows, indent=2, ensure_ascii=False)
+    results = [(r["action"], r["result"]) for r in rows]
+    check(
+        results.count(("goal.create", "replayed")) == 1 and len(rows) == 8,
+        f"7 writes + 1 replay produced 8 audit events (got {results})",
+    )
+    check("abc123" not in sample and "token=[REDACTED]" in sample, "audit detail is redacted")
+    if args.audit_out:
+        Path(args.audit_out).write_text(sample + "\n", encoding="utf-8")
+        print(f"wrote {args.audit_out}", flush=True)
+
+
+COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
+    "health": verify_health,
+    "crud": verify_crud,
+}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(COMMANDS))
+    parser.add_argument("--audit-out", help="crud: write the audit rows as JSON here")
     args = parser.parse_args()
 
     scratch_root = ROOT / "data" / "verify"
@@ -120,7 +192,7 @@ def main() -> int:
         data_dir = Path(tmp) / "data"
         try:
             with running_hub(data_dir) as client:
-                COMMANDS[args.command](client, data_dir)
+                COMMANDS[args.command](client, data_dir, args)
         except CheckFailed as exc:
             print(f"\nRESULT: FAIL ({exc})")
             return 1
