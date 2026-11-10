@@ -3,13 +3,16 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from alembic.autogenerate import compare_metadata
+from alembic.runtime.migration import MigrationContext
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from apps.hub.core.base import Entity
+import apps.hub.migrations.all_models  # noqa: F401
+from apps.hub.core.base import Base, Entity
 from apps.hub.core.db import DB_FILENAME, head_revision, make_engine
 from apps.hub.core.settings import Settings
 from apps.hub.main import create_app
@@ -52,6 +55,15 @@ def test_failed_migration_leaves_no_partial_schema(tmp_path: Path) -> None:
         raise RuntimeError("migration step failed")
     assert "half_built" not in inspect(engine).get_table_names()
     engine.dispose()
+
+
+def test_migrations_match_the_models(client: TestClient) -> None:
+    engine = client.app.state.engine  # type: ignore[attr-defined]
+    with engine.connect() as conn:
+        diff = compare_metadata(
+            MigrationContext.configure(conn, opts={"compare_type": True}), Base.metadata
+        )
+    assert diff == [], "run autogenerate: models and migrations differ"
 
 
 class _TestBase(DeclarativeBase):

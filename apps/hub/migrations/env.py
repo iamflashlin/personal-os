@@ -1,5 +1,6 @@
 from alembic import context
 
+import apps.hub.migrations.all_models  # noqa: F401
 from apps.hub.core.base import Base
 
 connection = context.config.attributes["connection"]
