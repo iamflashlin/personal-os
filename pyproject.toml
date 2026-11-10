@@ -3,10 +3,19 @@ name = "personal-os"
 version = "0.0.0"
 description = "Personal AI operating and execution system"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.162.4",
+    "pydantic-settings>=2.16.2",
+    "python-ulid>=4.1.0",
+    "sqlalchemy>=2.1.8",
+    "uvicorn>=0.54.0",
+]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
+    "import-linter>=2.16",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
@@ -32,6 +41,27 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.importlinter]
+root_packages = ["apps.hub"]
+
+# Every Hub subpackage except `core` and `migrations` is a module and must be listed
+# in both contracts (tests/hub/test_module_boundaries.py enforces this).
+[[tool.importlinter.contracts]]
+name = "hub layering: entry points > modules > core"
+type = "layers"
+layers = [
+    "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
+    "apps.hub.system",
+    "apps.hub.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "hub modules import each other only via service"
+type = "independence"
+modules = ["apps.hub.system"]
+ignore_imports = ["apps.hub.** -> apps.hub.*.service"]
+unmatched_ignore_imports_alerting = "none"
 
 [tool.pyright]
 include = ["tools", "scripts", "tests", "apps", "packages"]
