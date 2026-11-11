@@ -10,10 +10,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.orm import Session
 
 from apps.hub.audit import service as audit
+from apps.hub.core.base import UTCDateTime
 from apps.hub.core.domain import Actor, Conflict, Invalid, NotFound
 from apps.hub.memory.models import MemoryRow
 from packages.contracts.memory import (
@@ -28,7 +29,6 @@ from packages.contracts.memory import (
 
 ENTITY = "memory"
 FTS_MIN_TERM = 3
-_SQLITE_DATETIME = "%Y-%m-%d %H:%M:%S.%f"  # how SQLAlchemy stores DateTime in SQLite
 
 
 def _read(row: MemoryRow) -> Memory:
@@ -80,14 +80,6 @@ def get(session: Session, actor: Actor, memory_id: str) -> Memory:
     return _read(_get_row(session, actor, memory_id))
 
 
-def _not_expired_clause() -> str:
-    return "(m.expires_at IS NULL OR m.expires_at > :now)"
-
-
-def _now_param() -> str:
-    return datetime.now(UTC).replace(tzinfo=None).strftime(_SQLITE_DATETIME)
-
-
 def list_all(session: Session, actor: Actor, include_expired: bool = False) -> list[Memory]:
     query = select(MemoryRow).where(MemoryRow.owner_id == actor.owner_id)
     if not include_expired:
@@ -120,7 +112,9 @@ def update(session: Session, actor: Actor, memory_id: str, patch: MemoryUpdate) 
         try:
             merged = MemoryCreate.model_validate({**current, **changes}).model_dump()
         except ValidationError as exc:
-            raise Invalid(str(exc)) from exc
+            # Messages only: the rejected input could be a sensitive body.
+            reasons = "; ".join(e["msg"] for e in exc.errors(include_input=False))
+            raise Invalid(f"invalid change: {reasons}") from exc
         _check({"provenance": changes.get("provenance"), "expires_at": merged["expires_at"]})
         for name, value in merged.items():
             setattr(row, name, value)
@@ -178,12 +172,15 @@ def search(
     fts_terms = [t for t in terms if len(t) >= FTS_MIN_TERM]
     short_terms = [t for t in terms if len(t) < FTS_MIN_TERM]
 
-    params: dict[str, Any] = {"owner": actor.owner_id, "limit": limit, "now": _now_param()}
+    params: dict[str, Any] = {"owner": actor.owner_id, "limit": limit}
     where = ["m.owner_id = :owner"]
     if not include_expired:
-        where.append(_not_expired_clause())
+        # `now` is bound through UTCDateTime, so it is stored-format-compatible by design.
+        params["now"] = datetime.now(UTC)
+        where.append("(m.expires_at IS NULL OR m.expires_at > :now)")
     if not include_secret:
-        where.append("m.sensitivity != 'secret'")
+        params["secret"] = Sensitivity.secret.value
+        where.append("m.sensitivity != :secret")
     for i, term in enumerate(short_terms):
         params[f"like{i}"] = f"%{_like_escape(term)}%"
         where.append(f"m.body LIKE :like{i} ESCAPE '\\'")
@@ -191,18 +188,22 @@ def search(
     if fts_terms:
         params["match"] = " AND ".join('"' + t.replace('"', '""') + '"' for t in fts_terms)
         sql = (
-            "SELECT m.id, bm25(memory_fts) AS rank FROM memory_fts"
-            " JOIN memory m ON m.rowid = memory_fts.rowid"
+            "SELECT m.id, bm25(memory_fts) AS score FROM memory_fts"
+            " JOIN memory m ON m.id = memory_fts.memory_id"
             f" WHERE memory_fts MATCH :match AND {' AND '.join(where)}"
-            " ORDER BY rank, m.id LIMIT :limit"
+            " ORDER BY score, m.id LIMIT :limit"
         )
     else:
         sql = (
-            f"SELECT m.id, NULL AS rank FROM memory m WHERE {' AND '.join(where)}"
+            f"SELECT m.id, NULL AS score FROM memory m WHERE {' AND '.join(where)}"
             " ORDER BY m.updated_at DESC, m.id LIMIT :limit"
         )
-    hits = session.execute(text(sql), params).all()
-    return [
-        MemoryHit(memory=_read(session.get_one(MemoryRow, memory_id)), rank=rank)
-        for memory_id, rank in hits
-    ]
+    statement = text(sql)
+    if "now" in params:
+        statement = statement.bindparams(bindparam("now", type_=UTCDateTime()))
+    hits = session.execute(statement, params).all()
+    rows = {
+        r.id: r
+        for r in session.scalars(select(MemoryRow).where(MemoryRow.id.in_([h[0] for h in hits])))
+    }
+    return [MemoryHit(memory=_read(rows[memory_id]), rank=score) for memory_id, score in hits]

@@ -29,4 +29,5 @@ def call[T](fn: Callable[[], T]) -> T:
     try:
         return fn()
     except DomainError as exc:
-        raise HTTPException(status_code=_STATUS.get(type(exc), 400), detail=str(exc)) from exc
+        status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 500)
+        raise HTTPException(status_code=status, detail=str(exc)) from exc

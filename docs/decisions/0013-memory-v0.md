@@ -33,10 +33,23 @@ ubuntu-latest is covered by the same tests in CI.
    - Terms are split on whitespace and ANDed.
    - Each term is quoted as a phrase, so `OR`, `NOT`, `"` and `*` are treated as text.
    - LIKE wildcards are escaped.
-   - The FTS index uses external content: there is no second copy of the text.
-   - Three triggers (insert, delete, update of body) keep the index in the same
+   - The FTS index stores `memory_id` (unindexed) with a copy of the body, and is joined
+     on `memory.id`, never on rowid. An external-content index keyed by rowid was tried
+     first and rejected: VACUUM may renumber rowids of a table without an INTEGER PRIMARY
+     KEY, and an Alembic batch migration (`render_as_batch=True`) rebuilds a table by
+     copying it. A test moves every rowid and checks that search still works. The cost is
+     a second copy of each body in the same database file.
+   - Three triggers (insert, delete, update of id or body) keep the index in the same
      transaction as the change, so code cannot forget it.
-   - The substring scan is linear; that is fine at one person's scale. The tests and the
+   - The substring scan is linear, and so are the trigger deletes
+     (`DELETE FROM memory_fts WHERE memory_id = ...` on an unindexed column); both are fine
+     at one person's scale.
+   - **Any migration that rebuilds `memory` (Alembic batch mode) drops these triggers with
+     the old table.** It must recreate them and rebuild `memory_fts`.
+     `test_fts_triggers_exist_at_head` fails if they are missing at head.
+   - Migration 0004 was edited in place before merge (rowid → id keying). A data
+     directory migrated with the first draft of 0004 (only possible on the unmerged branch,
+     e.g. `data/verify/*`) must be recreated. The tests and the
      verify script prove that 2-character Chinese words such as `学习` and `英语` are
      found.
 3. **Provenance is honest.**

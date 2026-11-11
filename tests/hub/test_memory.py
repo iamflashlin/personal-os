@@ -1,4 +1,6 @@
 # ruff: noqa: RUF001  (Chinese test sentences use full-width punctuation on purpose)
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from apps.hub.audit import service as audit
 from apps.hub.backup.service import export_data, import_data
+from apps.hub.core.db import DB_FILENAME
 from apps.hub.core.settings import Settings
 from tests.hub.support import hub_client
 
@@ -201,3 +204,61 @@ def test_export_import_keeps_memories_searchable(
         assert search(again, "walks") == ["Likes long walks after dinner"]
         added = remember(again, "new memory after restore")
         assert search(again, "after restore") == [added["body"]]
+
+
+def test_search_does_not_depend_on_sqlite_rowids(client: TestClient, data_dir: Path) -> None:
+    """VACUUM may renumber rowids of a table without an INTEGER PRIMARY KEY, and an Alembic
+    batch migration rebuilds the table by copying it. Either moves every rowid."""
+    remember(client, "bravo note about lab")
+    remember(client, "charlie note about exams")
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
+        conn.execute("UPDATE memory SET rowid = rowid + 100")
+        conn.commit()
+    assert search(client, "lab") == ["bravo note about lab"]
+    assert search(client, "exams") == ["charlie note about exams"]
+
+
+def test_short_terms_escape_like_wildcards(client: TestClient) -> None:
+    remember(client, "progress is 100% today")
+    remember(client, "file_name_v2 saved")
+    assert search(client, "0%") == ["progress is 100% today"]
+    assert search(client, "x%") == []
+    assert search(client, "e_") == ["file_name_v2 saved"]
+    assert search(client, "%") == ["progress is 100% today"]
+
+
+def test_and_across_short_and_long_terms(client: TestClient) -> None:
+    remember(client, "我喜欢早上学习 C++，晚上复习英语")
+    remember(client, "Prefers dark mode")
+    assert search(client, "C++ 英语") == ["我喜欢早上学习 C++，晚上复习英语"]
+    assert search(client, "学习 英语") == ["我喜欢早上学习 C++，晚上复习英语"]
+    assert search(client, "学习 dark") == []
+
+
+def test_short_term_search_still_hides_expired_and_secret(client: TestClient) -> None:
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    remember(client, "考试 room B101", expires_at=past)
+    remember(client, "考试 password 2468", sensitivity="secret")
+    remember(client, "考试 week plan")
+    assert search(client, "考试") == ["考试 week plan"]
+
+
+def test_fts_triggers_exist_at_head(client: TestClient, data_dir: Path) -> None:
+    """A batch migration that rebuilds `memory` drops these; the index then goes stale."""
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
+        names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'memory'"
+            )
+        }
+    assert names == {"memory_fts_ai", "memory_fts_ad", "memory_fts_au"}
+
+
+def test_sqlite_build_supports_fts5_trigram() -> None:
+    """One clear failure if a platform's SQLite lacks what migration 0004 needs."""
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute("CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')")
+        conn.execute("INSERT INTO t(x) VALUES ('我喜欢早上学习')")
+        hits = conn.execute("SELECT x FROM t WHERE t MATCH '\"早上学\"'").fetchall()
+    assert hits == [("我喜欢早上学习",)], f"SQLite {sqlite3.sqlite_version}"

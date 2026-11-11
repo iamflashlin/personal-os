@@ -38,25 +38,25 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f("ix_memory_owner_id"), ["owner_id"], unique=False)
 
     # Full-text index on memory.body. `trigram` matches substrings in any language, which
-    # `unicode61` cannot do for Chinese (ADR 0013). External content: the index stores no
-    # copy of the text; the triggers keep it in step with every insert, update and delete.
+    # `unicode61` cannot do for Chinese (ADR 0013). The index keys rows by memory.id, not
+    # by rowid: VACUUM may renumber rowids of a table without an INTEGER PRIMARY KEY, and
+    # an Alembic batch migration rebuilds the table by copying it. Triggers keep the index
+    # in the same transaction as every insert, update and delete.
     op.execute(
-        "CREATE VIRTUAL TABLE memory_fts USING fts5("
-        "body, content='memory', content_rowid='rowid', tokenize='trigram')"
+        "CREATE VIRTUAL TABLE memory_fts USING fts5(memory_id UNINDEXED, body, tokenize='trigram')"
     )
     op.execute(
         "CREATE TRIGGER memory_fts_ai AFTER INSERT ON memory BEGIN "
-        "INSERT INTO memory_fts(rowid, body) VALUES (new.rowid, new.body); END"
+        "INSERT INTO memory_fts(memory_id, body) VALUES (new.id, new.body); END"
     )
     op.execute(
         "CREATE TRIGGER memory_fts_ad AFTER DELETE ON memory BEGIN "
-        "INSERT INTO memory_fts(memory_fts, rowid, body) VALUES ('delete', old.rowid, old.body);"
-        " END"
+        "DELETE FROM memory_fts WHERE memory_id = old.id; END"
     )
     op.execute(
-        "CREATE TRIGGER memory_fts_au AFTER UPDATE OF body ON memory BEGIN "
-        "INSERT INTO memory_fts(memory_fts, rowid, body) VALUES ('delete', old.rowid, old.body);"
-        " INSERT INTO memory_fts(rowid, body) VALUES (new.rowid, new.body); END"
+        "CREATE TRIGGER memory_fts_au AFTER UPDATE OF id, body ON memory BEGIN "
+        "DELETE FROM memory_fts WHERE memory_id = old.id; "
+        "INSERT INTO memory_fts(memory_id, body) VALUES (new.id, new.body); END"
     )
 
 

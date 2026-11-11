@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from apps.hub.audit import service as audit
-from apps.hub.core.domain import Actor, Conflict, DomainError, Invalid, NotFound
+from apps.hub.core.domain import Actor, Conflict, Invalid, NotFound
 from apps.hub.evidence import service as evidence
 from apps.hub.tasks.models import GoalRow, IdempotencyKeyRow, ProjectRow, TaskRow, WorkspaceRow
 from packages.contracts.evidence import Evidence, TaskCompletion
@@ -38,9 +38,6 @@ from packages.contracts.tasks import (
     WorkspaceCreate,
     WorkspaceUpdate,
 )
-
-TaskError = DomainError  # kept for callers that predate apps.hub.core.domain
-
 
 Rules = Callable[[dict[str, Any], Any], None]
 

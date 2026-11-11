@@ -30,3 +30,13 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
 - 2026-11-10 — Chromium requested `/favicon.ico` and logged a 404 that unit tests never
   see (T-0004) — browsers fetch resources the page does not ask for —
   `scripts/verify/web.py` fails on any console error; the page declares an inline icon.
+- 2026-11-10 — The first memory search index was keyed by SQLite rowid on a table whose
+  primary key is a string, so VACUUM or a table rebuild could silently point search at the
+  wrong rows (T-0005) — rowids of such tables are not stable — key derived tables by the
+  real primary key; `test_search_does_not_depend_on_sqlite_rowids` moves every rowid, and
+  `test_fts_triggers_exist_at_head` catches a rebuild that dropped the index triggers.
+- 2026-11-10 — A LIKE `ESCAPE '\'` clause lost its backslash when edited through a shell
+  heredoc, and no test covered the short-term search path (T-0005) — shell quoting
+  rewrote the source, and tests only used wildcards in terms long enough for the FTS path —
+  `test_short_terms_escape_like_wildcards`; edit backslash-heavy code with the editor,
+  not with shell heredocs.
