@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import {
   type Api,
   ApiError,
+  type EmailSummary,
   type Integration,
   type IntegrationStatus,
   type NewCanvas,
@@ -9,6 +10,7 @@ import {
   type NewFeed,
   type SyncedItem,
 } from "./api";
+import { AiCard, SummaryLine } from "./Summary";
 
 const STATUS: Record<IntegrationStatus, string> = {
   never_synced: "还没同步过",
@@ -128,6 +130,7 @@ export function ConnectionsView({ api }: { api: Api }) {
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [news, setNews] = useState<Upcoming[]>([]);
   const [mail, setMail] = useState<Upcoming[]>([]);
+  const [summaries, setSummaries] = useState<Map<string, EmailSummary>>(new Map());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
@@ -175,12 +178,18 @@ export function ConnectionsView({ api }: { api: Api }) {
       const isMail = (u: Upcoming) => u.item.item_type === "email_message";
       // Canvas marks work "missing" only after it was due: show last week's missing work too.
       const overdue = past.filter((u) => submissionBadge(u.item) === "缺交");
+      const shownMail = recent.sort(byTime).reverse().slice(0, MAIL_LIMIT);
+      // Summaries are optional: if the call fails the mail is still shown.
+      const mailSummaries = await api
+        .emailSummaries(shownMail.map((u) => u.item.id))
+        .catch(() => null); // keep the previous summaries rather than flicker
       if (mounted.current && ticket === latest.current) {
         setIntegrations(found);
         setUpcoming(
           [...overdue, ...coming.filter((u) => !isNews(u) && !isMail(u))].sort(byTime),
         );
-        setMail(recent.sort(byTime).reverse().slice(0, MAIL_LIMIT));
+        setMail(shownMail);
+        if (mailSummaries) setSummaries(new Map(mailSummaries.map((x) => [x.item_id, x])));
         setNews([...past, ...coming].filter(isNews).sort(byTime).reverse());
         setLoadError(null);
       }
@@ -270,6 +279,7 @@ export function ConnectionsView({ api }: { api: Api }) {
       <NewCanvasForm
         onConnect={(canvas) => run(() => api.connectCanvas(canvas, newCredentialName("canvas")))}
       />
+      <AiCard api={api} onChanged={() => void reload()} />
       <section data-testid="integrations">
         <h2>已连接</h2>
         {integrations === null && !loadError && <p>加载中…</p>}
@@ -300,7 +310,7 @@ export function ConnectionsView({ api }: { api: Api }) {
           <h2>最近邮件（最新 {MAIL_LIMIT} 封）</h2>
           <ul className="memories">
             {mail.map((u) => (
-              <MailRow key={u.item.id} entry={u} />
+              <MailRow key={u.item.id} entry={u} summary={summaries.get(u.item.id)} />
             ))}
           </ul>
         </section>
@@ -348,7 +358,7 @@ function ItemRow({ entry, testId }: { entry: Upcoming; testId: string }) {
   );
 }
 
-function MailRow({ entry }: { entry: Upcoming }) {
+function MailRow({ entry, summary }: { entry: Upcoming; summary?: EmailSummary }) {
   const { item } = entry;
   const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
   const from = data.from_name || data.from_address || "";
@@ -360,7 +370,11 @@ function MailRow({ entry }: { entry: Upcoming }) {
         {!data.seen && <span className="badge unread">未读</span>}
         <span className="muted">{from}</span>
       </div>
-      {item.body && <p className="muted">{item.body.slice(0, 160)}</p>}
+      {summary && summary.status !== "pending" ? (
+        <SummaryLine summary={summary} />
+      ) : (
+        item.body && <p className="muted">{item.body.slice(0, 160)}</p>
+      )}
     </li>
   );
 }

@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001  (Chinese test text uses full-width punctuation)
 """The 今日 view, computed from synced items and tasks (ADR 0023)."""
 
 from collections.abc import Iterator
@@ -253,3 +254,154 @@ def test_the_api_takes_the_browsers_time_zone(client: TestClient) -> None:
         status = client.get("/today", params={"tz": bad}).status_code
         assert status == (200 if bad == "" else 422), bad
     assert client.get("/today").status_code == 200  # falls back to this PC's zone
+
+
+# --- AI summaries on 今日 (T-0023, ADR 0027) ---------------------------------------------
+
+
+def summarise(
+    session: Session,
+    title: str,
+    status: str = "ok",
+    *,
+    action: str = "",
+    deadline: date | None = None,
+    owner: str = "local",
+) -> None:
+    from sqlalchemy import select
+
+    from apps.hub.summaries.models import EmailSummaryRow
+
+    item_id = session.scalars(select(SyncedItemRow.id).where(SyncedItemRow.title == title)).one()
+    session.add(
+        EmailSummaryRow(
+            owner_id=owner,
+            source="test",
+            version=1,
+            item_id=item_id,
+            item_hash="h",
+            status=status,
+            gist=f"摘要：{title}",
+            action_needed=bool(action),
+            action=action,
+            deadline_text=str(deadline or ""),
+            deadline_date=deadline,
+            importance="normal",
+            attempts=0,
+            error="",
+            model="fake",
+            prompt_version=1,
+        )
+    )
+    session.flush()
+
+
+def test_mail_entries_carry_their_summary(session: Session) -> None:
+    box = source(session, "email", "163")
+    item(session, box, "email_message", "Lab 5", NOW - timedelta(hours=2), from_name="T")
+    item(session, box, "email_message", "验证码", NOW - timedelta(hours=1))
+    item(session, box, "email_message", "Waiting", NOW - timedelta(hours=3))
+    summarise(session, "Lab 5", action="周五前提交")
+    summarise(session, "验证码", "skipped_sensitive")
+    summarise(session, "Waiting", "pending")
+    by_title = {e.title: e.summary for e in view(session).mail}
+    lab = by_title["Lab 5"]
+    assert lab is not None and lab.gist == "摘要：Lab 5" and lab.action == "周五前提交"
+    otp = by_title["验证码"]
+    assert otp is not None and otp.status == "skipped_sensitive"
+    assert by_title["Waiting"] is None  # pending shows nothing yet
+
+
+def test_mail_actions_list_a_weeks_actionable_mail_deadline_first(session: Session) -> None:
+    box = source(session, "email", "163")
+    for n, (title, days, deadline) in enumerate(
+        [
+            ("Read and due soon", 5, date(2026, 11, 12)),
+            ("Due later", 1, date(2026, 11, 20)),
+            ("No deadline", 2, None),
+            ("Too old", 8, date(2026, 11, 11)),
+        ]
+    ):
+        item(session, box, "email_message", title, NOW - timedelta(days=days, minutes=n), seen=True)
+        summarise(session, title, action="处理", deadline=deadline)
+    item(session, box, "email_message", "Just news", NOW - timedelta(hours=1))
+    summarise(session, "Just news")
+    for n in range(12):
+        item(session, box, "email_message", f"Extra {n}", NOW - timedelta(hours=5, minutes=n))
+        summarise(session, f"Extra {n}", action="回复")
+    actions = view(session).mail_actions
+    assert titles(actions)[:2] == ["Read and due soon", "Due later"]
+    assert "Too old" not in titles(actions) and "Just news" not in titles(actions)
+    assert len(actions) == 10
+    assert all(a.summary is not None and a.summary.action_needed for a in actions)
+
+
+def test_other_owners_summaries_never_appear(session: Session) -> None:
+    mine = source(session, "email", "163")
+    item(session, mine, "email_message", "Mine", NOW - timedelta(hours=1))
+    summarise(session, "Mine", action="做", owner="other")  # a row that is not ours
+    today = view(session)
+    assert today.mail[0].summary is None
+    assert today.mail_actions == []
+
+
+def test_an_old_client_still_validates_the_view(session: Session) -> None:
+    data = view(session).model_dump(mode="json")
+    for new in ("mail_actions", "ai_notice"):
+        data.pop(new)
+    for entry in data["mail"]:
+        entry.pop("summary", None)
+    assert TodayView.model_validate(data).ai_notice == ""
+
+
+def test_ai_notice_follows_the_summary_state(data_dir: Path) -> None:
+    from apps.hub.credentials.service import MemorySecretStore
+
+    store = MemorySecretStore()
+    settings = Settings(
+        data_dir=data_dir,
+        jobs_enabled=False,
+        model_provider="fake",
+        ai_budget_usd=0.000001,  # pyright: ignore[reportArgumentType]
+    )
+    with hub_client(settings, secret_store=store) as c:
+        assert c.get("/today").json()["ai_notice"] == ""  # no mail waiting: no banner
+        with Session(c.app.state.engine) as s:  # type: ignore[attr-defined]
+            box = source(s, "email", "163")
+            item(s, box, "email_message", "Lab 6", datetime.now(UTC) - timedelta(hours=1))
+            summarise(s, "Lab 6", "pending")
+            s.commit()
+        assert c.get("/today").json()["ai_notice"] == "还没有设置 DeepSeek key"
+        c.put("/credentials/deepseek", json={"secret": "sk-test-today-0123456789"})
+        assert c.get("/today").json()["ai_notice"] == "本月 AI 预算已用完"
+        from apps.hub.models.models import ModelCallRow
+
+        with Session(c.app.state.engine) as s:  # type: ignore[attr-defined]
+            at = datetime.now(UTC)
+            s.add(  # the newest call was refused: the key is wrong
+                ModelCallRow(
+                    owner_id="local",
+                    source="test",
+                    version=1,
+                    created_at=at,
+                    updated_at=at,
+                    vendor="fake",
+                    model="fake",
+                    purpose="t",
+                    prompt_name="p",
+                    prompt_version=1,
+                    prompt_sha="x",
+                    status="error",
+                    error_kind="auth",
+                )
+            )
+            s.commit()
+        assert c.get("/today").json()["ai_notice"] == "DeepSeek key 无效，请重新输入"
+
+
+def test_mail_actions_without_a_deadline_are_newest_first(session: Session) -> None:
+    box = source(session, "email", "163")
+    for title, hours in [("Older", 30), ("Newest", 1), ("Middle", 10)]:
+        item(session, box, "email_message", title, NOW - timedelta(hours=hours))
+        summarise(session, title, action="回复")
+    assert titles(view(session).mail_actions) == ["Newest", "Middle", "Older"]

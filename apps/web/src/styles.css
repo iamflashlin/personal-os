@@ -311,3 +311,14 @@ input.masked {
 .today section {
   margin-bottom: 16px;
 }
+
+/* AI email summaries (T-0023) */
+.summary {
+  margin: 0.25rem 0 0;
+  flex-basis: 100%; /* its own line, also inside flex rows */
+  text-align: left;
+}
+
+.badge.ai {
+  color: var(--accent);
+}

@@ -454,6 +454,39 @@
         "title": "EntryKind",
         "type": "string"
       },
+      "EntrySummary": {
+        "description": "The AI summary of a mail entry (ADR 0027).",
+        "properties": {
+          "action": {
+            "default": "",
+            "title": "Action",
+            "type": "string"
+          },
+          "action_needed": {
+            "default": false,
+            "title": "Action Needed",
+            "type": "boolean"
+          },
+          "deadline_text": {
+            "default": "",
+            "title": "Deadline Text",
+            "type": "string"
+          },
+          "gist": {
+            "default": "",
+            "title": "Gist",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SummaryStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "EntrySummary",
+        "type": "object"
+      },
       "Evidence": {
         "properties": {
           "created_at": {
@@ -2299,6 +2332,16 @@
             "title": "Source",
             "type": "string"
           },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntrySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -2320,6 +2363,11 @@
       },
       "TodayView": {
         "properties": {
+          "ai_notice": {
+            "default": "",
+            "title": "Ai Notice",
+            "type": "string"
+          },
           "announcements": {
             "items": {
               "$ref": "#/components/schemas/TodayEntry"
@@ -2374,6 +2422,14 @@
               "$ref": "#/components/schemas/TodayEntry"
             },
             "title": "Mail",
+            "type": "array"
+          },
+          "mail_actions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Mail Actions",
             "type": "array"
           },
           "missing": {

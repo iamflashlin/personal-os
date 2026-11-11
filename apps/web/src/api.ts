@@ -107,6 +107,49 @@ export interface TodayEntry {
   url: string;
   badge: string;
   ref: string;
+  summary?: EntrySummary | null;
+}
+
+export type SummaryStatus =
+  | "pending"
+  | "ok"
+  | "skipped_sensitive"
+  | "skipped_unreadable"
+  | "failed";
+
+/** The AI summary of a mail on 今日 (contracts/today.py). */
+export interface EntrySummary {
+  status: SummaryStatus;
+  gist: string;
+  action_needed: boolean;
+  action: string;
+  deadline_text: string;
+}
+
+export interface EmailSummary extends EntrySummary {
+  id: string;
+  item_id: string;
+  deadline_date: string | null;
+  importance: "high" | "normal" | "low";
+  error: string;
+}
+
+export interface ModelUsage {
+  vendor: string;
+  model: string;
+  key_set: boolean;
+  month: string;
+  spent_micro_usd: number;
+  budget_micro_usd: number;
+  calls: number;
+  last_error: string;
+}
+
+export interface SummariesStatus {
+  pending: number;
+  blocked: string;
+  notice: string;
+  usage: ModelUsage;
 }
 
 export interface TodayView {
@@ -124,6 +167,8 @@ export interface TodayView {
   in_progress: TodayEntry[];
   problems: { name: string; error: string }[];
   sources: number;
+  mail_actions?: TodayEntry[];
+  ai_notice?: string;
 }
 
 export interface Job {
@@ -158,6 +203,9 @@ export interface NewEmail {
   /** For 163 the client authorisation code (授权码); sent once to the credential store. */
   code: string;
 }
+
+/** The credential name the Hub's model layer reads (apps/hub/models/service.py). */
+export const MODEL_KEY = "deepseek";
 
 export class ApiError extends Error {
   constructor(
@@ -321,6 +369,22 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       ),
     today: (timeZone: string) =>
       call<TodayView>(timeZone ? `/today?${new URLSearchParams({ tz: timeZone })}` : "/today"),
+    summariesStatus: () => call<SummariesStatus>("/summaries/status"),
+    /** At most 200 ids per request (the Hub caps it). */
+    emailSummaries: (itemIds: string[]) =>
+      itemIds.length === 0
+        ? Promise.resolve([] as EmailSummary[])
+        : call<EmailSummary[]>(
+            `/summaries/email?${new URLSearchParams({ item_ids: itemIds.slice(0, 200).join(",") })}`,
+          ),
+    runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
+    /** Sent once to the credential store (ADR 0025); the Hub never returns it. */
+    setModelKey: (secret: string) =>
+      call<unknown>(`/credentials/${MODEL_KEY}`, {
+        method: "PUT",
+        body: JSON.stringify({ secret, note: "DeepSeek" }),
+      }),
+    deleteModelKey: () => call<null>(`/credentials/${MODEL_KEY}`, { method: "DELETE" }),
   };
 }
 
