@@ -113,6 +113,12 @@ def _when(
 
 
 def parse(text: str) -> list[Event]:
+    return parse_feed(text)[0]
+
+
+def parse_feed(text: str) -> tuple[list[Event], bool]:
+    """The events, and whether the file really ended (`END:VCALENDAR` outside any event).
+    A download cut short still yields the events before the cut, but is not complete."""
     lines = _unfold(text.lstrip("\ufeff"))
     if not lines or lines[0].strip().upper() != "BEGIN:VCALENDAR":
         raise NotACalendar("the feed is not an iCalendar file")
@@ -132,7 +138,8 @@ def parse(text: str) -> list[Event]:
             current = None
         elif current is not None and depth == 0 and name not in current:
             current[name] = (params, value)
-    return events
+    ended = current is None and lines[-1].strip().upper() == "END:VCALENDAR"
+    return events, ended
 
 
 def _event(props: dict[str, tuple[dict[str, str], str]]) -> list[Event]:

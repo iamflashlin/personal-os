@@ -166,19 +166,34 @@ def test_a_sync_adds_updates_and_never_duplicates(
     client: TestClient, feed: Feed, store: Any
 ) -> None:
     integration = connect(client, feed)
-    assert sync(client, store, integration["id"]) == {"added": 2, "updated": 0, "unchanged": 0}
+    assert sync(client, store, integration["id"]) == {
+        "added": 2,
+        "updated": 0,
+        "unchanged": 0,
+        "removed": 0,
+    }
     first = {i["external_id"]: i for i in items(client, integration["id"])}
     assert first["a"]["title"] == "Lab 3"
     assert first["b"]["starts_at"].startswith("2026-11-20T17:00:00")
 
-    assert sync(client, store, integration["id"]) == {"added": 0, "updated": 0, "unchanged": 2}
+    assert sync(client, store, integration["id"]) == {
+        "added": 0,
+        "updated": 0,
+        "unchanged": 2,
+        "removed": 0,
+    }
     again = {i["external_id"]: i for i in items(client, integration["id"])}
     assert again == first  # same versions, same timestamps: nothing was rewritten
 
     feed.body = calendar(
         event("a", "Lab 3 (moved)"), event("b", "Quiz 2", "20261120T170000Z"), event("c", "Final")
     )
-    assert sync(client, store, integration["id"]) == {"added": 1, "updated": 1, "unchanged": 1}
+    assert sync(client, store, integration["id"]) == {
+        "added": 1,
+        "updated": 1,
+        "unchanged": 1,
+        "removed": 0,
+    }
     final = {i["external_id"]: i for i in items(client, integration["id"])}
     assert final["a"]["title"] == "Lab 3 (moved)" and final["a"]["version"] == 2
     assert final["b"] == first["b"]
@@ -192,7 +207,12 @@ def test_an_unchanged_feed_answers_304_and_writes_nothing(
     integration = connect(client, feed)
     sync(client, store, integration["id"])
     before = items(client, integration["id"])
-    assert sync(client, store, integration["id"]) == {"added": 0, "updated": 0, "unchanged": 0}
+    assert sync(client, store, integration["id"]) == {
+        "added": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "removed": 0,
+    }
     assert feed.requests[-1].get("If-None-Match") == '"v1"'
     assert items(client, integration["id"]) == before
 

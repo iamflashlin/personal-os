@@ -714,6 +714,7 @@ class FakeCanvas:
 
         self.token = token
         self.title = "Lab 3 实验报告"
+        self.quiz_deleted = False  # the teacher deletes Quiz 5
         self.requests = 0
         fake = self
 
@@ -739,6 +740,8 @@ class FakeCanvas:
                     }
                 ]
             if route == "/api/v1/courses/2/assignments":
+                if fake.quiz_deleted:
+                    return 200, []
                 return 200, [
                     {
                         "id": 21,
@@ -840,6 +843,23 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
             check(
                 titles == ["Lab 3 实验报告 - 延期", "Midterm moved", "Quiz 5"],
                 "updated, no duplicate",
+            )
+
+            canvas.quiz_deleted = True
+            before = len(hub.get(items_url).json())
+            for attempt in ("first", "second"):  # removal needs two complete syncs in a row
+                job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+                wait(
+                    f"the {attempt} sync after the deletion finished",
+                    lambda job=job: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+                )
+                titles = sorted(i["title"] for i in hub.get(items_url).json())
+                if attempt == "first":
+                    check("Quiz 5" in titles, "missing once: kept for now")
+            check("Quiz 5" not in titles, "missing twice: the deleted quiz was removed here too")
+            check(
+                len(titles) == before - 1 and "Lab 3 实验报告 - 延期" in titles,
+                "everything else is still there",
             )
 
             canvas.token = "rotated"  # the stored token no longer works

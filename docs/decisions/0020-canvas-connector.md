@@ -57,12 +57,19 @@
    - Announcements from the last 7 days get their own 「最近公告」 section.
    - Canvas syncs hourly by default.
 
-## Known limitation
+## Deleted assignments (T-0017)
 
-An assignment deleted or unpublished in Canvas, or one from a dropped course, stays
-stored, because a sync only adds and updates (ADR 0019). The page shows missing work for
-7 days only, so a stale 缺交 fades from view. Pruning items that a complete sync no longer
-returns is a follow-up.
+An assignment deleted or unpublished in Canvas, or one from a dropped course, is removed
+after two complete syncs in a row miss it (ADR 0019 §2). If one course or the
+announcement list could not be read, nothing is removed that time, because that data is
+unknown, not gone.
+
+Removal by design:
+- Announcements older than the 30-day window are removed as they age out. The page shows
+  only 7 days of them.
+- When a term ends and Canvas concludes a course, the course stops being listed and its
+  assignments are removed too. The Hub keeps no grade history; keeping one would be a
+  separate card.
 
 ## 未验证 and the spike that settles it
 

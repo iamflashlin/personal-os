@@ -124,7 +124,11 @@ class _Client:
             if time.monotonic() > self.deadline:
                 raise SyncError(f"Canvas took longer than {DEADLINE_S} s")
             body, link = self._get(url)
-            yield from body if isinstance(body, list) else []
+            if not isinstance(body, list):
+                # An error envelope or a maintenance page; reading it as "nothing here"
+                # would let a complete sync delete everything in that list.
+                raise SyncError("Canvas answered with something other than a list")
+            yield from body
             url = _next_link(link, url)
         if url is not None:
             raise SyncError(f"Canvas returned more than {MAX_PAGES} pages for one list")
@@ -250,4 +254,7 @@ class CanvasConnector:
                         items.append(_announcement(course, n))
             except _Denied:
                 skipped += 1
-        return Batch(items=items, cursor={**cursor, "skipped_resources": skipped})
+        # A skipped course means its assignments are unknown, not deleted: no pruning then.
+        return Batch(
+            items=items, cursor={**cursor, "skipped_resources": skipped}, complete=skipped == 0
+        )

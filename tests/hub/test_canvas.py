@@ -74,6 +74,7 @@ class FakeCanvas:
         self.mode = "normal"  # or: redirect-away, next-away, relative-next, hidden-course
         self.elsewhere = elsewhere
         self.assignment_title = "Lab 3 实验报告"
+        self.reading_deleted = False  # the teacher deleted the "Reading" assignment
         self.server = Server(self.answer)
         self.base = self.server.base
 
@@ -82,6 +83,8 @@ class FakeCanvas:
             return 401, {}, {"errors": [{"message": "Invalid access token."}]}
         url = urlsplit(h.path)
         query = parse_qs(url.query)
+        if url.path == "/api/v1/courses/202/assignments" and self.mode == "object-page":
+            return 200, {}, {"status": "under maintenance"}
         if url.path == "/api/v1/courses":
             if self.mode == "redirect-away":
                 return 302, {"Location": f"{self.elsewhere}/api/v1/courses"}, None
@@ -110,7 +113,11 @@ class FakeCanvas:
                         "html_url": "https://school.instructure.com/courses/101/assignments/1",
                         "submission": {"workflow_state": "unsubmitted", "missing": True},
                     },
-                    {"id": 2, "name": "Reading", "due_at": None, "submission": {}},
+                    *(
+                        []
+                        if self.reading_deleted
+                        else [{"id": 2, "name": "Reading", "due_at": None, "submission": {}}]
+                    ),
                 ],
             )
         if url.path == "/api/v1/courses/303/assignments":
@@ -130,6 +137,8 @@ class FakeCanvas:
                     }
                 ],
             )
+        if url.path == "/api/v1/announcements" and self.mode == "denied-announcements":
+            return 403, {}, {"errors": [{"message": "user not authorized"}]}
         if url.path == "/api/v1/announcements":
             assert {"course_101", "course_202"} <= set(query["context_codes[]"])
             # Canvas ends the window 28 days after start_date unless end_date is given.
@@ -286,9 +295,19 @@ def test_through_the_hub_a_resync_updates_without_duplicates(
 ) -> None:
     integration = connect(client, canvas)
     assert integration["config"] == {"base_url": canvas.base}
-    assert sync(client, store, integration) == {"added": 5, "updated": 0, "unchanged": 0}
+    assert sync(client, store, integration) == {
+        "added": 5,
+        "updated": 0,
+        "unchanged": 0,
+        "removed": 0,
+    }
     canvas.assignment_title = "Lab 3 实验报告 - 延期"
-    assert sync(client, store, integration) == {"added": 0, "updated": 1, "unchanged": 4}
+    assert sync(client, store, integration) == {
+        "added": 0,
+        "updated": 1,
+        "unchanged": 4,
+        "removed": 0,
+    }
     titles = {i["title"] for i in client.get(f"/integrations/{integration['id']}/items").json()}
     assert "Lab 3 实验报告 - 延期" in titles and len(titles) == 5
 

@@ -39,6 +39,9 @@ class ItemIn:
 class Batch:
     items: list[ItemIn] | None  # None: the source reports nothing changed
     cursor: dict[str, Any]
+    # True only if `items` is everything the source has: then stored items that are not in
+    # it were deleted at the source and are removed here too (ADR 0019 §2).
+    complete: bool = False
 
 
 class Connector(Protocol):
@@ -109,7 +112,7 @@ class IcsConnector:
         except Exception as exc:  # e.g. http.client.InvalidURL, whose message holds the URL
             raise SyncError(f"the feed could not be fetched ({type(exc).__name__})") from None
         try:
-            events = ics.parse(b"".join(chunks).decode("utf-8-sig", errors="replace"))
+            events, ended = ics.parse_feed(b"".join(chunks).decode("utf-8-sig", errors="replace"))
         except ics.NotACalendar as exc:
             raise SyncError(str(exc)) from None
         items = [
@@ -128,4 +131,5 @@ class IcsConnector:
             for e in events
         ]
         new_cursor = {k: v for k, v in (("etag", etag), ("last_modified", modified)) if v}
-        return Batch(items=items, cursor=new_cursor)
+        # A feed cut off mid-download is used, but cannot say what was deleted.
+        return Batch(items=items, cursor=new_cursor, complete=ended)

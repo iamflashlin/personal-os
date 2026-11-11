@@ -184,10 +184,18 @@ def _hash(item: ItemIn) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _store(session: Session, actor: Actor, row: IntegrationRow, batch: Batch) -> dict[str, int]:
-    counts = {"added": 0, "updated": 0, "unchanged": 0}
+MISSING_KEY = "missing_once"  # cursor entry: items absent from the last complete sync
+MAX_MISSING = 2000
+MAX_LOGGED_REMOVALS = 50
+
+
+def _store(
+    session: Session, actor: Actor, row: IntegrationRow, batch: Batch
+) -> tuple[dict[str, int], dict[str, Any]]:
+    """Upsert the batch. Returns the counts and extra audit detail (which items went)."""
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "removed": 0}
     if batch.items is None:
-        return counts
+        return counts, {}
     existing = {
         (i.item_type, i.external_id): i
         for i in session.scalars(
@@ -226,7 +234,27 @@ def _store(session: Session, actor: Actor, row: IntegrationRow, batch: Batch) ->
         stored.ends_at = item.ends_at
         stored.all_day = item.all_day
         stored.data = item.data
-    return counts
+    # Only a complete answer can say something is gone, and only twice in a row: one odd
+    # answer (a course briefly missing from a list) must not delete anything. An empty
+    # answer is more likely a glitch than everything vanishing, so it never counts.
+    previous = set(row.cursor.get(MISSING_KEY, [])) if isinstance(row.cursor, dict) else set()
+    if not (batch.complete and seen):
+        return counts, {"pending_removal": len(previous)} if previous else {}
+    missing = {f"{k[0]}:{k[1]}" for k in existing if k not in seen}
+    removed: list[str] = []
+    for key, stale in existing.items():
+        label = f"{key[0]}:{key[1]}"
+        if label in missing and label in previous:
+            session.delete(stale)
+            removed.append(label)
+    counts["removed"] = len(removed)
+    pending = sorted(missing - set(removed))
+    batch.cursor[MISSING_KEY] = pending if len(pending) <= MAX_MISSING else []
+    detail: dict[str, Any] = {"pending_removal": len(pending)}
+    if removed:
+        detail["removed_items"] = sorted(removed)[:MAX_LOGGED_REMOVALS]
+        detail["removed_truncated"] = len(removed) > MAX_LOGGED_REMOVALS
+    return counts, detail
 
 
 def sync(
@@ -261,14 +289,19 @@ def sync(
 
         def op() -> audit.Outcome[dict[str, int]]:
             row = _get_row(session, actor, integration_id)
-            counts = _store(session, actor, row, batch)
+            counts, extra = _store(session, actor, row, batch)
+            if not (batch.complete and batch.items):
+                # Nothing was learnt about deletions: keep what was already pending.
+                pending = row.cursor.get(MISSING_KEY) if isinstance(row.cursor, dict) else None
+                if pending:
+                    batch.cursor[MISSING_KEY] = pending
             row.cursor = batch.cursor
             row.status = IntegrationStatus.ok
             row.last_sync_at = now
             row.last_success_at = now
             row.last_error = ""
             session.flush()
-            return audit.Outcome(row.id, counts, dict(counts))
+            return audit.Outcome(row.id, counts, {**counts, **extra})
 
         return audit.audited(session, actor, ENTITY, "sync", integration_id, {}, op)
 

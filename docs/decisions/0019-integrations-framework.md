@@ -19,8 +19,22 @@
      their version and timestamps, so "changed since" is meaningful.
    - Deleting an integration deletes its items through `ON DELETE CASCADE`. Its
      credential stays, because the user may reuse it.
-   - Items missing from a later fetch are kept. Whether to drop them is a per-source
-     question for the email and Canvas cards.
+   - Items missing from later fetches are removed (T-0017), but only when **two complete
+     fetches in a row** lack them, so one odd answer never deletes anything.
+     - A connector marks its batch complete only when it saw the whole source.
+     - A calendar download is complete only if it really ended (`END:VCALENDAR`); a 304
+       or a cut-off download is not.
+     - A Canvas sync is complete only if no course or announcement list was refused. A
+       page that is not a JSON list is an error, never "empty".
+     - An item missing once is listed under `missing_once` in the integration's cursor; if
+       it comes back, it leaves that list.
+     - A complete but empty answer removes nothing, because a glitch is more likely than
+       everything vanishing. So the last items of a feed that really empties stay until it
+       has items again or the integration is deleted.
+     - A failed sync removes nothing.
+     - The audit event reports `removed`, the removed items' ids (up to 50, plus a
+       truncation flag) and how many are pending removal. Ids, not titles, so no content is
+       copied into the audit log.
 3. **Sync is a job (at least once).**
    - Each integration gets its own schedule (`integrations.sync:<id>` at its interval),
      created with it and deleted with it. With no integrations nothing runs.
