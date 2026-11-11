@@ -1,7 +1,7 @@
 # 0016 — Windows adapter: finding, capturing and closing windows
 
 - Status: accepted (decided by Claude under ADR 0014, which the user accepted on
-  2026-11-10). Open item: VS Code is not installed on this PC (see below).
+  2026-11-10).
 - Date: 2026-11-10
 - Card: T-0008. ADR 0002 (touch only what we created), ADR 0014 D5 (screenshots of our own
   page only), ADR 0015 (agent core).
@@ -12,7 +12,7 @@
 |---|---|---|
 | R2 | Does `PrintWindow(PW_RENDERFULLCONTENT)` return real pixels of the browser page? | **Yes.** The crop to the page's UIA Document control was 100% our page's colour (`scripts/verify/spike_printwindow.py`, `open_url_page.png`). No tab strip, address bar or other tab titles are in the crop. **Covered too:** with our own topmost, never-activated window placed over the whole Edge window, the crop was still 100% our page. |
 | R3 | Default browser and title format; can our page close itself? | Edge (`MSEdgeHTM`). `os.startfile` opened a new tab in the user's existing window, and the window title became `<our title> 和另外 N 个页面 - 个人 - Microsoft Edge`, so a substring match on our unique title works. `window.close()` from the page closed that tab: the title disappeared within the wait. |
-| R4 | `code` on PATH, VS Code window titles | **VS Code is not installed** (no `code` on PATH or in the usual install folders). `open_folder_in_editor` answers `needs_user` and starts nothing, as designed. |
+| R4 | `code` on PATH, VS Code window titles | VS Code is installed at `D:\Apps\VSCode` (user setup), with `bin` on the user PATH. A first search missed it: the search looked only in the default install folders, and the shell running it had inherited a PATH from before the install. With VS Code not running, `code --new-window <folder>` opened one window titled `<folder name> - Visual Studio Code`. No previous windows were restored, and closing it left no VS Code window open. |
 | R5 | UIA from a worker thread | Window search uses `win32gui` and needs no COM. UIA is only used for the page capture, which runs in the verify script's main thread. COM in the agent's desktop thread is not needed yet. |
 | — | Foreground | Our code never focuses a window. Edge itself came to the front when the link opened (its own behaviour on a ShellExecute'd URL). HANDOFF §8.3's foreground risk therefore comes from the browser, not from the agent. |
 
@@ -46,9 +46,9 @@
    name. Matching the `- Visual Studio Code` title suffix as well would make it stricter;
    do it when VS Code can be verified on this PC.
 
-## Open: VS Code
+## VS Code
 
-T-0008's acceptance needs `open_folder_in_editor` to open a real VS Code window. Until you
-install VS Code and its `code` command, `scripts/verify/desktop_agent.py` exits 4
-(`needs_user`) and the card stays blocked. Everything else passed on this PC.
-Installing software is your decision (CLAUDE.md).
+The user pointed out that VS Code was installed (2026-11-10). With its `bin` folder on
+PATH, `scripts/verify/desktop_agent.py` passed in full, including `open_folder_in_editor`.
+A process started from an older environment still lacks that PATH entry; the agent then
+answers `needs_user`, which is the designed behaviour, not a failure.

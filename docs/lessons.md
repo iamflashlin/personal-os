@@ -46,3 +46,9 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   from "tool crashed" — `tests/test_import_boundaries.py` asserts the report says
   `Contracts:` and names the BROKEN contract; check negative tests fail for the
   stated reason.
+- 2026-11-10 — Claude reported VS Code as not installed and blocked T-0008 on it; the
+  user had it at D:\Apps\VSCode (T-0008) — the search covered only default install
+  folders and a shell whose PATH predated the install — before calling a tool missing,
+  check the registry's Uninstall keys and the user PATH
+  (`[Environment]::GetEnvironmentVariable("Path","User")`), not only `where`/`which`.
+
