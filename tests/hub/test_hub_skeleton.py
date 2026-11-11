@@ -12,10 +12,10 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.orm.exc import StaleDataError
 
-import apps.hub.migrations.all_models  # noqa: F401
 from apps.hub.core.base import Base, Entity
 from apps.hub.core.db import DB_FILENAME, head_revision, make_engine
 from apps.hub.core.settings import Settings
+from apps.hub.migrations.all_models import include_object
 from tests.hub.support import hub_client
 
 
@@ -62,7 +62,10 @@ def test_migrations_match_the_models(client: TestClient) -> None:
     engine = client.app.state.engine  # type: ignore[attr-defined]
     with engine.connect() as conn:
         diff = compare_metadata(
-            MigrationContext.configure(conn, opts={"compare_type": True}), Base.metadata
+            MigrationContext.configure(
+                conn, opts={"compare_type": True, "include_object": include_object}
+            ),
+            Base.metadata,
         )
     assert diff == [], "run autogenerate: models and migrations differ"
 

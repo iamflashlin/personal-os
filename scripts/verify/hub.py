@@ -1,8 +1,10 @@
+# ruff: noqa: RUF001  (Chinese sample memories use full-width punctuation on purpose)
 """Real-behaviour checks against a running Hub process.
 
     uv run python scripts/verify/hub.py health
     uv run python scripts/verify/hub.py crud [--audit-out audit-sample.json]
     uv run python scripts/verify/hub.py roundtrip [--manifest-out manifest-sample.json]
+    uv run python scripts/verify/hub.py memory
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -23,6 +25,7 @@ import time
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -252,10 +255,81 @@ def verify_roundtrip(client: httpx.Client, data_dir: Path, args: argparse.Namesp
     )
 
 
+def _remember(client: httpx.Client, body: str, **fields: Any) -> dict[str, Any]:
+    response = client.post("/memories", json={"kind": "fact", "body": body, **fields})
+    check(response.status_code == 201, f"remember {body!r}")
+    return response.json()
+
+
+def _found(client: httpx.Client, q: str, **params: Any) -> list[str]:
+    response = client.get("/memories/search", params={"q": q, **params})
+    print(
+        f"search {q!r} -> {response.status_code} {[h['memory']['body'] for h in response.json()]}"
+    )
+    return [h["memory"]["body"] for h in response.json()]
+
+
+def verify_memory(client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    study = _remember(client, "我喜欢早上学习 C++，晚上复习英语", kind="preference")
+    _remember(client, "CIS lab 3 is due on Friday")
+    guess = _remember(client, "Prefers dark mode", provenance="ai_inferred", confidence=0.4)
+    private = _remember(client, "银行卡后四位 4821", sensitivity="private")
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    _remember(client, "old exam room B101", expires_at=past)
+
+    check(_found(client, "早上学习") == [study["body"]], "3+ character Chinese term via FTS5")
+    check(_found(client, "英语") == [study["body"]], "2-character Chinese term via substring")
+    check(_found(client, "lab Friday") == ["CIS lab 3 is due on Friday"], "English, two terms")
+    check(_found(client, "exam") == [], "expired memory hidden from search")
+
+    fixed = client.patch(
+        f"/memories/{study['id']}", json={"version": 1, "body": "我喜欢晚上学习 C++"}
+    )
+    check(fixed.status_code == 200, "correct a memory")
+    check(_found(client, "早上学习") == [], "search forgets the old wording")
+    check(_found(client, "晚上学习") == ["我喜欢晚上学习 C++"], "search finds the correction")
+
+    confirmed = client.post(f"/memories/{guess['id']}/confirm", json={"version": 1})
+    check(
+        confirmed.json()["provenance"] == "user_confirmed" and confirmed.json()["confidence"] == 1,
+        "confirm turns an AI guess into user_confirmed",
+    )
+    verified = client.post(
+        "/memories", json={"kind": "fact", "body": "x", "provenance": "verified"}
+    )
+    check(verified.status_code == 422, "provenance 'verified' cannot be set through the API")
+
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
+        details = [
+            r[0]
+            for r in conn.execute(
+                "SELECT detail FROM audit_event WHERE entity_id = ?", (private["id"],)
+            )
+        ]
+    check(
+        bool(details) and all("4821" not in d for d in details),
+        "private body never in the audit log",
+    )
+
+    package = data_dir.parent / "memory-export.zip"
+    check(
+        _pos("export", "--data-dir", str(data_dir), "--out", str(package)).returncode == 0, "export"
+    )
+    restored = data_dir.parent / "memory-restored"
+    check(
+        _pos("import", "--in", str(package), "--data-dir", str(restored)).returncode == 0, "import"
+    )
+    with running_hub(restored) as second:
+        check(
+            _found(second, "晚上学习") == ["我喜欢晚上学习 C++"], "restored Hub searches memories"
+        )
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
     "roundtrip": verify_roundtrip,
+    "memory": verify_memory,
 }
 
 

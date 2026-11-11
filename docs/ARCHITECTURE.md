@@ -13,8 +13,8 @@ Phone or PC browser: PWA apps/web (planned)
      v                                            |
 +------------------- Hub: apps/hub, one FastAPI process -------------------+
 | entry    __main__ (uvicorn) -> main.create_app()                [built]  |
-| modules  system, tasks, audit                                   [built]  |
-|          sessions, memory, planner, runs, jobs, permissions,             |
+| modules  system, tasks, audit, evidence, backup, memory         [built]  |
+|          sessions, planner, runs, jobs, permissions,                     |
 |          devices, notify, backup, models                       [planned] |
 | core     settings, db engine + PRAGMAs, Entity mixin, UTC type  [built]  |
 | state    POS_DATA_DIR/hub.sqlite (WAL) + file dir: the only state owner  |
@@ -41,11 +41,12 @@ the Hub never reads `.env` (ADR 0008).
 | `idempotency_key` table (moves to a shared module when a second module needs it) | `apps/hub/tasks` | built |
 | `audit_event` table and the redaction function | `apps/hub/audit` | built |
 | `evidence` table (kind `user_confirmation` only) | `apps/hub/evidence` | built (T-0004) |
+| `memory` table and its `memory_fts` trigram index | `apps/hub/memory` | built (T-0005) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
 | Data dir `POS_DATA_DIR` (default `<repo>/data`); holds only the SQLite files so far | Hub process | built |
-| Session, Memory, Run/Step, Job, Device, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
+| Session, Run/Step, Job, Device, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
 | Nothing durable | desktop agent, PWA | planned |
 
 `core` and `migrations` are infrastructure, not modules. Every other subpackage of
@@ -114,7 +115,7 @@ Nothing in this section is built. The types will live in `packages/contracts`.
   heartbeat, "PC offline" shown in the PWA (ADR 0007).
 - `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
   web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
-- Hub modules: sessions, memory (FTS5 search, ADR 0006), planner, runs, jobs (SQLite
+- Hub modules: sessions, planner, runs, jobs (SQLite
   queue, incl. commands queued while the agent is offline), permissions, devices (pairing token), notify (ntfy), backup (`pos export` /
   `pos import`), models (`ModelProvider`, `FakeProvider`, ModelCall cost rows).
 - More Evidence kinds and grants on who may complete a task (S6, S8).
