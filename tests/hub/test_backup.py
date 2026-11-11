@@ -33,7 +33,7 @@ COLLECTIONS = ("goals", "projects", "tasks", "workspaces")
 
 
 def dump(data_dir: Path) -> dict[str, list[dict[str, Any]]]:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         tables = [
             r[0]
             for r in conn.execute(
@@ -41,7 +41,6 @@ def dump(data_dir: Path) -> dict[str, list[dict[str, Any]]]:
             )
         ]
         result = {t: table_rows(conn, t) for t in sorted(tables)}
-    conn.close()
     return result
 
 
@@ -240,9 +239,8 @@ def test_older_schema_package_is_migrated_to_head(
     target = tmp_path / "restored"
     assert pos(["import", "--in", str(SCHEMA_0001_PACKAGE), "--data-dir", str(target)]) == 0
     assert f"schema 0001 -> {head_revision()} (migrated)" in capsys.readouterr().out
-    with sqlite3.connect(target / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(target / DB_FILENAME)) as conn:
         (version,) = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-    conn.close()
     assert version == head_revision()
 
     with hub_client(Settings(data_dir=target)) as client:

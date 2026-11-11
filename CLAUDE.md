@@ -4,6 +4,8 @@ Personal AI execution system: the user states an intent, the system recalls pers
 memory, prepares/does the work on the PC within granted permissions, and proves the
 result with evidence. Full background: `docs/HANDOFF.md` (read the relevant section
 when you need it; do not import it whole). It overrides `docs/source/` on conflict.
+**What to build** follows the user's vision in `docs/VISION.md` (eight directions); HANDOFF
+decides **how**. The roadmap realignment in `docs/decisions/0012-*` awaits the user.
 
 ## Commands
 

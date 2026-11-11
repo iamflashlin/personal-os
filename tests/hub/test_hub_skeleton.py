@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,13 +20,13 @@ from tests.hub.support import hub_client
 
 
 def test_fresh_data_dir_is_migrated_to_head_on_startup(client: TestClient, data_dir: Path) -> None:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         (rev,) = conn.execute("SELECT version_num FROM alembic_version").fetchone()
     assert rev == head_revision()
 
 
 def test_database_uses_wal(client: TestClient, data_dir: Path) -> None:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         (mode,) = conn.execute("PRAGMA journal_mode").fetchone()
     assert mode == "wal"
 

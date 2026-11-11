@@ -107,7 +107,7 @@ def verify_health(client: httpx.Client, data_dir: Path, _args: argparse.Namespac
 
     db = data_dir / DB_FILENAME
     check(db.is_file(), f"database file created at {db}")
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn:
         (mode,) = conn.execute("PRAGMA journal_mode").fetchone()
     check(mode == "wal", f"journal_mode is wal (got {mode})")
 
@@ -158,7 +158,7 @@ def verify_crud(client: httpx.Client, data_dir: Path, args: argparse.Namespace) 
     check(stale.status_code == 409, "stale version PATCH returns 409")
     check(client.delete(f"/workspaces/{workspace['id']}").status_code == 204, "DELETE workspace")
 
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         conn.row_factory = sqlite3.Row
         rows = [
             dict(r)
