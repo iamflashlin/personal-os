@@ -153,8 +153,14 @@ def verify_memory_view(page: Page, api: httpx.Client, out: Path, errors: list[st
     alert.wait_for()
     check("409" in alert.inner_text(), "stale save shows a 409 alert and keeps the edit open")
     # That 409 was provoked on purpose; drop exactly its console lines, nothing else.
-    provoked = [e for e in errors if "409" in e]
-    check(len(provoked) == 2, f"the provoked 409 is the only one logged ({provoked})")
+    base = str(api.base_url).rstrip("/")
+    response_line = f"HTTP 409 {base}/memories/{memory['id']}"
+    console_line = "Failed to load resource: the server responded with a status of 409 (Conflict)"
+    provoked = [e for e in errors if e in (response_line, console_line)]
+    check(
+        sorted(provoked) == sorted([response_line, console_line]),
+        f"exactly the provoked 409 was logged ({provoked})",
+    )
     for line in provoked:
         errors.remove(line)
     editing.get_by_role("button", name="保存改正").click()

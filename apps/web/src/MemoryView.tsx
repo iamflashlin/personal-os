@@ -89,6 +89,7 @@ export function MemoryView({ api }: { api: Api }) {
 
   const search = (event: FormEvent) => {
     event.preventDefault();
+    setActionError(null);
     setActiveQuery(query);
   };
 
@@ -97,8 +98,8 @@ export function MemoryView({ api }: { api: Api }) {
     <section data-testid="memories">
       <h2>记忆</h2>
       <p className="muted">
-        Personal OS 记住的关于你的事。“AI 推测”的内容在你确认或改正前只作参考；
-        机密内容不出现在搜索结果里（在“显示全部”里能看到）。
+        {"Personal OS 记住的关于你的事。“AI 推测”的内容在你确认或改正前只作参考；"}
+        {"机密内容不出现在搜索结果里（在“显示全部”里能看到）。"}
       </p>
       {error && (
         <p className="error" role="alert">
@@ -116,6 +117,7 @@ export function MemoryView({ api }: { api: Api }) {
             type="button"
             onClick={() => {
               setQuery("");
+              setActionError(null);
               setActiveQuery("");
             }}
           >
@@ -165,7 +167,10 @@ function NewMemoryForm({
     setPending(true);
     const ok = await onCreate({ kind, body: body.trim(), sensitivity });
     setPending(false);
-    if (ok) setBody("");
+    if (ok) {
+      setBody("");
+      setSensitivity("normal");
+    }
   };
 
   return (
