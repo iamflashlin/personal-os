@@ -34,7 +34,7 @@ from apps.hub.models import pricing
 from apps.hub.models.deepseek import DeepSeekProvider
 from apps.hub.models.fake import FakeProvider
 from apps.hub.models.models import ModelCallRow
-from apps.hub.models.prompts import Prompt
+from apps.hub.models.prompts import Prompt, load_prompt
 from apps.hub.models.provider import (
     JsonRequest,
     ModelProvider,
@@ -84,6 +84,11 @@ def provider_from_settings(settings: Settings) -> ModelProvider:
     if settings.model_provider == "fake":
         return FakeProvider()
     return DeepSeekProvider(settings.model_base_url)
+
+
+def model_name(settings: Settings) -> str:
+    """The model to ask for: FakeProvider has its own priced name."""
+    return "fake" if settings.model_provider == "fake" else settings.model_name
 
 
 def budget_micro_usd(settings: Settings) -> int:
@@ -147,7 +152,8 @@ def has_key(session: Session, actor: Actor) -> bool:
 
 
 def last_error(session: Session, actor: Actor) -> str:
-    """The newest call's account-level failure, or "" when the newest call was fine."""
+    """The newest call's account-level failure, or "" when the newest call was fine.
+    The next call (e.g. `POST /summaries/run` after a new key) replaces it."""
     newest = session.scalars(
         select(ModelCallRow)
         .where(ModelCallRow.owner_id == actor.owner_id)
@@ -392,3 +398,24 @@ def open_client(
         except NotFound:
             raise ModelUnavailable("no_key") from None
     return ModelClient(engine, actor, provider, model, budget, clock, key)
+
+
+# What other modules may use from this package (they import only `service`, ADR 0005).
+__all__ = [
+    "CREDENTIAL",
+    "ModelClient",
+    "ModelFailed",
+    "ModelProvider",
+    "ModelUnavailable",
+    "Prompt",
+    "budget_micro_usd",
+    "estimate_micro_usd",
+    "has_key",
+    "last_error",
+    "load_prompt",
+    "model_name",
+    "open_client",
+    "provider_from_settings",
+    "remaining_micro_usd",
+    "usage",
+]
