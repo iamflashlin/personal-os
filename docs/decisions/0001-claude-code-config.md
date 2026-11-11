@@ -43,6 +43,20 @@ permission rules deny (best-effort). `tools.check` warns locally when `core.hook
 is not `.githooks`. If the plan allows it later, add a GitHub ruleset as the server-side
 guard.
 
+## Amendment 2026-11-10: feature-branch pushes and PR creation allowed
+
+User decision. Claude may now push feature branches and open PRs without a prompt:
+
+- `allow`: `git push -u origin t/*`, `git push -u origin d0/*`, `gh pr create *`
+  (Bash and PowerShell).
+- Removed from `ask`: `git push *` and `gh pr create *`. Because `ask` beats `allow`,
+  they would otherwise still prompt. Any other push still prompts, because it matches
+  no allow rule.
+- Unchanged: every `deny` (pushes naming `main`, `--force`/`-f`, `--no-verify`,
+  `--delete`, `core.hooksPath` edits, `gh pr merge`), the `.githooks/pre-push` hook, and
+  `uv add` / `pnpm add` in `ask`. `deny` beats `allow`, so `git push -u origin t/x --force`
+  is still refused.
+
 ## Consequences
 
 Two parallel rule sets (Bash + PowerShell) must be kept in sync; a future check could

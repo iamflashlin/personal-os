@@ -29,15 +29,17 @@
       "PowerShell(git branch)",
       "PowerShell(gh pr view *)",
       "PowerShell(gh pr checks *)",
-      "PowerShell(gh run view *)"
+      "PowerShell(gh run view *)",
+      "Bash(git push -u origin t/*)",
+      "Bash(git push -u origin d0/*)",
+      "Bash(gh pr create *)",
+      "PowerShell(git push -u origin t/*)",
+      "PowerShell(git push -u origin d0/*)",
+      "PowerShell(gh pr create *)"
     ],
     "ask": [
-      "Bash(git push *)",
-      "Bash(gh pr create *)",
       "Bash(uv add *)",
       "Bash(pnpm add *)",
-      "PowerShell(git push *)",
-      "PowerShell(gh pr create *)",
       "PowerShell(uv add *)",
       "PowerShell(pnpm add *)"
     ],
