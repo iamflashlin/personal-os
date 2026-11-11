@@ -52,14 +52,14 @@ name = "hub layering: entry points > modules > core"
 type = "layers"
 layers = [
     "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
-    "apps.hub.audit : apps.hub.system : apps.hub.tasks",
+    "apps.hub.audit : apps.hub.backup : apps.hub.system : apps.hub.tasks",
     "apps.hub.core",
 ]
 
 [[tool.importlinter.contracts]]
 name = "hub modules import each other only via service"
 type = "independence"
-modules = ["apps.hub.audit", "apps.hub.system", "apps.hub.tasks"]
+modules = ["apps.hub.audit", "apps.hub.backup", "apps.hub.system", "apps.hub.tasks"]
 ignore_imports = ["apps.hub.** -> apps.hub.*.service"]
 unmatched_ignore_imports_alerting = "none"
 

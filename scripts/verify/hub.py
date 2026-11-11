@@ -2,6 +2,7 @@
 
     uv run python scripts/verify/hub.py health
     uv run python scripts/verify/hub.py crud [--audit-out audit-sample.json]
+    uv run python scripts/verify/hub.py roundtrip [--manifest-out manifest-sample.json]
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -19,8 +20,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ import httpx
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from apps.hub.backup.service import table_rows  # noqa: E402
 from apps.hub.core.db import DB_FILENAME, head_revision  # noqa: E402
 
 STARTUP_TIMEOUT_S = 30.0
@@ -55,7 +58,7 @@ def running_hub(data_dir: Path) -> Iterator[httpx.Client]:
     port = free_port()
     env = {**os.environ, "POS_DATA_DIR": str(data_dir), "POS_HUB_PORT": str(port)}
     env.pop("POS_HUB_HOST", None)
-    log_path = data_dir.parent / "hub.log"
+    log_path = data_dir.parent / f"hub-{data_dir.name}.log"
     print(f"start  python -m apps.hub  port={port}  data_dir={data_dir}", flush=True)
     with log_path.open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(
@@ -180,9 +183,79 @@ def verify_crud(client: httpx.Client, data_dir: Path, args: argparse.Namespace) 
         print(f"wrote {args.audit_out}", flush=True)
 
 
+def _pos(*args: str) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        [sys.executable, "-m", "tools.pos", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    print(f"pos {' '.join(args)} -> exit {result.returncode}", flush=True)
+    print(f"  {(result.stdout + result.stderr).strip()}", flush=True)
+    return result
+
+
+def _dump(data_dir: Path) -> dict[str, list[dict[str, Any]]]:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        ]
+        return {t: table_rows(conn, t) for t in sorted(tables)}
+
+
+def _snapshot(client: httpx.Client) -> dict[str, Any]:
+    return {k: client.get(f"/{k}").json() for k in ("goals", "projects", "tasks", "workspaces")}
+
+
+def verify_roundtrip(client: httpx.Client, data_dir: Path, args: argparse.Namespace) -> None:
+    goal = _create(client, "goal", {"title": "Move to a new machine"})
+    project = _create(client, "project", {"title": "Export test", "goal_id": goal["id"]})
+    task = _create(client, "task", {"title": "Export then import", "project_id": project["id"]})
+    _create(client, "workspace", {"title": "Desk", "task_id": task["id"], "urls": ["x"]})
+    renamed = client.patch(f"/goals/{goal['id']}", json={"version": 1, "title": "Move to a new PC"})
+    check(renamed.status_code == 200, "PATCH goal before export")
+    before = _snapshot(client)
+
+    package = data_dir.parent / "export.zip"
+    exported = _pos("export", "--data-dir", str(data_dir), "--out", str(package))
+    check(exported.returncode == 0 and package.is_file(), "pos export while the Hub runs")
+    with zipfile.ZipFile(package) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    check(manifest["schema_version"] == head_revision(), "manifest records the schema head")
+    check(manifest["row_counts"]["audit_event"] == 5, "manifest counts 5 audit events")
+    if args.manifest_out:
+        Path(args.manifest_out).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {args.manifest_out}", flush=True)
+
+    restored = data_dir.parent / "restored"
+    imported = _pos("import", "--in", str(package), "--data-dir", str(restored))
+    check(imported.returncode == 0, "pos import into an empty directory")
+    again = _pos("import", "--in", str(package), "--data-dir", str(restored))
+    check(
+        again.returncode == 1 and "is not empty" in again.stderr,
+        "pos import refuses a non-empty directory",
+    )
+
+    with running_hub(restored) as second:
+        check(second.get("/health").json()["status"] == "ok", "restored Hub /health ok")
+        check(_snapshot(second) == before, "restored Hub returns identical API collections")
+
+    original, copy = _dump(data_dir), _dump(restored)
+    check(
+        original == copy,
+        f"every row of every table identical after restore ({', '.join(sorted(copy))})",
+    )
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
+    "roundtrip": verify_roundtrip,
 }
 
 
@@ -190,6 +263,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--audit-out", help="crud: write the audit rows as JSON here")
+    parser.add_argument("--manifest-out", help="roundtrip: write the export manifest here")
     args = parser.parse_args()
 
     scratch_root = ROOT / "data" / "verify"
