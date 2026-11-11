@@ -27,6 +27,7 @@ dev = [
 # (keyring is a runtime dependency: the agent's token and the Hub's credentials, ADR 0018.)
 desktop = [
     "pillow>=13.0.0 ; sys_platform == 'win32'",
+    "pywin32>=312 ; sys_platform == 'win32'",
     "pywinauto>=0.6.9 ; sys_platform == 'win32'",
 ]
 
