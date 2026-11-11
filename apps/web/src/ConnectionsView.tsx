@@ -2,7 +2,6 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import {
   type Api,
   ApiError,
-  type EmailSummary,
   type Integration,
   type IntegrationStatus,
   type NewCanvas,
@@ -10,7 +9,7 @@ import {
   type NewFeed,
   type SyncedItem,
 } from "./api";
-import { AiCard, SummaryLine } from "./Summary";
+import { AiCard } from "./Summary";
 
 const STATUS: Record<IntegrationStatus, string> = {
   never_synced: "还没同步过",
@@ -129,8 +128,7 @@ export function ConnectionsView({ api }: { api: Api }) {
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [news, setNews] = useState<Upcoming[]>([]);
-  const [mail, setMail] = useState<Upcoming[]>([]);
-  const [summaries, setSummaries] = useState<Map<string, EmailSummary>>(new Map());
+  const [mailCount, setMailCount] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
@@ -178,18 +176,12 @@ export function ConnectionsView({ api }: { api: Api }) {
       const isMail = (u: Upcoming) => u.item.item_type === "email_message";
       // Canvas marks work "missing" only after it was due: show last week's missing work too.
       const overdue = past.filter((u) => submissionBadge(u.item) === "缺交");
-      const shownMail = recent.sort(byTime).reverse().slice(0, MAIL_LIMIT);
-      // Summaries are optional: if the call fails the mail is still shown.
-      const mailSummaries = await api
-        .emailSummaries(shownMail.map((u) => u.item.id))
-        .catch(() => null); // keep the previous summaries rather than flicker
       if (mounted.current && ticket === latest.current) {
         setIntegrations(found);
         setUpcoming(
           [...overdue, ...coming.filter((u) => !isNews(u) && !isMail(u))].sort(byTime),
         );
-        setMail(shownMail);
-        if (mailSummaries) setSummaries(new Map(mailSummaries.map((x) => [x.item_id, x])));
+        setMailCount(recent.length);
         setNews([...past, ...coming].filter(isNews).sort(byTime).reverse());
         setLoadError(null);
       }
@@ -305,15 +297,10 @@ export function ConnectionsView({ api }: { api: Api }) {
           ))}
         </ul>
       </section>
-      {mail.length > 0 && (
-        <section data-testid="mail">
-          <h2>最近邮件（最新 {MAIL_LIMIT} 封）</h2>
-          <ul className="memories">
-            {mail.map((u) => (
-              <MailRow key={u.item.id} entry={u} summary={summaries.get(u.item.id)} />
-            ))}
-          </ul>
-        </section>
+      {mailCount > 0 && (
+        <p className="muted" data-testid="mail-moved">
+          邮件已同步。整理好的邮件在“邮件”页。
+        </p>
       )}
       {news.length > 0 && (
         <section data-testid="news">
@@ -353,27 +340,6 @@ function ItemRow({ entry, testId }: { entry: Upcoming; testId: string }) {
       </div>
       {item.item_type === "canvas_announcement" && item.body && (
         <p className="muted">{item.body.slice(0, 200)}</p>
-      )}
-    </li>
-  );
-}
-
-function MailRow({ entry, summary }: { entry: Upcoming; summary?: EmailSummary }) {
-  const { item } = entry;
-  const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
-  const from = data.from_name || data.from_address || "";
-  return (
-    <li className={`memory${data.seen ? "" : " unread"}`} data-testid="mail-item">
-      <div className="memory-main">
-        <span className="badge">{when(item)}</span>
-        <span className="memory-body">{item.title}</span>
-        {!data.seen && <span className="badge unread">未读</span>}
-        <span className="muted">{from}</span>
-      </div>
-      {summary && summary.status !== "pending" ? (
-        <SummaryLine summary={summary} />
-      ) : (
-        item.body && <p className="muted">{item.body.slice(0, 160)}</p>
       )}
     </li>
   );

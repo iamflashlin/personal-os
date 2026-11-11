@@ -16,7 +16,13 @@ export function formatUsd(microUsd: number): string {
 }
 
 /** One summary line. All text is rendered by React, so mail content is never HTML. */
-export function SummaryLine({ summary }: { summary: EntrySummary | null | undefined }) {
+export function SummaryLine({
+  summary,
+  hideGist = false,
+}: {
+  summary: EntrySummary | null | undefined;
+  hideGist?: boolean;
+}) {
   if (!summary) return null;
   if (summary.status !== "ok") {
     return (
@@ -25,9 +31,14 @@ export function SummaryLine({ summary }: { summary: EntrySummary | null | undefi
       </p>
     );
   }
+  if (hideGist && !summary.action_needed && !summary.deadline_text) return null;
   return (
     <p className="summary" data-testid="summary">
-      <span className="badge ai">AI</span> {summary.gist}
+      {!hideGist && (
+        <>
+          <span className="badge ai">AI</span> {summary.gist}
+        </>
+      )}
       {summary.action_needed && (
         <>
           {" "}

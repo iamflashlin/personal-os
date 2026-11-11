@@ -120,10 +120,24 @@ def _summary(found: EmailSummary | None) -> EntrySummary | None:
     return EntrySummary(
         status=found.status,
         gist=found.gist,
+        importance=found.importance,
+        low_value=found.low_value,
         action_needed=found.action_needed,
         action=found.action,
         deadline_text=found.deadline_text,
     )
+
+
+def _apply(entry: TodayEntry, found: EmailSummary | None) -> None:
+    """Attach the summary; a summarised mail shows its AI title, not the subject."""
+    entry.summary = _summary(found)
+    if (
+        found is not None
+        and found.status is SummaryStatus.ok
+        and found.gist
+        and found.prompt_version >= summaries.PROMPT_VERSION  # older gists are long sentences
+    ):
+        entry.title = found.gist
 
 
 def _mail_actions(
@@ -146,8 +160,10 @@ def _mail_actions(
         summary = found.get(item.id)
         if summary is None or summary.status is not SummaryStatus.ok or not summary.action_needed:
             continue
+        if summary.low_value:
+            continue
         entry = _entry(item, names.get(item.integration_id, ""))
-        entry.summary = _summary(summary)
+        _apply(entry, summary)
         picked.append((summary, entry))
     latest = date.max
     oldest = datetime.min.replace(tzinfo=UTC)
@@ -233,15 +249,23 @@ def today(
         s.item_id: s
         for s in summaries.summaries_for(session, actor, [e.ref for e in mail], limit=None)
     }
+    low_value_mail = 0
+    kept: list[TodayEntry] = []
     for entry in mail:
-        entry.summary = _summary(mail_found.get(entry.ref))
+        found = mail_found.get(entry.ref)
+        if found is not None and found.status is SummaryStatus.ok and found.low_value:
+            low_value_mail += 1  # unread, but nothing in it for the user
+            continue
+        _apply(entry, found)
+        kept.append(entry)
+    mail = kept
 
     view: dict[str, Any] = {
         "due_today": sorted(due_today, key=by_day),
         "due_soon": sorted(due_soon, key=by_day),
         "missing": sorted(missing, key=by_day),
         "events": sorted(events, key=by_day),
-        "unread_mail": unread,
+        "unread_mail": unread - low_value_mail,  # mail worth reading; the rest is collapsed
         "mail": sorted(mail, key=newest, reverse=True)[:MAX_MAIL],
         "announcements": sorted(news, key=newest, reverse=True),
         "in_progress": in_progress,
@@ -259,6 +283,7 @@ def today(
         problems=problems,
         sources=len(sources),
         mail_actions=_mail_actions(session, actor, now, names),
+        low_value_mail=low_value_mail,
         ai_notice=ai_notice,
         **view,
     )

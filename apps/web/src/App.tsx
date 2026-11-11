@@ -11,6 +11,7 @@ import {
   parseTags,
 } from "./api";
 import { ConnectionsView } from "./ConnectionsView";
+import { MailView } from "./MailView";
 import { MemoryView } from "./MemoryView";
 import { TodayView } from "./TodayView";
 
@@ -28,7 +29,13 @@ const MODE: Record<ExecutionMode, string> = {
   human_led: "自己做",
 };
 
-const VIEW = { today: "今日", tasks: "任务", memories: "记忆", connections: "连接" } as const;
+const VIEW = {
+  today: "今日",
+  mail: "邮件",
+  tasks: "任务",
+  memories: "记忆",
+  connections: "连接",
+} as const;
 type View = keyof typeof VIEW;
 
 interface Data {
@@ -113,6 +120,7 @@ export function App({ api }: { api: Api }) {
         </nav>
       </header>
       {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
+      {view === "mail" && <MailView api={api} />}
       {view === "memories" && <MemoryView api={api} />}
       {view === "connections" && <ConnectionsView api={api} />}
       {view === "tasks" && !data && !error && <p>加载中…</p>}

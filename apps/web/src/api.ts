@@ -121,6 +121,8 @@ export type SummaryStatus =
 export interface EntrySummary {
   status: SummaryStatus;
   gist: string;
+  importance?: "high" | "normal" | "low";
+  low_value?: boolean;
   action_needed: boolean;
   action: string;
   deadline_text: string;
@@ -128,6 +130,9 @@ export interface EntrySummary {
 
 export interface EmailSummary extends EntrySummary {
   id: string;
+  points: string[];
+  low_value: boolean;
+  prompt_version: number;
   item_id: string;
   deadline_date: string | null;
   importance: "high" | "normal" | "low";
@@ -169,6 +174,7 @@ export interface TodayView {
   sources: number;
   mail_actions?: TodayEntry[];
   ai_notice?: string;
+  low_value_mail?: number;
 }
 
 export interface Job {

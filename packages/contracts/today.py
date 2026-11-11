@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from packages.contracts.summaries import SummaryStatus
+from packages.contracts.summaries import Importance, SummaryStatus
 
 
 class EntryKind(StrEnum):
@@ -20,7 +20,9 @@ class EntrySummary(BaseModel):
     """The AI summary of a mail entry (ADR 0027)."""
 
     status: SummaryStatus
-    gist: str = ""
+    gist: str = ""  # the AI title
+    importance: Importance = Importance.normal
+    low_value: bool = False
     action_needed: bool = False
     action: str = ""
     deadline_text: str = ""
@@ -62,3 +64,4 @@ class TodayView(BaseModel):
     # Mail from the last 7 days that the AI says needs action, read or not, deadline first.
     mail_actions: list[TodayEntry] = []
     ai_notice: str = ""  # why summaries are not running (budget, key), or ""
+    low_value_mail: int = 0  # unread mail left out of `mail` because the AI found no value

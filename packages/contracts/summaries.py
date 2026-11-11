@@ -26,7 +26,9 @@ class EmailSummary(BaseModel):
     id: str
     item_id: str
     status: SummaryStatus
-    gist: str
+    gist: str  # the AI title: what it is about and its deadline (prompt v2)
+    points: list[str] = []  # distilled useful facts, shown before the original text
+    low_value: bool = False  # ads, newsletters, notices that need nothing: collapsed
     action_needed: bool
     action: str
     deadline_text: str
