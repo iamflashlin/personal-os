@@ -5,7 +5,7 @@
 
 ## 现在做到哪
 
-共 10 张任务卡：已完成 5，进行中 0，待审核 0，卡住 0，未开始 5。
+共 16 张任务卡：已完成 5，进行中 1，待审核 5，卡住 3，未开始 2。
 
 ### 已完成
 
@@ -15,14 +15,29 @@
 - **T-0001** Hub skeleton - FastAPI app, settings, SQLite (WAL) + Alembic, base model, boundary check
 - **T-0002** Goal / Project / Task / Workspace CRUD API with audit log
 
+### 进行中
+
+- **T-0005** Second brain v0 - Memory entries with provenance, correction, expiry and full-text search
+
+### 待审核
+
+- **D0-06** ARCHITECTURE.md and ADRs for modular monolith, SQLite, agent-initiated connection
+- **D0-07** tools/report.py generates docs/progress.md from task cards and git log
+- **D0-08** Record the product vision, propose a realigned roadmap, and housekeeping
+- **T-0003** pos export / pos import v0 with round-trip migration test
+- **T-0004** Minimal web UI - list goals/projects/tasks, create a task, confirm a task done
+
+### 卡住了
+
+- **T-0006** Action contract and Hub side of the desktop agent link - pairing, token, WebSocket, heartbeat, idempotent dispatch
+- **T-0007** Desktop agent core - connect out, reconnect with backoff, whitelist registry, at-most-once executor
+- **T-0008** WindowsAdapter and real local verification - open a test URL and a temp folder, verify windows, prove one execution per key
+
 ## 下一步
 
 前置任务都已完成、可以马上开始的卡：
 
 - **D0-02** Reconcile pstack poteto-mode principles with project rules
-- **D0-06** ARCHITECTURE.md and ADRs for modular monolith, SQLite, agent-initiated connection
-- **D0-07** tools/report.py generates docs/progress.md from task cards and git log
-- **T-0003** pos export / pos import v0 with round-trip migration test
 
 还在等前置任务的卡：
 
@@ -48,11 +63,3 @@
 
 1. `uv run python -m apps.hub`
 2. 浏览器打开 http://127.0.0.1:8765/docs
-
-## 需要注意
-
-- `docs/tasks/D0-01.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
-- `docs/tasks/D0-03.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
-- `docs/tasks/D0-05.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
-- `docs/tasks/T-0001.md`：已经合并进 main，但第 4 行还写着 status: todo（打开这个文件，改成 status: done）
-- `docs/tasks/T-0002.md`：已经合并进 main，但第 4 行还写着 status: todo（打开这个文件，改成 status: done）

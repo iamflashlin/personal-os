@@ -24,7 +24,7 @@ from apps.hub.backup.service import (
 )
 from apps.hub.core.db import DB_FILENAME, head_revision
 from apps.hub.core.settings import Settings
-from apps.hub.main import create_app
+from tests.hub.support import hub_client
 from tools.pos import main as pos
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -33,7 +33,7 @@ COLLECTIONS = ("goals", "projects", "tasks", "workspaces")
 
 
 def dump(data_dir: Path) -> dict[str, list[dict[str, Any]]]:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         tables = [
             r[0]
             for r in conn.execute(
@@ -41,7 +41,6 @@ def dump(data_dir: Path) -> dict[str, list[dict[str, Any]]]:
             )
         ]
         result = {t: table_rows(conn, t) for t in sorted(tables)}
-    conn.close()
     return result
 
 
@@ -87,7 +86,7 @@ def test_round_trip_keeps_every_row_identical(
     result = import_data(package, restored)
     assert result.schema_version == head_revision()
 
-    with TestClient(create_app(Settings(data_dir=restored))) as again:
+    with hub_client(Settings(data_dir=restored)) as again:
         assert again.get("/health").json() == {"status": "ok", "schema_version": head_revision()}
         assert {k: again.get(f"/{k}").json() for k in COLLECTIONS} == api_before
         assert again.get("/goals").json()[0]["version"] == 2
@@ -240,12 +239,11 @@ def test_older_schema_package_is_migrated_to_head(
     target = tmp_path / "restored"
     assert pos(["import", "--in", str(SCHEMA_0001_PACKAGE), "--data-dir", str(target)]) == 0
     assert f"schema 0001 -> {head_revision()} (migrated)" in capsys.readouterr().out
-    with sqlite3.connect(target / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(target / DB_FILENAME)) as conn:
         (version,) = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-    conn.close()
     assert version == head_revision()
 
-    with TestClient(create_app(Settings(data_dir=target))) as client:
+    with hub_client(Settings(data_dir=target)) as client:
         assert client.post("/goals", json={"title": "after upgrade"}).status_code == 201
 
 

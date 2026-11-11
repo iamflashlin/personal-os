@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.hub.core.settings import Settings
-from apps.hub.main import create_app
+from tests.hub.support import hub_client
 
 
 @pytest.fixture
@@ -15,5 +15,5 @@ def data_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def client(data_dir: Path) -> Iterator[TestClient]:
-    with TestClient(create_app(Settings(data_dir=data_dir))) as c:
+    with hub_client(Settings(data_dir=data_dir)) as c:
         yield c

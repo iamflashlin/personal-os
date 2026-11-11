@@ -17,9 +17,17 @@ INFRASTRUCTURE = {"core", "migrations"}
 ENTRY_POINTS = {"__init__", "__main__", "main"}
 
 
+LAYERS = "hub layering: entry points > modules > core"
+ONLY_VIA_SERVICE = "hub modules import each other only via service"
+
+
 def _contracts() -> dict[str, dict[str, Any]]:
+    """By name: several contracts share a type, e.g. two `independence` contracts."""
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    return {c["type"]: c for c in config["tool"]["importlinter"]["contracts"]}
+    contracts = config["tool"]["importlinter"]["contracts"]
+    by_name = {c["name"]: c for c in contracts}
+    assert len(by_name) == len(contracts), "import-linter contract names must be unique"
+    return by_name
 
 
 def _hub_modules_on_disk() -> set[str]:
@@ -31,8 +39,8 @@ def _hub_modules_on_disk() -> set[str]:
 
 def test_every_hub_module_is_covered_by_both_boundary_contracts() -> None:
     contracts = _contracts()
-    layered = {m.strip() for layer in contracts["layers"]["layers"] for m in layer.split(":")}
-    independent = set(contracts["independence"]["modules"])
+    layered = {m.strip() for layer in contracts[LAYERS]["layers"] for m in layer.split(":")}
+    independent = set(contracts[ONLY_VIA_SERVICE]["modules"])
 
     modules = _hub_modules_on_disk()
     assert modules, "expected at least one Hub module"
@@ -47,7 +55,7 @@ def test_gate_runs_module_boundaries_and_they_hold() -> None:
 
 def _lint_fake_hub(tmp_path: Path, a_imports: str) -> int:
     """Run our real independence contract, renamed onto a throwaway two-module package."""
-    contract = _contracts()["independence"]
+    contract = _contracts()[ONLY_VIA_SERVICE]
     rename = {"apps.hub": "fakehub"}
 
     def renamed(s: str) -> str:
@@ -74,13 +82,17 @@ def _lint_fake_hub(tmp_path: Path, a_imports: str) -> int:
         f"unmatched_ignore_imports_alerting = {contract['unmatched_ignore_imports_alerting']}\n"
     )
     (step,) = [s for s in build_steps() if s.name == "module boundaries"]
-    return subprocess.run(
+    done = subprocess.run(
         [step.argv[0], "--no-cache", "--config", str(tmp_path / ".importlinter")],
         cwd=tmp_path,
-        env={**os.environ, "PYTHONPATH": str(tmp_path)},
+        env={**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
+        encoding="utf-8",
         check=False,
-    ).returncode
+    )
+    # Exit 1 also means "lint-imports could not run"; only a judged contract counts.
+    assert "Contracts: " in done.stdout, done.stdout + done.stderr
+    return done.returncode
 
 
 @pytest.mark.parametrize(

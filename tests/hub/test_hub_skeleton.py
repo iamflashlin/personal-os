@@ -1,8 +1,11 @@
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
+import uvicorn
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from fastapi.testclient import TestClient
@@ -11,21 +14,22 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.orm.exc import StaleDataError
 
-import apps.hub.migrations.all_models  # noqa: F401
+import apps.hub.__main__ as hub_main
 from apps.hub.core.base import Base, Entity
 from apps.hub.core.db import DB_FILENAME, head_revision, make_engine
 from apps.hub.core.settings import Settings
-from apps.hub.main import create_app
+from apps.hub.migrations.all_models import include_object
+from tests.hub.support import hub_client
 
 
 def test_fresh_data_dir_is_migrated_to_head_on_startup(client: TestClient, data_dir: Path) -> None:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         (rev,) = conn.execute("SELECT version_num FROM alembic_version").fetchone()
     assert rev == head_revision()
 
 
 def test_database_uses_wal(client: TestClient, data_dir: Path) -> None:
-    with sqlite3.connect(data_dir / DB_FILENAME) as conn:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as conn:
         (mode,) = conn.execute("PRAGMA journal_mode").fetchone()
     assert mode == "wal"
 
@@ -38,7 +42,7 @@ def test_health_reports_ok_and_schema_head(client: TestClient) -> None:
 
 def test_restart_on_existing_data_dir_keeps_working(data_dir: Path) -> None:
     for _ in range(2):
-        with TestClient(create_app(Settings(data_dir=data_dir))) as c:
+        with hub_client(Settings(data_dir=data_dir)) as c:
             assert c.get("/health").json()["schema_version"] == head_revision()
 
 
@@ -46,6 +50,17 @@ def test_hub_defaults_to_loopback_and_ignores_dotenv(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv("POS_HUB_HOST", raising=False)
     assert Settings().hub_host == "127.0.0.1"
     assert Settings.model_config.get("env_file") is None
+
+
+def test_hub_runs_one_worker_with_the_supported_websocket_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(uvicorn, "run", lambda *_a, **kw: seen.update(kw))
+    hub_main.main()
+    # Live agent links are held in memory, so one process only (ADR 0014).
+    assert seen["workers"] == 1
+    assert seen["ws"] == "websockets-sansio"
 
 
 def test_failed_migration_leaves_no_partial_schema(tmp_path: Path) -> None:
@@ -61,7 +76,10 @@ def test_migrations_match_the_models(client: TestClient) -> None:
     engine = client.app.state.engine  # type: ignore[attr-defined]
     with engine.connect() as conn:
         diff = compare_metadata(
-            MigrationContext.configure(conn, opts={"compare_type": True}), Base.metadata
+            MigrationContext.configure(
+                conn, opts={"compare_type": True, "include_object": include_object}
+            ),
+            Base.metadata,
         )
     assert diff == [], "run autogenerate: models and migrations differ"
 

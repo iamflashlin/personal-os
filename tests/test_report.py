@@ -163,6 +163,14 @@ def test_showcases_follow_the_measured_ref_and_the_source_is_named() -> None:
 
     with_hub = render(build_report(TODAY, [], [], source(paths=frozenset({"apps/hub/main.py"}))))
     assert "1. `uv run python -m apps.hub`\n2. 浏览器打开 http://127.0.0.1:8765/docs" in with_hub
+    assert "网页界面" not in with_hub
+
+    both = frozenset({"apps/hub/main.py", "apps/web/package.json"})
+    with_web = render(build_report(TODAY, [], [], source(paths=both)))
+    assert (
+        "1. `pnpm --dir apps/web build`\n2. `uv run python -m apps.hub`\n"
+        "3. 浏览器打开 http://127.0.0.1:8765/"
+    ) in with_web
 
 
 def test_same_inputs_give_byte_identical_output(

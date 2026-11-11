@@ -6,20 +6,25 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.162.4",
+    "keyring>=25.6",
     "pydantic-settings>=2.16.2",
     "python-ulid>=4.1.0",
     "sqlalchemy>=2.1.8",
+    "tzdata>=2025.2",
     "uvicorn>=0.54.0",
+    "websockets>=17.4",
 ]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
     "import-linter>=2.16",
+    "playwright>=1.65.0",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
-# Windows-only: real GUI verification (pywinauto UIA backend + screenshots).
+# Windows GUI work for the desktop agent: pywinauto and pillow drive and capture windows.
+# (keyring is a runtime dependency: the agent's token and the Hub's credentials, ADR 0018.)
 desktop = [
     "pillow>=13.0.0 ; sys_platform == 'win32'",
     "pywinauto>=0.6.9 ; sys_platform == 'win32'",
@@ -43,7 +48,7 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.importlinter]
-root_packages = ["apps.hub"]
+root_packages = ["apps.hub", "apps.desktop_agent", "packages.contracts"]
 
 # Every Hub subpackage except `core` and `migrations` is a module and must be listed
 # in both contracts (tests/hub/test_module_boundaries.py enforces this).
@@ -52,16 +57,42 @@ name = "hub layering: entry points > modules > core"
 type = "layers"
 layers = [
     "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
-    "apps.hub.audit : apps.hub.backup : apps.hub.system : apps.hub.tasks",
+    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.briefing : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.integrations : apps.hub.jobs : apps.hub.memory : apps.hub.system : apps.hub.tasks",
     "apps.hub.core",
 ]
 
 [[tool.importlinter.contracts]]
 name = "hub modules import each other only via service"
 type = "independence"
-modules = ["apps.hub.audit", "apps.hub.backup", "apps.hub.system", "apps.hub.tasks"]
+modules = [
+    "apps.hub.actions",
+    "apps.hub.audit",
+    "apps.hub.backup",
+    "apps.hub.briefing",
+    "apps.hub.credentials",
+    "apps.hub.devices",
+    "apps.hub.evidence",
+    "apps.hub.integrations",
+    "apps.hub.jobs",
+    "apps.hub.memory",
+    "apps.hub.system",
+    "apps.hub.tasks",
+]
 ignore_imports = ["apps.hub.** -> apps.hub.*.service"]
 unmatched_ignore_imports_alerting = "none"
+
+# The Hub and the desktop agent are separate processes that share only packages.contracts
+# (ADR 0014); contracts depend on neither.
+[[tool.importlinter.contracts]]
+name = "hub and desktop agent share only contracts"
+type = "independence"
+modules = ["apps.hub", "apps.desktop_agent"]
+
+[[tool.importlinter.contracts]]
+name = "contracts import no app"
+type = "forbidden"
+source_modules = ["packages.contracts"]
+forbidden_modules = ["apps.hub", "apps.desktop_agent"]
 
 [tool.pyright]
 include = ["tools", "scripts", "tests", "apps", "packages"]

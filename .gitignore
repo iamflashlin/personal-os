@@ -13,6 +13,7 @@ __pycache__/
 # Node
 node_modules/
 *.tsbuildinfo
+apps/web/dist/
 
 # Verification evidence stays local; PRs carry summary.md excerpts.
 .evidence/
