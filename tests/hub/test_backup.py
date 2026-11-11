@@ -24,7 +24,7 @@ from apps.hub.backup.service import (
 )
 from apps.hub.core.db import DB_FILENAME, head_revision
 from apps.hub.core.settings import Settings
-from apps.hub.main import create_app
+from tests.hub.support import hub_client
 from tools.pos import main as pos
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -87,7 +87,7 @@ def test_round_trip_keeps_every_row_identical(
     result = import_data(package, restored)
     assert result.schema_version == head_revision()
 
-    with TestClient(create_app(Settings(data_dir=restored))) as again:
+    with hub_client(Settings(data_dir=restored)) as again:
         assert again.get("/health").json() == {"status": "ok", "schema_version": head_revision()}
         assert {k: again.get(f"/{k}").json() for k in COLLECTIONS} == api_before
         assert again.get("/goals").json()[0]["version"] == 2
@@ -245,7 +245,7 @@ def test_older_schema_package_is_migrated_to_head(
     conn.close()
     assert version == head_revision()
 
-    with TestClient(create_app(Settings(data_dir=target))) as client:
+    with hub_client(Settings(data_dir=target)) as client:
         assert client.post("/goals", json={"title": "after upgrade"}).status_code == 201
 
 

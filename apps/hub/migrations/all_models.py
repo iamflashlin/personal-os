@@ -4,4 +4,5 @@ Alembic autogenerate and the model/migration drift test only see tables imported
 """
 
 import apps.hub.audit.models
+import apps.hub.evidence.models
 import apps.hub.tasks.models  # noqa: F401

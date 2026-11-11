@@ -40,12 +40,12 @@ the Hub never reads `.env` (ADR 0008).
 | `goal`, `project`, `task`, `workspace` tables | `apps/hub/tasks` | built |
 | `idempotency_key` table (moves to a shared module when a second module needs it) | `apps/hub/tasks` | built |
 | `audit_event` table and the redaction function | `apps/hub/audit` | built |
+| `evidence` table (kind `user_confirmation` only) | `apps/hub/evidence` | built (T-0004) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
 | Data dir `POS_DATA_DIR` (default `<repo>/data`); holds only the SQLite files so far | Hub process | built |
 | Session, Memory, Run/Step, Job, Device, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
-| Evidence | Hub module chosen in S6 | planned |
 | Nothing durable | desktop agent, PWA | planned |
 
 `core` and `migrations` are infrastructure, not modules. Every other subpackage of
@@ -80,7 +80,7 @@ The gate `uv run python -m tools.check` runs import-linter as its "module bounda
 | D5 | Every read and write is scoped to the caller's `owner_id` (`POS_OWNER_ID`, default `local`). Another owner's row reads as 404. | Reviewer; no dedicated test yet |
 | D6 | Every service write adds one `AuditEvent` in the same transaction. A rejected write is rolled back, then audited with its result. An unexpected error logs only the exception type. | `test_every_write_creates_one_audit_event`; `test_rejected_delete_is_audited` |
 | D7 | Audit `actor` and `detail` pass through `audit.service` redaction before storage. Only the audit copy is redacted. Redaction is pattern based (limits in ADR 0009). | `test_audit_log_stores_secrets_redacted`; `test_redact_*` |
-| D8 | A task is done only with an Evidence row. Today every move to `done` returns 409, because Evidence does not exist yet. In S6 (planned) Evidence comes from a verify step, build or test output, a commit, a file or a user confirmation, never from model text alone. | `test_task_cannot_be_marked_done_without_evidence` |
+| D8 | A task is done only with an Evidence row. The only path is `POST /tasks/{id}/complete`, which writes a `user_confirmation` Evidence row, the status change and the audit event in one transaction; PATCH to `done` returns 409 and a done task cannot be reopened. More kinds (build/test output, commits, files) arrive in S6, never model text alone. Until S8 adds grants, any local client can call `/complete` (ADR 0011). | `test_task_cannot_be_marked_done_without_evidence`; `test_complete_marks_done_with_one_evidence_row_and_one_audit_event`; `test_failure_after_evidence_is_written_rolls_everything_back` |
 | D9 | A POST with `Idempotency-Key` creates at most one resource per owner and key. A replay returns the current state; the same key with a different body returns 422. | `test_repeated_post_with_same_idempotency_key_returns_original`; `test_same_idempotency_key_with_different_body_is_422` |
 | D10 | Schema changes go through Alembic only. Migrations run at startup in one transaction and use frozen column types. | `test_migrations_match_the_models`; `test_failed_migration_leaves_no_partial_schema` |
 
@@ -112,11 +112,12 @@ Nothing in this section is built. The types will live in `packages/contracts`.
 
 - `apps/desktop_agent` (`WindowsAdapter` behind `DesktopController`), WebSocket with
   heartbeat, "PC offline" shown in the PWA (ADR 0007).
-- `apps/web` PWA; TypeScript types generated from `openapi.json` (S4).
+- `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
+  web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
 - Hub modules: sessions, memory (FTS5 search, ADR 0006), planner, runs, jobs (SQLite
   queue, incl. commands queued while the agent is offline), permissions, devices (pairing token), notify (ntfy), backup (`pos export` /
   `pos import`), models (`ModelProvider`, `FakeProvider`, ModelCall cost rows).
-- Evidence entity and the done-with-evidence path (S6).
+- More Evidence kinds and grants on who may complete a task (S6, S8).
 - Emergency stop, credentials via `keyring`, binding to the Tailscale interface.
 - Not planned for V0.1: event bus, workflow engine, sync service, vector store,
   PostgreSQL, Tauri, Docker for local development (ADR 0005).

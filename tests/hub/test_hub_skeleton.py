@@ -15,7 +15,7 @@ import apps.hub.migrations.all_models  # noqa: F401
 from apps.hub.core.base import Base, Entity
 from apps.hub.core.db import DB_FILENAME, head_revision, make_engine
 from apps.hub.core.settings import Settings
-from apps.hub.main import create_app
+from tests.hub.support import hub_client
 
 
 def test_fresh_data_dir_is_migrated_to_head_on_startup(client: TestClient, data_dir: Path) -> None:
@@ -38,7 +38,7 @@ def test_health_reports_ok_and_schema_head(client: TestClient) -> None:
 
 def test_restart_on_existing_data_dir_keeps_working(data_dir: Path) -> None:
     for _ in range(2):
-        with TestClient(create_app(Settings(data_dir=data_dir))) as c:
+        with hub_client(Settings(data_dir=data_dir)) as c:
             assert c.get("/health").json()["schema_version"] == head_revision()
 
 

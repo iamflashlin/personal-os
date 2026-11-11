@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from apps.hub.audit import service as audit
+from apps.hub.evidence import service as evidence
 from apps.hub.tasks.models import GoalRow, IdempotencyKeyRow, ProjectRow, TaskRow, WorkspaceRow
+from packages.contracts.evidence import Evidence, TaskCompletion
 from packages.contracts.tasks import (
     CIS_COURSE_TAG,
     ExecutionMode,
@@ -76,7 +78,10 @@ def _task_rules(data: dict[str, Any], previous: TaskRow | None) -> None:
         previous is None or previous.status != TaskStatus.done
     )
     if becoming_done:
-        raise Conflict("a task can be marked done only with Evidence, which arrives in S6")
+        raise Conflict("a task can be marked done only via POST /tasks/{id}/complete")
+    leaving_done = previous is not None and previous.status == TaskStatus.done
+    if leaving_done and data["status"] != TaskStatus.done:
+        raise Conflict("a done task cannot be reopened; its Evidence stays with it")
     if data["execution_mode"] is None:
         cis = CIS_COURSE_TAG in data["tags"]
         data["execution_mode"] = ExecutionMode.human_led if cis else ExecutionMode.collaborate
@@ -323,3 +328,37 @@ def delete(session: Session, actor: Actor, kind: Kind, entity_id: str) -> None:
         return _Outcome(entity_id, None)
 
     _audited(session, actor, kind, "delete", entity_id, {}, op)
+
+
+def complete(session: Session, actor: Actor, task_id: str, completion: TaskCompletion) -> Task:
+    """Mark a task done with a user-confirmation Evidence row, in one transaction.
+
+    This is the only way to reach `done`; PATCH still refuses it (CLAUDE.md, ADR 0011).
+    """
+    kind = KINDS["task"]
+
+    def op() -> _Outcome[Task]:
+        row = _get_row(session, actor, kind, task_id)
+        if row.version != completion.version:
+            raise Conflict(f"version is {row.version}, request was based on {completion.version}")
+        if row.status == TaskStatus.done:
+            raise Conflict(f"task {task_id} is already done")
+        proof = evidence.record_user_confirmation(
+            session,
+            owner_id=actor.owner_id,
+            source=actor.source,
+            task_id=task_id,
+            note=completion.note,
+        )
+        row.status = TaskStatus.done
+        session.flush()
+        done = Task.model_validate(row, from_attributes=True)
+        return _Outcome(task_id, done, {"evidence_id": proof.id, "kind": proof.kind})
+
+    detail = {"request": completion.model_dump(mode="json")}
+    return _audited(session, actor, kind, "complete", task_id, detail, op)
+
+
+def evidence_for(session: Session, actor: Actor, task_id: str) -> list[Evidence]:
+    _get_row(session, actor, KINDS["task"], task_id)
+    return evidence.list_for_task(session, actor.owner_id, task_id)

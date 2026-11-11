@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from apps.hub.tasks import service
 from apps.hub.tasks.service import Actor, Kind
+from packages.contracts.evidence import Evidence, TaskCompletion
+from packages.contracts.tasks import Task
 
 _STATUS = {service.NotFound: 404, service.Conflict: 409, service.Invalid: 422}
 IDEMPOTENT_REPLAYED = "Idempotent-Replayed"
@@ -72,8 +74,24 @@ def _add_routes(router: APIRouter, kind: Kind) -> None:
         _call(lambda: service.delete(session, actor, kind, entity_id))
 
 
+def _add_completion_routes(router: APIRouter) -> None:
+    @router.post("/tasks/{task_id}/complete", response_model=Task, name="complete_task")
+    def complete(
+        task_id: str, completion: TaskCompletion, session: SessionDep, actor: ActorDep
+    ) -> Task:
+        """Mark a task done. Records a `user_confirmation` Evidence row in the same write."""
+        return _call(lambda: service.complete(session, actor, task_id, completion))
+
+    @router.get(
+        "/tasks/{task_id}/evidence", response_model=list[Evidence], name="list_task_evidence"
+    )
+    def list_evidence(task_id: str, session: SessionDep, actor: ActorDep) -> list[Evidence]:
+        return _call(lambda: service.evidence_for(session, actor, task_id))
+
+
 def build_router() -> APIRouter:
     router = APIRouter(tags=["tasks"])
     for kind in service.KINDS.values():
         _add_routes(router, kind)
+    _add_completion_routes(router)
     return router

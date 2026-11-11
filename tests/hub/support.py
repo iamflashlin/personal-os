@@ -1,0 +1,15 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from apps.hub.core.settings import Settings
+from apps.hub.main import create_app
+
+
+def hub_client(settings: Settings, web_dist: Path | None = None) -> TestClient:
+    """A TestClient that talks to the Hub as http://127.0.0.1 (allowed by its Host check).
+
+    The built web UI is off unless a `web_dist` is given, so results do not depend on
+    whether `apps/web/dist` happens to exist on this machine.
+    """
+    return TestClient(create_app(settings, web_dist=web_dist), base_url="http://127.0.0.1")
