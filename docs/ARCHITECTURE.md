@@ -51,7 +51,7 @@ the Hub never reads `.env` (ADR 0008).
 | `job` and `job_schedule` tables, and the one in-process `JobWorker` (at least once, ADR 0017) | `apps/hub/jobs` | built (T-0010) |
 | `credential` table (name and dates only); the secrets themselves live in Windows Credential Manager (ADR 0018) | `apps/hub/credentials` | built (T-0011) |
 | `integration` (with non-secret `config`) and `synced_item` tables; one sync schedule per integration; connectors: ICS calendar feeds (ADR 0019), Canvas REST (ADR 0020) and read-only IMAP email (ADR 0022) | `apps/hub/integrations` | built (T-0012, T-0015, T-0018) |
-| `model_call` table: one row per language-model call (tokens, peak-rate cost, latency, prompt version, never text); `ModelProvider` door with a DeepSeek adapter on urllib and a FakeProvider; US$10 monthly cap checked before each call (ADR 0025) | `apps/hub/models` | built (T-0021) |
+| `model_call` table: one row per language-model call (tokens, peak-rate cost, latency, prompt version, never text); `ModelProvider` door; vendors through LiteLLM (litellm-core, ADR 0028) and a FakeProvider; US$10 monthly cap checked before each call (ADR 0025, 0028) | `apps/hub/models` | built (T-0021, T-0024) |
 | `email_summary` table: one AI summary per recent mail (gist, action, deadline, importance), OTP/password-reset mail never sent, runs after each sync (ADR 0027) | `apps/hub/summaries` | built (T-0022) |
 | 今日 view: today's deadlines, missing work, events, unread mail and news, computed on request from tasks and synced items; mail carries its AI summary, plus 需要处理的邮件 and an AI notice (owns no table, ADR 0023, 0027) | `apps/hub/briefing` | built (T-0019, T-0023) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |

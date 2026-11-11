@@ -66,6 +66,19 @@ class FakeOpenAI:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _record_other(self) -> None:
+                # A redirect may arrive as GET (301/302) or keep POST/PUT (307/308): record it.
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                body = self.rfile.read(length) if length else b""
+                stub.requests.append({"method": self.command, "path": self.path, "raw": body})
+                stub.headers.append(dict(self.headers.items()))
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            do_GET = do_PUT = do_DELETE = _record_other
+
             def log_message(self, format: str, *args: object) -> None:
                 pass
 
