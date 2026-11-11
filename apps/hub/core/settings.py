@@ -1,5 +1,6 @@
+from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,3 +23,9 @@ class Settings(BaseSettings):
     jobs_retry_base_s: Annotated[float, Field(gt=0)] = 5.0
     # Windows Credential Manager entries for integration secrets live under this name.
     credentials_service: str = "personal-os-hub"
+    # The language model (ADR 0025). "fake" answers locally, for tests and verification.
+    model_provider: Literal["deepseek", "fake"] = "deepseek"
+    model_name: str = "deepseek-flash"
+    model_base_url: str = "https://api.deepseek.com"
+    # Monthly cap on recorded model spend, in USD, over the UTC calendar month.
+    ai_budget_usd: Annotated[Decimal, Field(gt=0)] = Decimal("10")

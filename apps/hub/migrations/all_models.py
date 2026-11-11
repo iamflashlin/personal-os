@@ -13,6 +13,7 @@ import apps.hub.evidence.models
 import apps.hub.integrations.models
 import apps.hub.jobs.models
 import apps.hub.memory.models
+import apps.hub.models.models
 import apps.hub.tasks.models  # noqa: F401
 
 # Tables that migrations create with raw SQL and no ORM model: the FTS5 index on

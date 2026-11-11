@@ -15,9 +15,9 @@ Phone or PC browser: PWA apps/web (planned)
 | entry    __main__ (uvicorn) -> main.create_app()                [built]  |
 | modules  system, tasks, audit, evidence, backup, memory,        [built]  |
 |          devices, actions, jobs, credentials, integrations,    [built]  |
-|          briefing (今日 view, read-only)                       [built]  |
+|          briefing (今日 view, read-only), models               [built]  |
 |          sessions, planner, runs, permissions,                           |
-|          notify, models                                        [planned] |
+|          notify                                                [planned] |
 | core     settings, db engine + PRAGMAs, Entity mixin, UTC type  [built]  |
 | state    POS_DATA_DIR/hub.sqlite (WAL) + file dir: the only state owner  |
 +---------------^------------------------------------+---------------------+
@@ -31,7 +31,7 @@ Phone or PC browser: PWA apps/web (planned)
 +----------------------------+
 
 packages/contracts: cross-process Pydantic types + openapi.json (built: health, tasks,
-memory, devices, actions, agent_protocol, jobs, credentials, integrations, today)
+memory, devices, actions, agent_protocol, jobs, credentials, integrations, today, models)
 ```
 
 Default bind: `127.0.0.1:8765`. Config comes only from `POS_*` environment variables;
@@ -51,6 +51,7 @@ the Hub never reads `.env` (ADR 0008).
 | `job` and `job_schedule` tables, and the one in-process `JobWorker` (at least once, ADR 0017) | `apps/hub/jobs` | built (T-0010) |
 | `credential` table (name and dates only); the secrets themselves live in Windows Credential Manager (ADR 0018) | `apps/hub/credentials` | built (T-0011) |
 | `integration` (with non-secret `config`) and `synced_item` tables; one sync schedule per integration; connectors: ICS calendar feeds (ADR 0019), Canvas REST (ADR 0020) and read-only IMAP email (ADR 0022) | `apps/hub/integrations` | built (T-0012, T-0015, T-0018) |
+| `model_call` table: one row per language-model call (tokens, peak-rate cost, latency, prompt version, never text); `ModelProvider` door with a DeepSeek adapter on urllib and a FakeProvider; US$10 monthly cap checked before each call (ADR 0025) | `apps/hub/models` | built (T-0021) |
 | 今日 view: today's deadlines, missing work, events, unread mail and news, computed on request from tasks and synced items (owns no table, ADR 0023) | `apps/hub/briefing` | built (T-0019) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
