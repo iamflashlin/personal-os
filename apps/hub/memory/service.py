@@ -89,18 +89,6 @@ def list_all(session: Session, actor: Actor, include_expired: bool = False) -> l
     return [_read(r) for r in rows]
 
 
-def _changes_detail(
-    session: Session, actor: Actor, memory_id: str, patch: MemoryUpdate
-) -> dict[str, Any]:
-    current = session.get(MemoryRow, memory_id)
-    old = current.sensitivity if current is not None else Sensitivity.secret
-    new = patch.sensitivity or old
-    # Hide the body if it is sensitive before or after the change.
-    sensitive = old != Sensitivity.normal or new != Sensitivity.normal
-    changes = patch.model_dump(mode="json", exclude_unset=True)
-    return {"changes": _audit_view(changes, sensitive=sensitive)}
-
-
 def update(session: Session, actor: Actor, memory_id: str, patch: MemoryUpdate) -> Memory:
     changes = patch.model_dump(exclude_unset=True, exclude={"version"})
 
@@ -116,12 +104,18 @@ def update(session: Session, actor: Actor, memory_id: str, patch: MemoryUpdate) 
             reasons = "; ".join(e["msg"] for e in exc.errors(include_input=False))
             raise Invalid(f"invalid change: {reasons}") from exc
         _check({"provenance": changes.get("provenance"), "expires_at": merged["expires_at"]})
+        # Hide the body if the memory is sensitive before or after the change.
+        sensitive = (
+            row.sensitivity != Sensitivity.normal or merged["sensitivity"] != Sensitivity.normal
+        )
+        shown = _audit_view(patch.model_dump(mode="json", exclude_unset=True), sensitive=sensitive)
         for name, value in merged.items():
             setattr(row, name, value)
         session.flush()
-        return audit.Outcome(row.id, _read(row))
+        return audit.Outcome(row.id, _read(row), {"changes": shown})
 
-    detail = _changes_detail(session, actor, memory_id, patch)
+    # A refused or failed update is audited with field names only, never their values.
+    detail = {"fields": sorted(patch.model_dump(exclude_unset=True))}
     return audit.audited(session, actor, ENTITY, "update", memory_id, detail, op)
 
 
@@ -202,6 +196,8 @@ def search(
     if "now" in params:
         statement = statement.bindparams(bindparam("now", type_=UTCDateTime()))
     hits = session.execute(statement, params).all()
+    if not hits:
+        return []
     rows = {
         r.id: r
         for r in session.scalars(select(MemoryRow).where(MemoryRow.id.in_([h[0] for h in hits])))

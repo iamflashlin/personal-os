@@ -262,3 +262,14 @@ def test_sqlite_build_supports_fts5_trigram() -> None:
         conn.execute("INSERT INTO t(x) VALUES ('我喜欢早上学习')")
         hits = conn.execute("SELECT x FROM t WHERE t MATCH '\"早上学\"'").fetchall()
     assert hits == [("我喜欢早上学习",)], f"SQLite {sqlite3.sqlite_version}"
+
+
+def test_refused_update_audits_field_names_only(client: TestClient) -> None:
+    memory = remember(client, "safe body")
+    url = f"/memories/{memory['id']}"
+    client.patch(url, json={"version": 1, "body": "first edit"})
+    stale = client.patch(url, json={"version": 1, "body": "my pin is 7351"})
+    assert stale.status_code == 409
+    refused = audit_details(client, memory["id"])[-1]
+    assert refused["fields"] == ["body", "version"]
+    assert "7351" not in str(refused)

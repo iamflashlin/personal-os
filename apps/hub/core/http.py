@@ -29,5 +29,6 @@ def call[T](fn: Callable[[], T]) -> T:
     try:
         return fn()
     except DomainError as exc:
-        status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 500)
+        # Any other refusal is still the client's request being refused: 400.
+        status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 400)
         raise HTTPException(status_code=status, detail=str(exc)) from exc
