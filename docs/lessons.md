@@ -50,3 +50,9 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   without `.evidence/<card>/summary.md`, and each review blocked on it (T-0011) — the
   summary was written last, after fixing review findings — write `summary.md` together
   with the logs, before asking for review, and regenerate both after fixes.
+- 2026-11-11 — The always-on installer reported "did not answer within 60 s" although
+  the Hub was healthy (T-0016) — on Windows a venv's `python.exe` is a launcher, so the
+  process owning the port runs from the base Python and only its parent is in the copy;
+  the earlier test happened to see the launcher path — the installer and
+  `scripts/verify/always_on.py` check the listener and its parent; when identifying a
+  Python process on Windows, look at the parent process too.
