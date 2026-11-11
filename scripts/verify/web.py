@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import httpx  # noqa: E402
 import keyring  # noqa: E402
-from hub import CheckFailed, check, running_hub  # noqa: E402
+from hub import CheckFailed, FakeCanvas, check, running_hub  # noqa: E402
 from playwright.sync_api import Locator, Page, sync_playwright  # noqa: E402
 
 TASK_TITLE = "读第 3 次实验的说明"
@@ -324,6 +324,52 @@ def verify_connections_view(
                 keyring.delete_password(service, key)
 
 
+def verify_canvas_view(
+    page: Page, api: httpx.Client, out: Path, service: str, hub_log: Path
+) -> None:
+    token = f"canvastoken-{uuid.uuid4().hex[:20]}"
+    canvas = FakeCanvas(token)
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    key: str | None = None
+    try:
+        form = page.get_by_role("form", name="连接 Canvas")
+        form.get_by_label("学校的 Canvas 网址").fill(canvas.base)
+        form.get_by_label("访问令牌（不会再显示）").fill(token)
+        form.get_by_role("button", name="连接 Canvas").click()
+        upcoming = page.get_by_test_id("upcoming")
+        upcoming.get_by_text(canvas.title).wait_for(timeout=40_000)
+        check(True, "Canvas work appears in 接下来 14 天 (incl. yesterday's missing lab)")
+        lab = upcoming.get_by_test_id("upcoming-item").filter(has_text=canvas.title)
+        check(lab.get_by_text("缺交").count() == 1, "a missing assignment shows 缺交")
+        quiz = upcoming.get_by_test_id("upcoming-item").filter(has_text="Quiz 5")
+        check(quiz.get_by_text("已提交").count() == 1, "a submitted one shows 已提交")
+        news = page.get_by_test_id("news")
+        check(news.get_by_text("Midterm moved").count() == 1, "the announcement shows in 最近公告")
+        check(token not in page.content(), "the Canvas token is nowhere in the page")
+        name = next(
+            c["name"] for c in api.get("/credentials").json() if c["name"].startswith("canvas.")
+        )
+        key = f"{owner}:{name}"
+        check(keyring.get_password(service, key) == token, "the token is in Credential Manager")
+        shot(page, out, "12-canvas")
+        (row,) = [
+            r
+            for r in page.get_by_test_id("integrations").get_by_role("listitem").all()
+            if "Canvas" in r.inner_text()
+        ]
+        row.get_by_role("button", name="删除").click()
+        row.get_by_role("button", name="确定删除（连同已同步的条目和访问令牌）").click()
+        page.get_by_text("还没有连接任何来源").wait_for()
+        check(keyring.get_password(service, key) is None, "deleting removed the token too")
+        hub_text = hub_log.read_text(encoding="utf-8", errors="replace")
+        check(token not in hub_text, "the Canvas token is not in the Hub log")
+    finally:
+        canvas.close()
+        if key is not None:
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, key)
+
+
 def run(out: Path, headed: bool) -> None:
     build_web()
     scratch_root = ROOT / "data" / "verify"
@@ -397,6 +443,7 @@ def run(out: Path, headed: bool) -> None:
             verify_memory_view(page, api, out, errors)
             hub_log = Path(tmp) / "hub-data.log"  # where running_hub writes the Hub's log
             verify_connections_view(page, api, out, errors, service, hub_log)
+            verify_canvas_view(page, api, out, service, hub_log)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

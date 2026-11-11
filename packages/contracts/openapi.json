@@ -652,6 +652,13 @@
       },
       "Integration": {
         "properties": {
+          "config": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Config",
+            "type": "object"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -727,6 +734,7 @@
           "name",
           "credential_name",
           "interval_s",
+          "config",
           "status",
           "last_sync_at",
           "last_success_at",
@@ -742,6 +750,14 @@
       "IntegrationCreate": {
         "additionalProperties": false,
         "properties": {
+          "config": {
+            "additionalProperties": {
+              "maxLength": 500,
+              "type": "string"
+            },
+            "title": "Config",
+            "type": "object"
+          },
           "credential_name": {
             "pattern": "^[a-z0-9][a-z0-9_.-]{0,79}$",
             "title": "Credential Name",
@@ -774,7 +790,8 @@
       },
       "IntegrationKind": {
         "enum": [
-          "ics"
+          "ics",
+          "canvas"
         ],
         "title": "IntegrationKind",
         "type": "string"

@@ -8,11 +8,9 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import MappingProxyType
 from typing import Any, Protocol
 
 from apps.hub.integrations import ics
-from packages.contracts.integrations import IntegrationKind
 
 MAX_FEED_BYTES = 5 * 1024 * 1024
 TIMEOUT_S = 20  # per socket operation
@@ -44,7 +42,7 @@ class Batch:
 
 
 class Connector(Protocol):
-    def fetch(self, secret: str, cursor: Mapping[str, Any]) -> Batch: ...
+    def fetch(self, secret: str, cursor: Mapping[str, Any], config: Mapping[str, Any]) -> Batch: ...
 
 
 class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
@@ -73,7 +71,7 @@ class IcsConnector:
     private token in the path, where no redaction pattern would find it.
     """
 
-    def fetch(self, secret: str, cursor: Mapping[str, Any]) -> Batch:
+    def fetch(self, secret: str, cursor: Mapping[str, Any], config: Mapping[str, Any]) -> Batch:
         url = secret.strip()
         if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
             raise SyncError("the feed address must start with http:// or https://")
@@ -131,8 +129,3 @@ class IcsConnector:
         ]
         new_cursor = {k: v for k, v in (("etag", etag), ("last_modified", modified)) if v}
         return Batch(items=items, cursor=new_cursor)
-
-
-CONNECTORS: Mapping[IntegrationKind, Connector] = MappingProxyType(
-    {IntegrationKind.ics: IcsConnector()}
-)

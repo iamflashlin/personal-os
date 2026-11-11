@@ -4,6 +4,7 @@ import {
   ApiError,
   type Integration,
   type IntegrationStatus,
+  type NewCanvas,
   type NewFeed,
   type SyncedItem,
 } from "./api";
@@ -21,12 +22,13 @@ const INTERVALS: [number, string][] = [
 ];
 
 const UPCOMING_DAYS = 14;
+const NEWS_DAYS = 7;
 const REFRESH_MS = 10_000;
 const SYNC_WAIT_MS = 60_000;
 const INTRO =
   "把外部来源接进来，系统会在后台定时同步。现在支持“日历订阅链接”（ICS），" +
-  "例如 Canvas 的 Calendar Feed。链接里带有私密令牌，只存进 Windows 凭据管理器，" +
-  "页面不会再显示它。";
+  "例如 Canvas 的 Calendar Feed；也可以用 Canvas 的访问令牌直接接入（能看到是否已交、" +
+  "分数和公告）。链接和令牌都只存进 Windows 凭据管理器，页面不会再显示它们。";
 
 interface Upcoming {
   item: SyncedItem;
@@ -89,14 +91,27 @@ function time(iso: string | null): number {
 }
 
 /** A fresh credential name that the Hub accepts: lower-case letters, digits and dots. */
-function newCredentialName(): string {
+function newCredentialName(prefix: "feed" | "canvas"): string {
   const bytes = crypto.getRandomValues(new Uint8Array(5));
-  return `feed.${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+  return `${prefix}.${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** What a Canvas assignment's submission says, in a word; null for anything else. */
+export function submissionBadge(item: SyncedItem): string | null {
+  if (item.item_type !== "canvas_assignment") return null;
+  const data = item.data as { submission_state?: string; missing?: boolean };
+  if (data.missing) return "缺交";
+  if (data.submission_state === "graded") return "已评分";
+  if (data.submission_state === "submitted" || data.submission_state === "pending_review") {
+    return "已提交";
+  }
+  return null;
 }
 
 export function ConnectionsView({ api }: { api: Api }) {
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
+  const [news, setNews] = useState<Upcoming[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
@@ -107,20 +122,29 @@ export function ConnectionsView({ api }: { api: Api }) {
     const ticket = ++latest.current;
     try {
       const found = await api.integrations();
-      const start = startOfToday();
-      const end = new Date(start.getTime() + UPCOMING_DAYS * 24 * 3600 * 1000);
+      const today = startOfToday();
+      const day = 24 * 3600 * 1000;
+      const pastStart = new Date(today.getTime() - NEWS_DAYS * day);
+      const end = new Date(today.getTime() + UPCOMING_DAYS * day);
+      // Two windows, so last week's calendar events never crowd out what is coming.
       // One source failing (e.g. deleted in another tab) must not blank the others.
-      const lists = await Promise.allSettled(
-        found.map(async (i) =>
-          (await api.integrationItems(i, start, end)).map((item) => ({ item, source: i.name })),
-        ),
-      );
-      const merged = lists
-        .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-        .sort((a, b) => time(a.item.starts_at) - time(b.item.starts_at));
+      const load = async (from: Date, to: Date) =>
+        (
+          await Promise.allSettled(
+            found.map(async (i) =>
+              (await api.integrationItems(i, from, to)).map((item) => ({ item, source: i.name })),
+            ),
+          )
+        ).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+      const [past, coming] = await Promise.all([load(pastStart, today), load(today, end)]);
+      const byTime = (a: Upcoming, b: Upcoming) => time(a.item.starts_at) - time(b.item.starts_at);
+      const isNews = (u: Upcoming) => u.item.item_type === "canvas_announcement";
+      // Canvas marks work "missing" only after it was due: show last week's missing work too.
+      const overdue = past.filter((u) => submissionBadge(u.item) === "缺交");
       if (mounted.current && ticket === latest.current) {
         setIntegrations(found);
-        setUpcoming(merged);
+        setUpcoming([...overdue, ...coming.filter((u) => !isNews(u))].sort(byTime));
+        setNews([...past, ...coming].filter(isNews).sort(byTime).reverse());
         setLoadError(null);
       }
     } catch (err) {
@@ -200,7 +224,12 @@ export function ConnectionsView({ api }: { api: Api }) {
           {actionError}
         </p>
       )}
-      <NewFeedForm onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName()))} />
+      <NewFeedForm
+        onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
+      />
+      <NewCanvasForm
+        onConnect={(canvas) => run(() => api.connectCanvas(canvas, newCredentialName("canvas")))}
+      />
       <section data-testid="integrations">
         <h2>已连接</h2>
         {integrations === null && !loadError && <p>加载中…</p>}
@@ -221,30 +250,110 @@ export function ConnectionsView({ api }: { api: Api }) {
         <h2>接下来 {UPCOMING_DAYS} 天</h2>
         {upcoming.length === 0 && <p className="muted">没有即将到来的日程</p>}
         <ul className="memories">
-          {upcoming.map(({ item, source }) => {
-            const link = safeLink(item.url);
-            const title = item.title || "（无标题）";
-            return (
-              <li key={item.id} className="memory" data-testid="upcoming-item">
-                <div className="memory-main">
-                  <span className="badge">{when(item)}</span>
-                  <span className="memory-body">
-                    {link ? (
-                      <a href={link} target="_blank" rel="noreferrer noopener">
-                        {title}
-                      </a>
-                    ) : (
-                      title
-                    )}
-                  </span>
-                  <span className="muted">{source}</span>
-                </div>
-              </li>
-            );
-          })}
+          {upcoming.map((u) => (
+            <ItemRow key={u.item.id} entry={u} testId="upcoming-item" />
+          ))}
         </ul>
       </section>
+      {news.length > 0 && (
+        <section data-testid="news">
+          <h2>最近公告（{NEWS_DAYS} 天内）</h2>
+          <ul className="memories">
+            {news.map((u) => (
+              <ItemRow key={u.item.id} entry={u} testId="news-item" />
+            ))}
+          </ul>
+        </section>
+      )}
     </>
+  );
+}
+
+function ItemRow({ entry, testId }: { entry: Upcoming; testId: string }) {
+  const { item, source } = entry;
+  const link = safeLink(item.url);
+  const title = item.title || "（无标题）";
+  const badge = submissionBadge(item);
+  const course = (item.data as { course?: string }).course;
+  return (
+    <li className="memory" data-testid={testId}>
+      <div className="memory-main">
+        <span className="badge">{when(item)}</span>
+        <span className="memory-body">
+          {link ? (
+            <a href={link} target="_blank" rel="noreferrer noopener">
+              {title}
+            </a>
+          ) : (
+            title
+          )}
+        </span>
+        {badge && <span className={`badge submission-${badge}`}>{badge}</span>}
+        <span className="muted">{course || source}</span>
+      </div>
+      {item.item_type === "canvas_announcement" && item.body && (
+        <p className="muted">{item.body.slice(0, 200)}</p>
+      )}
+    </li>
+  );
+}
+
+function NewCanvasForm({ onConnect }: { onConnect: (canvas: NewCanvas) => Promise<boolean> }) {
+  const [name, setName] = useState("Canvas");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const token = useRef<HTMLInputElement>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const field = token.current;
+    if (!field) return;
+    setBusy(true);
+    try {
+      const canvas = {
+        name: name.trim(),
+        baseUrl: baseUrl.trim(),
+        token: field.value.trim(),
+        interval_s: 3600,
+      };
+      if (await onConnect(canvas)) field.value = "";
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="new-memory" onSubmit={submit} aria-label="连接 Canvas" autoComplete="off">
+      <label>
+        <span className="label">名称</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
+      </label>
+      <label>
+        <span className="label">学校的 Canvas 网址</span>
+        <input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://学校.instructure.com"
+          required
+        />
+      </label>
+      <label className="grow">
+        <span className="label">访问令牌（不会再显示）</span>
+        <input
+          ref={token}
+          type="text"
+          className="masked"
+          autoComplete="off"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          required
+        />
+      </label>
+      <button type="submit" className="primary" disabled={busy}>
+        {busy ? "连接中…" : "连接 Canvas"}
+      </button>
+    </form>
   );
 }
 
@@ -369,7 +478,7 @@ function IntegrationRow({
               onClick={() => void remove()}
               disabled={deleting}
             >
-              确定删除（连同已同步的条目和订阅链接）
+              确定删除（连同已同步的条目和{integration.kind === "canvas" ? "访问令牌" : "订阅链接"}）
             </button>
             <button type="button" onClick={() => setConfirming(false)} disabled={deleting}>
               不删

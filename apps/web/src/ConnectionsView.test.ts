@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { feedAddress, safeLink, startOfToday } from "./ConnectionsView";
+import type { SyncedItem } from "./api";
+import { feedAddress, safeLink, startOfToday, submissionBadge } from "./ConnectionsView";
 
 describe("connections page helpers", () => {
   it("makes only http and https links clickable", () => {
@@ -25,5 +26,19 @@ describe("connections page helpers", () => {
     expect(start.getTime()).toBe(Math.min(localMidnight.getTime(), utcMidnight.getTime()));
     expect(start.getTime()).toBeLessThanOrEqual(utcMidnight.getTime()); // today's all-day items
     expect(start.getTime()).toBeLessThanOrEqual(now.getTime()); // events already in progress
+  });
+});
+
+describe("submission badges", () => {
+  const assignment = (data: Record<string, unknown>) =>
+    ({ item_type: "canvas_assignment", data }) as unknown as SyncedItem;
+
+  it("says missing, graded or submitted, and nothing otherwise", () => {
+    expect(submissionBadge(assignment({ missing: true, submission_state: "unsubmitted" }))).toBe("缺交");
+    expect(submissionBadge(assignment({ submission_state: "graded" }))).toBe("已评分");
+    expect(submissionBadge(assignment({ submission_state: "submitted" }))).toBe("已提交");
+    expect(submissionBadge(assignment({ submission_state: "unsubmitted" }))).toBeNull();
+    const event = { item_type: "calendar_event", data: {} } as unknown as SyncedItem;
+    expect(submissionBadge(event)).toBeNull();
   });
 });

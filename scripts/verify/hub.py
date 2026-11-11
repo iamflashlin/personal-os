@@ -9,6 +9,7 @@
     uv run python scripts/verify/hub.py jobs
     uv run python scripts/verify/hub.py credentials
     uv run python scripts/verify/hub.py integrations
+    uv run python scripts/verify/hub.py canvas
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -701,6 +702,167 @@ def verify_integrations(_client: httpx.Client, data_dir: Path, _args: argparse.N
             keyring.delete_password(service, f"{owner}:canvas.feed")
 
 
+class FakeCanvas:
+    """A stand-in Canvas API on 127.0.0.1: two courses, assignments due soon (one missing,
+    one submitted), an announcement from yesterday. Answers 401 to any other token."""
+
+    def __init__(self, token: str) -> None:
+        import json as _json
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from urllib.parse import urlsplit
+
+        self.token = token
+        self.title = "Lab 3 实验报告"
+        self.requests = 0
+        fake = self
+
+        def answer(path: str, auth: str | None) -> tuple[int, Any]:
+            if auth != f"Bearer {fake.token}":
+                return 401, {"errors": [{"message": "Invalid access token."}]}
+            # Missing work is overdue on real Canvas: due yesterday.
+            overdue = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+            later = (datetime.now(UTC) + timedelta(days=4)).isoformat()
+            yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+            route = urlsplit(path).path
+            if route == "/api/v1/courses":
+                return 200, [{"id": 1, "name": "CIS 22A"}, {"id": 2, "name": "MATH 1B"}]
+            if route == "/api/v1/courses/1/assignments":
+                return 200, [
+                    {
+                        "id": 11,
+                        "name": fake.title,
+                        "due_at": overdue,
+                        "points_possible": 20,
+                        "html_url": "https://canvas.example.edu/courses/1/assignments/11",
+                        "submission": {"workflow_state": "unsubmitted", "missing": True},
+                    }
+                ]
+            if route == "/api/v1/courses/2/assignments":
+                return 200, [
+                    {
+                        "id": 21,
+                        "name": "Quiz 5",
+                        "due_at": later,
+                        "submission": {"workflow_state": "submitted"},
+                    }
+                ]
+            if route == "/api/v1/announcements":
+                return 200, [
+                    {
+                        "id": 7,
+                        "title": "Midterm moved",
+                        "message": "<p>Now on <b>Friday</b>.</p>",
+                        "posted_at": yesterday,
+                        "context_code": "course_1",
+                    }
+                ]
+            return 404, {"errors": [{"message": "not found"}]}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                fake.requests += 1
+                status, body = answer(self.path, self.headers.get("Authorization"))
+                data = _json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                pass
+
+        self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base = f"http://127.0.0.1:{self.http.server_address[1]}"
+        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.http.shutdown()
+        self.http.server_close()
+
+
+def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    import uuid
+
+    import keyring
+
+    token = f"canvastoken-{uuid.uuid4().hex[:20]}"
+    canvas = FakeCanvas(token)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "canvas-data"
+    os.environ["POS_CREDENTIALS_SERVICE"] = service
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    try:
+        with running_hub(hub_dir) as hub:
+            put = hub.put("/credentials/canvas.token", json={"secret": token})
+            check(put.status_code == 200, "the Canvas token is stored as a credential")
+            created = hub.post(
+                "/integrations",
+                json={
+                    "kind": "canvas",
+                    "name": "Canvas",
+                    "credential_name": "canvas.token",
+                    "config": {"base_url": canvas.base},
+                },
+            )
+            check(created.status_code == 201, "POST /integrations (canvas) -> 201")
+            iid = created.json()["id"]
+            items_url = f"/integrations/{iid}/items"
+            wait(
+                "the background sync read 2 assignments and 1 announcement",
+                lambda: len(hub.get(items_url).json()) == 3,
+            )
+            items = {i["title"]: i for i in hub.get(items_url).json()}
+            lab = items["Lab 3 实验报告"]
+            check(
+                lab["data"]["missing"] is True and lab["data"]["course"] == "CIS 22A",
+                "the assignment knows its course and that it is missing",
+            )
+            check(items["Midterm moved"]["body"] == "Now on Friday.", "announcement text, no HTML")
+
+            canvas.title = "Lab 3 实验报告 - 延期"
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a manual sync finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            titles = sorted(i["title"] for i in hub.get(items_url).json())
+            check(
+                titles == ["Lab 3 实验报告 - 延期", "Midterm moved", "Quiz 5"],
+                "updated, no duplicate",
+            )
+
+            canvas.token = "rotated"  # the stored token no longer works
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a refused token shows status error",
+                lambda: hub.get(f"/integrations/{iid}").json()["status"] == "error",
+            )
+            error = hub.get(f"/integrations/{iid}").json()["last_error"]
+            check("refused the token" in error, f"the error says why ({error})")
+            shown = hub.get(f"/integrations/{iid}").text + hub.get("/jobs").text
+            check(token not in shown, "the token is in no response")
+            stored = b"".join(p.read_bytes() for p in hub_dir.glob(f"{DB_FILENAME}*"))
+            check(token.encode() not in stored, "the token is in no byte of hub.sqlite*")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(token not in hub_log, "the token is not in the Hub log")
+    finally:
+        os.environ.pop("POS_CREDENTIALS_SERVICE", None)
+        canvas.close()
+        with contextlib.suppress(Exception):
+            keyring.delete_password(service, f"{owner}:canvas.token")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -710,6 +872,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "jobs": verify_jobs,
     "credentials": verify_credentials,
     "integrations": verify_integrations,
+    "canvas": verify_canvas,
 }
 
 

@@ -11,6 +11,7 @@ from packages.contracts.credentials import CredentialName
 
 class IntegrationKind(StrEnum):
     ics = "ics"  # a calendar feed; its URL is the credential (Canvas puts a token in it)
+    canvas = "canvas"  # Canvas REST API; the token is the credential, config["base_url"]
 
 
 class IntegrationStatus(StrEnum):
@@ -26,6 +27,8 @@ class IntegrationCreate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=80)]
     credential_name: CredentialName
     interval_s: Annotated[int, Field(ge=300, le=86400)] = 900
+    # Non-secret settings, checked per kind (canvas: {"base_url": "https://…"}).
+    config: dict[str, Annotated[str, Field(max_length=500)]] = Field(default_factory=dict)
 
 
 class Integration(BaseModel):
@@ -34,6 +37,7 @@ class Integration(BaseModel):
     name: str
     credential_name: str
     interval_s: int
+    config: dict[str, str]
     status: IntegrationStatus
     last_sync_at: datetime | None
     last_success_at: datetime | None

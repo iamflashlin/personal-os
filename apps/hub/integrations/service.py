@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 from apps.hub.audit import service as audit
 from apps.hub.core.domain import Actor, Invalid, NotFound
 from apps.hub.credentials import service as credentials
-from apps.hub.integrations.connectors import CONNECTORS, Batch, Connector, ItemIn, SyncError
+from apps.hub.integrations.connectors import Batch, Connector, ItemIn, SyncError
 from apps.hub.integrations.models import IntegrationRow, SyncedItemRow
+from apps.hub.integrations.registry import CONNECTORS, check_config
 from apps.hub.jobs import service as jobs
 from packages.contracts.integrations import (
     Integration,
@@ -62,6 +63,10 @@ def create(
     """Create it and its sync schedule; the first sync is due at once."""
 
     def op() -> audit.Outcome[Integration]:
+        try:
+            config = check_config(payload.kind, payload.config)
+        except ValueError as exc:
+            raise Invalid(str(exc)) from None
         names = {c.name for c in credentials.list_all(session, actor)}
         if payload.credential_name not in names:
             raise Invalid(f"credential {payload.credential_name} is not set; PUT it first")
@@ -72,6 +77,7 @@ def create(
             name=payload.name,
             credential_name=payload.credential_name,
             interval_s=payload.interval_s,
+            config=config,
             status=IntegrationStatus.never_synced,
             last_error="",
             cursor={},
@@ -236,10 +242,11 @@ def sync(
     with Session(engine, expire_on_commit=False) as session:
         row = _get_row(session, actor, integration_id)
         kind, credential_name, cursor = IntegrationKind(row.kind), row.credential_name, row.cursor
+        config = dict(row.config or {})
     try:
         with Session(engine) as session:
             secret = credentials.reveal(session, actor, store, credential_name)
-        batch = connectors[kind].fetch(secret, cursor)
+        batch = connectors[kind].fetch(secret, cursor, config)
     except (SyncError, NotFound) as exc:
         _record_failure(engine, actor, integration_id, now, str(exc))
         raise

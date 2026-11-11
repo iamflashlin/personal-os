@@ -309,7 +309,7 @@ def test_an_unexpected_error_keeps_only_its_type(
     client: TestClient, feed: Feed, store: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Leaky:
-        def fetch(self, secret: str, cursor: Any) -> Any:
+        def fetch(self, secret: str, cursor: Any, config: Any) -> Any:
             raise RuntimeError(f"library bug while reading {secret}")
 
     integration = connect(client, feed)

@@ -281,3 +281,15 @@ button.danger {
 input.masked {
   -webkit-text-security: disc;
 }
+
+.badge.submission-缺交 {
+  background: #fde8e8;
+  color: #a12020;
+}
+
+.badge.submission-已提交,
+.badge.submission-已评分 {
+  background: #e3f4e8;
+  color: #1d6b35;
+}
+

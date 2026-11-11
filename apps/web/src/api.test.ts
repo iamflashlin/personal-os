@@ -74,6 +74,7 @@ describe("connections", () => {
       name: "Canvas",
       credential_name: "feed.ab12",
       interval_s: 900,
+      config: {},
     });
     expect(JSON.stringify(created)).not.toContain("https://x/feed.ics");
   });
@@ -111,6 +112,20 @@ describe("connections", () => {
       ["DELETE", "/integrations/01I"],
       ["DELETE", "/credentials/feed.ab12"],
     ]);
+  });
+
+  it("sends a Canvas token only to the credential store, the address as config", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, integration, calls));
+    await api.connectCanvas(
+      { name: "Canvas", baseUrl: "https://school.instructure.com", token: "tok-123", interval_s: 3600 },
+      "canvas.ab12",
+    );
+    expect(JSON.parse(String(calls[0].init?.body)).secret).toBe("tok-123");
+    const created = JSON.parse(String(calls[1].init?.body));
+    expect(created.config).toEqual({ base_url: "https://school.instructure.com" });
+    expect(created.kind).toBe("canvas");
+    expect(JSON.stringify(created)).not.toContain("tok-123");
   });
 
   it("keeps a credential that another integration still uses", async () => {

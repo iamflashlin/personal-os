@@ -16,6 +16,7 @@ class IntegrationRow(Entity, Base):
     name: Mapped[str] = mapped_column(String(80))
     credential_name: Mapped[str] = mapped_column(String(80))
     interval_s: Mapped[int] = mapped_column(Integer)
+    config: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16))
     last_sync_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     last_success_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

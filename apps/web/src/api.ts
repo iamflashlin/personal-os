@@ -69,7 +69,8 @@ export interface NewMemory {
 export type IntegrationStatus = "never_synced" | "ok" | "error";
 
 export interface Integration extends Stored {
-  kind: "ics";
+  kind: "ics" | "canvas";
+  config: Record<string, string>;
   name: string;
   credential_name: string;
   interval_s: number;
@@ -105,6 +106,15 @@ export interface NewFeed {
   name: string;
   /** The private feed address; sent once to the credential store, never shown again. */
   url: string;
+  interval_s: number;
+}
+
+export interface NewCanvas {
+  name: string;
+  /** e.g. https://school.instructure.com; not secret. */
+  baseUrl: string;
+  /** The personal access token; sent once to the credential store, never shown again. */
+  token: string;
   interval_s: number;
 }
 
@@ -145,6 +155,34 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       throw new ApiError(response.status, describe(body) || response.statusText);
     }
     return body as T;
+  }
+
+  /**
+   * Stores the secret as a credential first, then creates the integration. If the second
+   * step fails, the credential is removed again so no unused secret is left.
+   */
+  async function connect(
+    kind: Integration["kind"],
+    name: string,
+    secret: string,
+    config: Record<string, string>,
+    interval_s: number,
+    credentialName: string,
+  ): Promise<Integration> {
+    const credential = `/credentials/${encodeURIComponent(credentialName)}`;
+    await call<unknown>(credential, {
+      method: "PUT",
+      body: JSON.stringify({ secret, note: name }),
+    });
+    try {
+      return await call<Integration>("/integrations", {
+        method: "POST",
+        body: JSON.stringify({ kind, name, credential_name: credentialName, interval_s, config }),
+      });
+    } catch (err) {
+      await call<null>(credential, { method: "DELETE" }).catch(() => null);
+      throw err;
+    }
   }
 
   return {
@@ -192,27 +230,17 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
      * Stores the feed address as a credential first, then creates the integration. If the
      * second step fails, the credential is removed again so no unused secret is left.
      */
-    connectFeed: async (feed: NewFeed, credentialName: string) => {
-      const credential = `/credentials/${encodeURIComponent(credentialName)}`;
-      await call<unknown>(credential, {
-        method: "PUT",
-        body: JSON.stringify({ secret: feed.url, note: feed.name }),
-      });
-      try {
-        return await call<Integration>("/integrations", {
-          method: "POST",
-          body: JSON.stringify({
-            kind: "ics",
-            name: feed.name,
-            credential_name: credentialName,
-            interval_s: feed.interval_s,
-          }),
-        });
-      } catch (err) {
-        await call<null>(credential, { method: "DELETE" }).catch(() => null);
-        throw err;
-      }
-    },
+    connectFeed: (feed: NewFeed, credentialName: string) =>
+      connect("ics", feed.name, feed.url, {}, feed.interval_s, credentialName),
+    connectCanvas: (canvas: NewCanvas, credentialName: string) =>
+      connect(
+        "canvas",
+        canvas.name,
+        canvas.token,
+        { base_url: canvas.baseUrl },
+        canvas.interval_s,
+        credentialName,
+      ),
     syncIntegration: (integration: Integration) =>
       call<{ job_id: string }>(`/integrations/${integration.id}/sync`, { method: "POST" }),
     /** Deletes the integration, its synced items and (unless kept) its credential. */
