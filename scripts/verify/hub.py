@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import itertools
 import json
 import os
@@ -1119,6 +1120,191 @@ def verify_today(_client: httpx.Client, data_dir: Path, _args: argparse.Namespac
                 keyring.delete_password(service, f"{owner}:{name}")
 
 
+def verify_summaries(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    """ADR 0027 with the real Hub, a fake IMAP server and FakeProvider (no money spent)."""
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    model_key = f"sk-verify-{uuid.uuid4().hex}"
+    otp = "482913"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(
+        fake_mail("CIS 22A Lab 5 截止提醒", "Lab 5 截止 周五 23:59，请在 Canvas 提交。"),
+        received=recent(3),
+    )
+    box.add(fake_mail("网易邮箱验证码", f"您的验证码是 {otp}，10分钟内有效。"), received=recent(2))
+    box.add(fake_mail("The Weekly Digest", "Campus news this week."), received=recent(1))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "summaries-data"
+    model_log = data_dir.parent / "fake-model.log"
+    saved = {
+        k: os.environ.get(k)
+        for k in (
+            "POS_CREDENTIALS_SERVICE",
+            "POS_MODEL_PROVIDER",
+            "POS_FAKE_MODEL_LOG",
+            "POS_AI_BUDGET_USD",
+        )
+    }
+    os.environ.update(
+        {
+            "POS_CREDENTIALS_SERVICE": service,
+            "POS_MODEL_PROVIDER": "fake",
+            "POS_FAKE_MODEL_LOG": str(model_log),
+        }
+    )
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    def summary_jobs_done(hub: httpx.Client) -> int:
+        return sum(
+            1
+            for j in hub.get("/jobs").json()
+            if j["kind"] == "summaries.email" and j["status"] == "succeeded"
+        )
+
+    def by_title(hub: httpx.Client, iid: str) -> dict[str, dict[str, Any]]:
+        items = hub.get(f"/integrations/{iid}/items").json()
+        ids = ",".join(i["id"] for i in items)
+        summaries = {
+            s["item_id"]: s for s in hub.get("/summaries/email", params={"item_ids": ids}).json()
+        }
+        return {i["title"]: summaries.get(i["id"], {}) for i in items}
+
+    try:
+        with running_hub(hub_dir) as hub:
+            hub.put("/credentials/mail.code", json={"secret": code})
+            created = hub.post(
+                "/integrations",
+                json={
+                    "kind": "email",
+                    "name": "163",
+                    "credential_name": "mail.code",
+                    "config": {
+                        "host": "127.0.0.1",
+                        "port": str(imap.port),
+                        "username": "student@example.com",
+                        "tls": "off",
+                    },
+                },
+            )
+            iid = created.json()["id"]
+            wait(
+                "the sync read three mails",
+                lambda: len(hub.get(f"/integrations/{iid}/items").json()) == 3,
+            )
+            wait("a summary run followed the sync", lambda: summary_jobs_done(hub) >= 1)
+            s = hub.get("/summaries/status").json()
+            check(
+                s["blocked"] == "no_key" and s["notice"] == "还没有设置 DeepSeek key",
+                f"before the key: blocked={s['blocked']} notice={s['notice']}",
+            )
+            rows = by_title(hub, iid)
+            check(
+                rows["网易邮箱验证码"].get("status") == "skipped_sensitive",
+                "the OTP mail is skipped before any key exists",
+            )
+            check(hub.get("/models/usage").json()["calls"] == 0, "no model call without a key")
+
+            hub.put("/credentials/deepseek", json={"secret": model_key})
+            before = summary_jobs_done(hub)
+            check(hub.post("/summaries/run").status_code == 202, "POST /summaries/run -> 202")
+            wait("the requested run finished", lambda: summary_jobs_done(hub) > before)
+            rows = by_title(hub, iid)
+            ok = [t for t, r in rows.items() if r.get("status") == "ok"]
+            check(
+                sorted(ok) == ["CIS 22A Lab 5 截止提醒", "The Weekly Digest"],
+                f"two mails summarised: {ok}",
+            )
+            lab = rows["CIS 22A Lab 5 截止提醒"]
+            check(lab["action_needed"] and lab["gist"], f"the Lab mail needs action: {lab['gist']}")
+            usage = hub.get("/models/usage").json()
+            check(
+                usage["calls"] == 2 and usage["spent_micro_usd"] > 0,
+                f"two model calls recorded, {usage['spent_micro_usd']} micro-USD",
+            )
+
+            before = summary_jobs_done(hub)
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a re-sync finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            wait("its summary run finished", lambda: summary_jobs_done(hub) > before)
+            check(hub.get("/models/usage").json()["calls"] == 2, "a re-sync adds no model call")
+            shown = "".join(
+                hub.get(p).text
+                for p in ("/summaries/status", "/models/usage", "/credentials", "/jobs")
+            )
+            check(model_key not in shown, "the DeepSeek key is in no response")
+
+        os.environ["POS_AI_BUDGET_USD"] = "0.000001"
+        box.add(fake_mail("Midterm moved", "The midterm moves to Friday."), received=recent(0.5))
+        with running_hub(hub_dir) as hub:
+            before = summary_jobs_done(hub)
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "the sync after the restart finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            wait("its summary run finished", lambda: summary_jobs_done(hub) > before)
+            rows = by_title(hub, iid)
+            check(
+                rows["Midterm moved"].get("status") == "pending",
+                "over the budget, the new mail waits",
+            )
+            s = hub.get("/summaries/status").json()
+            check(s["notice"] == "本月 AI 预算已用完", f"notice: {s['notice']}")
+            check(hub.get("/models/usage").json()["calls"] == 2, "no call over the budget")
+
+        sent = model_log.read_text(encoding="utf-8")
+        check(sent.count("<email>") == 2, "the fake model received exactly two mails")
+        check(otp not in sent, "the OTP never reached the model")
+        stored = b"".join(p.read_bytes() for p in hub_dir.glob(f"{DB_FILENAME}*"))
+        check(model_key.encode() not in stored, "the key is in no byte of hub.sqlite*")
+        import sqlite3
+
+        with contextlib.closing(sqlite3.connect(hub_dir / DB_FILENAME)) as db:
+            tables = [
+                r[0]
+                for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                if r[0] != "synced_item"  # the mailbox copy itself holds the body
+            ]
+            holders = [
+                t
+                for t in tables
+                if any(otp in " ".join(map(str, row)) for row in db.execute(f'SELECT * FROM "{t}"'))
+            ]
+        check(not holders, f"the OTP is in no table but synced_item ({len(tables)} checked)")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(
+            model_key not in hub_log and otp not in hub_log,
+            "neither the key nor the OTP is in the Hub log",
+        )
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        imap.close()
+        for name in ("mail.code", "deepseek"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{name}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -1131,10 +1317,14 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "canvas": verify_canvas,
     "email": verify_email,
     "today": verify_today,
+    "summaries": verify_summaries,
 }
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes default to the ANSI code page
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--audit-out", help="crud: write the audit rows as JSON here")

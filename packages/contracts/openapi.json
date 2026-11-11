@@ -352,6 +352,97 @@
         "title": "Device",
         "type": "object"
       },
+      "EmailSummary": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "action_needed": {
+            "title": "Action Needed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deadline_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Date"
+          },
+          "deadline_text": {
+            "title": "Deadline Text",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "gist": {
+            "title": "Gist",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importance": {
+            "$ref": "#/components/schemas/Importance"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SummaryStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "item_id",
+          "status",
+          "gist",
+          "action_needed",
+          "action",
+          "deadline_text",
+          "deadline_date",
+          "importance",
+          "model",
+          "prompt_version",
+          "error",
+          "created_at",
+          "updated_at",
+          "version"
+        ],
+        "title": "EmailSummary",
+        "type": "object"
+      },
       "EntryKind": {
         "enum": [
           "assignment",
@@ -660,6 +751,15 @@
         ],
         "title": "HealthResponse",
         "type": "object"
+      },
+      "Importance": {
+        "enum": [
+          "high",
+          "normal",
+          "low"
+        ],
+        "title": "Importance",
+        "type": "string"
       },
       "Integration": {
         "properties": {
@@ -1212,6 +1312,60 @@
         "title": "MemoryUpdate",
         "type": "object"
       },
+      "ModelUsage": {
+        "properties": {
+          "budget_micro_usd": {
+            "title": "Budget Micro Usd",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "key_set": {
+            "title": "Key Set",
+            "type": "boolean"
+          },
+          "last_error": {
+            "title": "Last Error",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "prices_as_of": {
+            "format": "date",
+            "title": "Prices As Of",
+            "type": "string"
+          },
+          "spent_micro_usd": {
+            "title": "Spent Micro Usd",
+            "type": "integer"
+          },
+          "vendor": {
+            "title": "Vendor",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor",
+          "model",
+          "key_set",
+          "month",
+          "spent_micro_usd",
+          "budget_micro_usd",
+          "calls",
+          "last_error",
+          "prices_as_of"
+        ],
+        "title": "ModelUsage",
+        "type": "object"
+      },
       "PairRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1513,6 +1667,19 @@
         "title": "RiskLevel",
         "type": "string"
       },
+      "RunStarted": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "RunStarted",
+        "type": "object"
+      },
       "Schedule": {
         "description": "Enqueue one `kind` job every `interval_s` seconds.",
         "properties": {
@@ -1597,6 +1764,55 @@
         ],
         "title": "SourceProblem",
         "type": "object"
+      },
+      "SummariesStatus": {
+        "properties": {
+          "blocked": {
+            "$ref": "#/components/schemas/SummaryBlock"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ModelUsage"
+          }
+        },
+        "required": [
+          "pending",
+          "blocked",
+          "notice",
+          "usage"
+        ],
+        "title": "SummariesStatus",
+        "type": "object"
+      },
+      "SummaryBlock": {
+        "enum": [
+          "none",
+          "no_key",
+          "key_rejected",
+          "no_balance",
+          "budget",
+          "rate_limited"
+        ],
+        "title": "SummaryBlock",
+        "type": "string"
+      },
+      "SummaryStatus": {
+        "enum": [
+          "pending",
+          "ok",
+          "skipped_sensitive",
+          "skipped_unreadable",
+          "failed"
+        ],
+        "title": "SummaryStatus",
+        "type": "string"
       },
       "SyncedItem": {
         "properties": {
@@ -4002,6 +4218,27 @@
         ]
       }
     },
+    "/models/usage": {
+      "get": {
+        "operationId": "model_usage_models_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Model Usage",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/projects": {
       "get": {
         "operationId": "list_projects_projects_get",
@@ -4207,6 +4444,96 @@
         "summary": "Update Project",
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/summaries/email": {
+      "get": {
+        "operationId": "email_summaries_summaries_email_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "item_ids",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 6000,
+              "title": "Item Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EmailSummary"
+                  },
+                  "title": "Response Email Summaries Summaries Email Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Email Summaries",
+        "tags": [
+          "summaries"
+        ]
+      }
+    },
+    "/summaries/run": {
+      "post": {
+        "operationId": "run_summaries_summaries_run_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run Summaries",
+        "tags": [
+          "summaries"
+        ]
+      }
+    },
+    "/summaries/status": {
+      "get": {
+        "operationId": "summaries_status_summaries_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummariesStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Summaries Status",
+        "tags": [
+          "summaries"
         ]
       }
     },

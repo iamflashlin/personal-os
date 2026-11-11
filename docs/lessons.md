@@ -56,3 +56,7 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   the earlier test happened to see the launcher path — the installer and
   `scripts/verify/always_on.py` check the listener and its parent; when identifying a
   Python process on Windows, look at the parent process too.
+- 2026-11-11 — A shell heredoc again ate the backslashes of a regex edit (T-0020, T-0022),
+  despite the 2026-11-10 lesson — the "patch script in a heredoc" habit made the same
+  mistake one level down — edit regex and other backslash-heavy code only with the editor
+  tool or a script file written by the editor, never through a heredoc.
