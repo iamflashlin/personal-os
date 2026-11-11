@@ -5,7 +5,7 @@
 
 ## 现在做到哪
 
-共 12 张任务卡：已完成 5，进行中 0，待审核 5，卡住 0，未开始 2。
+共 16 张任务卡：已完成 5，进行中 1，待审核 5，卡住 3，未开始 2。
 
 ### 已完成
 
@@ -15,6 +15,10 @@
 - **T-0001** Hub skeleton - FastAPI app, settings, SQLite (WAL) + Alembic, base model, boundary check
 - **T-0002** Goal / Project / Task / Workspace CRUD API with audit log
 
+### 进行中
+
+- **T-0005** Second brain v0 - Memory entries with provenance, correction, expiry and full-text search
+
 ### 待审核
 
 - **D0-06** ARCHITECTURE.md and ADRs for modular monolith, SQLite, agent-initiated connection
@@ -22,6 +26,12 @@
 - **D0-08** Record the product vision, propose a realigned roadmap, and housekeeping
 - **T-0003** pos export / pos import v0 with round-trip migration test
 - **T-0004** Minimal web UI - list goals/projects/tasks, create a task, confirm a task done
+
+### 卡住了
+
+- **T-0006** Action contract and Hub side of the desktop agent link - pairing, token, WebSocket, heartbeat, idempotent dispatch
+- **T-0007** Desktop agent core - connect out, reconnect with backoff, whitelist registry, at-most-once executor
+- **T-0008** WindowsAdapter and real local verification - open a test URL and a temp folder, verify windows, prove one execution per key
 
 ## 下一步
 
