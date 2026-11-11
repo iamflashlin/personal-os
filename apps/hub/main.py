@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -13,6 +15,8 @@ from apps.hub.actions import service as actions
 from apps.hub.core.db import make_engine, upgrade_to_head
 from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
+from apps.hub.credentials import api as credentials_api
+from apps.hub.credentials import service as credentials
 from apps.hub.devices import api as devices_api
 from apps.hub.devices import service as devices
 from apps.hub.jobs import api as jobs_api
@@ -45,6 +49,7 @@ def create_app(
     settings: Settings | None = None,
     web_dist: Path | None = WEB_DIST,
     kinds: jobs.JobKinds | None = None,
+    secret_store: credentials.SecretStore | None = None,
 ) -> FastAPI:
     """The Hub API; also serves the built web UI at `/` when `web_dist` exists."""
     settings = settings or Settings()
@@ -79,12 +84,24 @@ def create_app(
     app.state.settings = settings
     app.state.agent_links = devices.AgentLinks()
     app.state.job_worker = worker
+    app.state.secret_store = secret_store or credentials.KeyringSecretStore(
+        settings.credentials_service
+    )
     # Rejects requests whose Host is not this machine, so a web page that DNS-rebinds its
     # own domain to 127.0.0.1 cannot drive the API from the user's browser (ADR 0011).
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=_allowed_hosts(settings.hub_host),
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # FastAPI's default echoes each bad value back ("input"). That would return a
+        # mistyped or oversized secret to the caller, who might then log or show it.
+        errors = [
+            {k: v for k, v in error.items() if k not in ("input", "ctx")} for error in exc.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": errors})
 
     @app.get("/health")
     def health() -> HealthResponse:
@@ -99,6 +116,7 @@ def create_app(
     )
     app.include_router(actions_api.build_router())
     app.include_router(jobs_api.build_router())
+    app.include_router(credentials_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
         # method on an API path therefore falls through to here and gets 404, not 405.

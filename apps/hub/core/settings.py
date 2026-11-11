@@ -20,3 +20,5 @@ class Settings(BaseSettings):
     jobs_enabled: bool = True
     jobs_poll_s: Annotated[float, Field(gt=0)] = 1.0
     jobs_retry_base_s: Annotated[float, Field(gt=0)] = 5.0
+    # Windows Credential Manager entries for integration secrets live under this name.
+    credentials_service: str = "personal-os-hub"

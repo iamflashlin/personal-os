@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.162.4",
+    "keyring>=25.6",
     "pydantic-settings>=2.16.2",
     "python-ulid>=4.1.0",
     "sqlalchemy>=2.1.8",
@@ -21,10 +22,9 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
-# The desktop agent: keyring holds its token (all platforms, ADR 0015); pywinauto and
-# pillow drive and capture the Windows GUI.
+# Windows GUI work for the desktop agent: pywinauto and pillow drive and capture windows.
+# (keyring is a runtime dependency: the agent's token and the Hub's credentials, ADR 0018.)
 desktop = [
-    "keyring>=25.6",
     "pillow>=13.0.0 ; sys_platform == 'win32'",
     "pywinauto>=0.6.9 ; sys_platform == 'win32'",
 ]
@@ -56,7 +56,7 @@ name = "hub layering: entry points > modules > core"
 type = "layers"
 layers = [
     "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
-    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.devices : apps.hub.evidence : apps.hub.jobs : apps.hub.memory : apps.hub.system : apps.hub.tasks",
+    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.jobs : apps.hub.memory : apps.hub.system : apps.hub.tasks",
     "apps.hub.core",
 ]
 
@@ -67,6 +67,7 @@ modules = [
     "apps.hub.actions",
     "apps.hub.audit",
     "apps.hub.backup",
+    "apps.hub.credentials",
     "apps.hub.devices",
     "apps.hub.evidence",
     "apps.hub.jobs",

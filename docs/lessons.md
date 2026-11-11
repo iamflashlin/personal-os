@@ -46,3 +46,7 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   from "tool crashed" — `tests/test_import_boundaries.py` asserts the report says
   `Contracts:` and names the BROKEN contract; check negative tests fail for the
   stated reason.
+- 2026-11-10 — Four cards in a row (T-0006, T-0007, T-0010, T-0011) went to review
+  without `.evidence/<card>/summary.md`, and each review blocked on it (T-0011) — the
+  summary was written last, after fixing review findings — write `summary.md` together
+  with the logs, before asking for review, and regenerate both after fixes.

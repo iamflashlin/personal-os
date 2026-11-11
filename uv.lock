@@ -426,6 +426,7 @@ default-groups = ["desktop", "dev"]
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "keyring" },
     { name = "pydantic-settings" },
     { name = "python-ulid" },
     { name = "sqlalchemy" },
@@ -435,7 +436,6 @@ dependencies = [
 
 [package.dev-dependencies]
 desktop = [
-    { name = "keyring" },
     { name = "pillow", marker = "sys_platform == 'win32'" },
     { name = "pywinauto", marker = "sys_platform == 'win32'" },
 ]
@@ -451,6 +451,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.20.1" },
     { name = "fastapi", specifier = ">=0.162.4" },
+    { name = "keyring", specifier = ">=25.6" },
     { name = "pydantic-settings", specifier = ">=2.16.2" },
     { name = "python-ulid", specifier = ">=4.1.0" },
     { name = "sqlalchemy", specifier = ">=2.1.8" },
@@ -460,7 +461,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 desktop = [
-    { name = "keyring", specifier = ">=25.6" },
     { name = "pillow", marker = "sys_platform == 'win32'", specifier = ">=13.0.0" },
     { name = "pywinauto", marker = "sys_platform == 'win32'", specifier = ">=0.6.9" },
 ]

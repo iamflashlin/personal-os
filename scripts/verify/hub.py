@@ -7,6 +7,7 @@
     uv run python scripts/verify/hub.py memory
     uv run python scripts/verify/hub.py agent
     uv run python scripts/verify/hub.py jobs
+    uv run python scripts/verify/hub.py credentials
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -16,6 +17,7 @@ then stops it. Exit code 0 only if every check passed.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import itertools
 import json
 import os
@@ -548,6 +550,43 @@ def verify_jobs(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace
     check(states <= {"succeeded", "queued"}, f"schedule jobs ended {sorted(states)}")
 
 
+def verify_credentials(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    import uuid
+
+    import keyring
+
+    # Its own Hub, so its secrets go under a throwaway Credential Manager service name.
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    secret = f"verify-secret-{uuid.uuid4().hex}"
+    hub_dir = data_dir.parent / "credentials-data"
+    os.environ["POS_CREDENTIALS_SERVICE"] = service
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    key = f"{owner}:verify.token"
+    try:
+        with running_hub(hub_dir) as hub:
+            put = hub.put("/credentials/verify.token", json={"secret": secret, "note": "v"})
+            check(put.status_code == 200, f"PUT /credentials/verify.token -> {put.status_code}")
+            check(secret not in put.text, "the response does not echo the secret")
+            listed = hub.get("/credentials")
+            check(secret not in listed.text, "GET /credentials lists the name, not the secret")
+            check(
+                keyring.get_password(service, key) == secret,
+                "the secret is in Windows Credential Manager",
+            )
+            stored = b"".join(p.read_bytes() for p in hub_dir.glob(f"{DB_FILENAME}*"))
+            check(secret.encode() not in stored, "the secret is in no byte of hub.sqlite*")
+            check(hub.get("/credentials/verify.token").status_code in (404, 405), "no read route")
+            gone = hub.delete("/credentials/verify.token")
+            check(gone.status_code == 204, "DELETE /credentials/verify.token -> 204")
+            check(keyring.get_password(service, key) is None, "the secret left Credential Manager")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(secret not in hub_log, "the secret is not in the Hub log")
+    finally:
+        os.environ.pop("POS_CREDENTIALS_SERVICE", None)
+        with contextlib.suppress(Exception):
+            keyring.delete_password(service, key)
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -555,6 +594,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "memory": verify_memory,
     "agent": verify_agent,
     "jobs": verify_jobs,
+    "credentials": verify_credentials,
 }
 
 
