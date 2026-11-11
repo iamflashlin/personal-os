@@ -41,6 +41,31 @@ export interface NewTask {
   tags: string[];
 }
 
+export type MemoryKind = "preference" | "fact" | "decision" | "experience";
+export type Provenance = "raw" | "user_confirmed" | "ai_inferred" | "verified";
+export type Sensitivity = "normal" | "private" | "secret";
+
+export interface Memory extends Stored {
+  kind: MemoryKind;
+  body: string;
+  provenance: Provenance;
+  confidence: number;
+  sensitivity: Sensitivity;
+  expires_at: string | null;
+  source_ref: string;
+}
+
+export interface MemoryHit {
+  memory: Memory;
+  rank: number | null;
+}
+
+export interface NewMemory {
+  kind: MemoryKind;
+  body: string;
+  sensitivity: Sensitivity;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -96,6 +121,24 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         method: "POST",
         body: JSON.stringify({ version: task.version, note }),
       }),
+    memories: () => call<Memory[]>("/memories"),
+    /** Secret memories stay out of search results unless the Hub is asked for them. */
+    searchMemories: (q: string) =>
+      call<MemoryHit[]>(`/memories/search?${new URLSearchParams({ q })}`),
+    createMemory: (memory: NewMemory) =>
+      call<Memory>("/memories", { method: "POST", body: JSON.stringify(memory) }),
+    correctMemory: (memory: Memory, body: string) =>
+      call<Memory>(`/memories/${memory.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ version: memory.version, body }),
+      }),
+    confirmMemory: (memory: Memory) =>
+      call<Memory>(`/memories/${memory.id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ version: memory.version }),
+      }),
+    deleteMemory: (memory: Memory) =>
+      call<null>(`/memories/${memory.id}`, { method: "DELETE" }),
   };
 }
 

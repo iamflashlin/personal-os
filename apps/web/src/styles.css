@@ -185,3 +185,84 @@ button.primary,
     grid-template-columns: 1fr;
   }
 }
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.views {
+  display: flex;
+  gap: 4px;
+}
+
+.views button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.memory-search,
+.new-memory {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.new-memory {
+  grid-template-columns: 2fr 1fr 1fr auto;
+}
+
+ul.memories {
+  list-style: none;
+  padding: 0;
+}
+
+.memory {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.memory-main,
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-main .grow {
+  flex: 1 1 320px;
+}
+
+.badge.provenance-ai_inferred {
+  color: var(--warn);
+}
+
+.badge.provenance-user_confirmed,
+.badge.provenance-verified {
+  color: var(--ok);
+}
+
+button.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+@media (max-width: 640px) {
+  .memory-search,
+  .new-memory {
+    grid-template-columns: 1fr;
+  }
+}

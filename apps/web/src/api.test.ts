@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, createApi, parseTags, type Task } from "./api";
+import { ApiError, createApi, type Memory, parseTags, type Task } from "./api";
 
 interface Call {
   url: string;
@@ -56,5 +56,35 @@ describe("api client", () => {
 describe("parseTags", () => {
   it("splits on ASCII and full-width commas, trims and de-duplicates", () => {
     expect(parseTags(" course:CIS， home ,course:CIS,, ")).toEqual(["course:CIS", "home"]);
+  });
+});
+
+describe("memory client", () => {
+  const memory = { id: "01MEM", version: 2, body: "old" } as Memory;
+
+  it("encodes the search query, including Chinese and spaces", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, [], calls));
+    await api.searchMemories("学习 C++ & more");
+    expect(calls[0].url).toBe(`/memories/search?q=${encodeURIComponent("学习 C++ & more").replace(/%20/g, "+")}`);
+  });
+
+  it("sends the version with a correction and with a confirmation", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, memory, calls));
+    await api.correctMemory(memory, "new");
+    await api.confirmMemory(memory);
+    expect(calls[0].init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ version: 2, body: "new" });
+    expect(calls[1].url).toBe("/memories/01MEM/confirm");
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ version: 2 });
+  });
+
+  it("deletes with no body and accepts 204", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(204, null, calls));
+    await expect(api.deleteMemory(memory)).resolves.toBeNull();
+    expect(calls[0].init?.method).toBe("DELETE");
+    expect(calls[0].url).toBe("/memories/01MEM");
   });
 });

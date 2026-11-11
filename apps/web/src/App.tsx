@@ -10,6 +10,7 @@ import {
   type TaskStatus,
   parseTags,
 } from "./api";
+import { MemoryView } from "./MemoryView";
 
 const TASK_STATUS: Record<TaskStatus, string> = {
   todo: "未开始",
@@ -53,6 +54,7 @@ function errorText(err: unknown): string {
 export function App({ api }: { api: Api }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"tasks" | "memories">("tasks");
   const latestReload = useRef(0);
 
   const reload = useCallback(async () => {
@@ -104,13 +106,28 @@ export function App({ api }: { api: Api }) {
     <main className="page">
       <header>
         <h1>Personal OS</h1>
-        <p className="muted">本机 Hub 里的目标、项目和任务</p>
+        <nav className="views" aria-label="切换页面">
+          {(["tasks", "memories"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              className={view === v ? "active" : ""}
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+            >
+              {v === "tasks" ? "任务" : "记忆"}
+            </button>
+          ))}
+        </nav>
       </header>
-      {error && (
+      {view === "memories" && <MemoryView api={api} />}
+      {view === "tasks" && error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
+      {view === "tasks" && (
+      <>
       <div className="columns">
         <section data-testid="goals">
           <h2>目标</h2>
@@ -152,6 +169,8 @@ export function App({ api }: { api: Api }) {
           ))}
         </ul>
       </section>
+      </>
+      )}
     </main>
   );
 }

@@ -19,10 +19,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import httpx  # noqa: E402
 from hub import CheckFailed, check, running_hub  # noqa: E402
 from playwright.sync_api import Page, sync_playwright  # noqa: E402
 
@@ -50,6 +52,82 @@ def shot(page: Page, out: Path, name: str) -> None:
     path = out / f"{name}.png"
     page.screenshot(path=str(path), full_page=True)
     print(f"screenshot {path}", flush=True)
+
+
+MEMORY = "我更喜欢早上学习，晚上复习英语"
+AI_GUESS = "Prefers studying in short sessions"
+CORRECTED = "我更喜欢晚上学习，早上跑步"
+
+
+def _memory_bodies(api: httpx.Client) -> dict[str, dict[str, Any]]:
+    return {m["body"]: m for m in api.get("/memories").json()}
+
+
+def verify_memory_view(page: Page, api: httpx.Client, out: Path) -> None:
+    """T-0009: the memory page, driven like a person, checked against the Hub API."""
+    guess = api.post(
+        "/memories",
+        json={
+            "kind": "preference",
+            "body": AI_GUESS,
+            "provenance": "ai_inferred",
+            "confidence": 0.4,
+        },
+    )
+    check(guess.status_code == 201, "seed an AI-inferred memory over HTTP")
+
+    page.get_by_role("button", name="记忆").click()
+    view = page.get_by_test_id("memories")
+    view.get_by_text(AI_GUESS).wait_for()
+
+    form = page.get_by_role("form", name="添加记忆")
+    form.get_by_label("要记住的内容").fill(MEMORY)
+    form.get_by_label("类型").select_option(label="偏好")
+    form.get_by_role("button", name="记住").click()
+    row = view.locator("li.memory", has_text=MEMORY)
+    row.wait_for()
+    check(MEMORY in _memory_bodies(api), "memory added through the form is in the Hub")
+    shot(page, out, "05-memory-added")
+
+    search = page.get_by_role("search")
+    search.get_by_label("搜索", exact=False).fill("英语")
+    search.get_by_role("button", name="搜索").click()
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-testid=memories] li.memory').length === 1"
+    )
+    check(row.count() == 1, "two-character Chinese search 英语 finds the memory")
+    shot(page, out, "06-memory-search")
+    search.get_by_role("button", name="显示全部").click()
+
+    guess_row = view.locator("li.memory", has_text=AI_GUESS)
+    guess_row.get_by_role("button", name="确认没错").click()
+    guess_row.get_by_text("已确认").wait_for()
+    stored = _memory_bodies(api)[AI_GUESS]
+    check(
+        stored["provenance"] == "user_confirmed" and stored["confidence"] == 1,
+        "confirming in the page makes the AI guess user_confirmed in the Hub",
+    )
+
+    # While editing, the text sits in an input, so find the row by its id, not its text.
+    memory_id = _memory_bodies(api)[MEMORY]["id"]
+    editing = page.get_by_test_id(f"memory-{memory_id}")
+    editing.get_by_role("button", name="改正").click()
+    editing.get_by_label("改正为").fill(CORRECTED)
+    editing.get_by_role("button", name="保存改正").click()
+    corrected = view.locator("li.memory", has_text=CORRECTED)
+    corrected.wait_for()
+    check(CORRECTED in _memory_bodies(api), "correction saved in the Hub")
+    found = [
+        h["memory"]["body"] for h in api.get("/memories/search", params={"q": "晚上学习"}).json()
+    ]
+    check(found == [CORRECTED], "Hub search finds the corrected wording")
+    shot(page, out, "07-memory-corrected")
+
+    corrected.get_by_role("button", name="删除").click()
+    check(CORRECTED in _memory_bodies(api), "a single click on 删除 deletes nothing")
+    corrected.get_by_role("button", name="确定删除").click()
+    corrected.wait_for(state="detached")
+    check(CORRECTED not in _memory_bodies(api), "deleted after the second click")
 
 
 def run(out: Path, headed: bool) -> None:
@@ -119,6 +197,7 @@ def run(out: Path, headed: bool) -> None:
                 row.get_by_test_id("task-status").inner_text() == "已完成",
                 "still 已完成 after reloading the page",
             )
+            verify_memory_view(page, api, out)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

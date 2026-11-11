@@ -84,7 +84,7 @@ SHOWCASES = (
     ),
     Showcase(
         "apps/web/package.json",
-        "网页界面：看目标、项目、任务，新建任务，确认任务完成",
+        "网页界面：看目标、项目、任务，新建和确认完成任务；在“记忆”页搜索和管理记忆",
         ("pnpm --dir apps/web build", "uv run python -m apps.hub"),
         "http://127.0.0.1:8765/",
     ),
