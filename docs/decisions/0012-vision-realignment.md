@@ -1,6 +1,6 @@
 # 0012 — Realign the roadmap to the user's vision (PROPOSAL)
 
-- Status: **proposed — waiting for the user's decisions below. Nothing here is adopted.**
+- Status: **accepted (user, 2026-11-10)**. The answers are recorded under "User decisions" below.
 - Date: 2026-11-10
 - Inputs: `docs/VISION.md` (the user's eight directions), `docs/HANDOFF.md` §3, §4.3, §5, §8
 
@@ -83,3 +83,23 @@ These are the base for directions 1, 2, 3 and 8. Nothing needs to be rebuilt.
 - After the decisions, HANDOFF §8 is rewritten and this ADR becomes `accepted` (or
   `rejected`), with the user's answers recorded here, and the "awaits the user" line in
   `CLAUDE.md` is updated.
+
+## User decisions (2026-11-10)
+
+1. **Roadmap: adopted, with the user's refinement.** Build the features of "one connected
+   day" first. Later, show the matching cards at the right moments of the user's daily
+   schedule. Schedule-driven cards are a later slice, built once the features exist.
+2. **Privacy:**
+   - **Location: collected.**
+   - **Email content: collected.** The user does not want to read their mail themselves.
+   - **Body data (sleep and exercise sensors): postponed** until the user has an Apple
+     Watch.
+
+   Connecting each source (email account, Canvas, iPhone location sharing) needs an
+   account authorisation, and Claude asks the user before each one.
+3. **Earbud voice conversation: not in V0.1.** Build the system first, then design voice
+   interaction.
+4. **Life domains: sleep, fitness, finance, and phone use** (for example short-video
+   time). No order was given.
+5. **Morning brief sources: Canvas and email first** (personal information). Followed
+   bloggers and major news are a later nice-to-have.

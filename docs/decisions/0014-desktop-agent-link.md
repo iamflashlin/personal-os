@@ -1,6 +1,6 @@
 # 0014 — Desktop agent link: pairing, WebSocket protocol, at-most-once actions (PROPOSAL)
 
-- Status: **proposed — waiting for the user's decisions D1–D5. No code has been written.**
+- Status: **accepted (user, 2026-11-10: "全部按推荐", all defaults D1–D5)**. Implementation starts with T-0006.
 - Date: 2026-11-10
 - Cards: T-0006 (contracts + Hub), T-0007 (agent core), T-0008 (Windows adapter + real
   verification). HANDOFF S2; VISION direction 3 (数字世界的执行者).
@@ -118,7 +118,17 @@
 | R9 | An import-linter independence contract across two root packages of the `apps` namespace | 15 min |
 | R12 | A 40-bit pairing code without an attempt limit is acceptable only on loopback | before S4: invalidate codes after 10 failed attempts in 5 min |
 
+## User decisions (2026-11-10)
+
+The user accepted every default, after a plain-language explanation:
+
+- **D1:** add `websockets` and `keyring` (Windows only), and declare `pywin32`.
+- **D2:** no offline queue yet. An offline agent gives 503 "agent offline".
+- **D3:** leave `launch_app` out of S2.
+- **D4:** accept the local-only security gap until S8. Authentication is required before
+  the Hub binds to Tailscale (S4).
+- **D5:** screenshots capture only our own page, never the screen or the tab strip.
+
 ## Consequences
 
-- When the user answers D1–D5, this ADR becomes `accepted` with the answers recorded,
-  and T-0006 starts. Until then T-0006, T-0007 and T-0008 stay `blocked`.
+- T-0006, T-0007 and T-0008 are unblocked and are done in that order.
