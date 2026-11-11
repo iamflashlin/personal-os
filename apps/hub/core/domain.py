@@ -7,10 +7,11 @@ from dataclasses import dataclass
 class Actor:
     owner_id: str
     source: str = "api"
+    device_id: str | None = None  # set when a paired desktop agent is the one acting
 
     @property
     def name(self) -> str:
-        return f"owner:{self.owner_id}"
+        return f"device:{self.device_id}" if self.device_id else f"owner:{self.owner_id}"
 
 
 class DomainError(Exception):
@@ -29,3 +30,11 @@ class Conflict(DomainError):
 
 class Invalid(DomainError):
     result = "invalid"
+
+
+class Forbidden(DomainError):
+    result = "forbidden"
+
+
+class Unavailable(DomainError):
+    result = "unavailable"

@@ -42,7 +42,10 @@ _SUBSTITUTIONS: list[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]
         lambda m: f"{m[1]}{m[2]}{_requote(m[3])}",
     ),
     (
-        re.compile(r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16})\b"),
+        re.compile(
+            r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}"
+            r"|posd_[A-Za-z0-9_-]{20,})"
+        ),
         REDACTED,
     ),
 ]

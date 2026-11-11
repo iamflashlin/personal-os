@@ -40,3 +40,9 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   rewrote the source, and tests only used wildcards in terms long enough for the FTS path —
   `test_short_terms_escape_like_wildcards`; edit backslash-heavy code with the editor,
   not with shell heredocs.
+- 2026-11-10 — A test that expected lint-imports to fail passed for the wrong reason:
+  the fake packages had a regular parent package, and lint-imports exited 1 before
+  judging any contract (T-0006) — an exit code alone cannot tell "contract broken"
+  from "tool crashed" — `tests/test_import_boundaries.py` asserts the report says
+  `Contracts:` and names the BROKEN contract; check negative tests fail for the
+  stated reason.

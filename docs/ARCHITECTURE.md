@@ -13,21 +13,24 @@ Phone or PC browser: PWA apps/web (planned)
      v                                            |
 +------------------- Hub: apps/hub, one FastAPI process -------------------+
 | entry    __main__ (uvicorn) -> main.create_app()                [built]  |
-| modules  system, tasks, audit, evidence, backup, memory         [built]  |
+| modules  system, tasks, audit, evidence, backup, memory,        [built]  |
+|          devices, actions                                      [built]  |
 |          sessions, planner, runs, jobs, permissions,                     |
-|          devices, notify, backup, models                       [planned] |
+|          notify, models                                        [planned] |
 | core     settings, db engine + PRAGMAs, Entity mixin, UTC type  [built]  |
 | state    POS_DATA_DIR/hub.sqlite (WAL) + file dir: the only state owner  |
 +---------------^------------------------------------+---------------------+
-                | WebSocket opened BY the agent       | ModelProvider (planned)
+                | WebSocket /agent/ws, opened BY      | ModelProvider (planned)
+                | the agent [Hub side built, T-0006]  |
                 | ActionRequest down, ActionResult up v
 +---------------+------------+               model vendors (swappable)
-| Desktop agent (planned)    |
+| Desktop agent (T-0007/8)   |
 | apps/desktop_agent         | -- open, then verify --> Windows apps
 | action whitelist + verify  |                         (VS Code, browser)
 +----------------------------+
 
-packages/contracts: cross-process Pydantic types + openapi.json (built: health, tasks)
+packages/contracts: cross-process Pydantic types + openapi.json (built: health, tasks,
+memory, devices, actions, agent_protocol)
 ```
 
 Default bind: `127.0.0.1:8765`. Config comes only from `POS_*` environment variables;
@@ -42,12 +45,14 @@ the Hub never reads `.env` (ADR 0008).
 | `audit_event` table and the redaction function | `apps/hub/audit` | built |
 | `evidence` table (kind `user_confirmation` only) | `apps/hub/evidence` | built (T-0004) |
 | `memory` table and its `memory_fts` trigram index | `apps/hub/memory` | built (T-0005) |
+| `device`, `pairing_code` tables (token and code stored as SHA-256 only) and the in-memory live-agent registry `AgentLinks` (one agent per owner, newest wins) | `apps/hub/devices` | built (T-0006) |
+| `action_run` table, unique `(owner_id, idempotency_key)` | `apps/hub/actions` | built (T-0006) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
 | Data dir `POS_DATA_DIR` (default `<repo>/data`); holds only the SQLite files so far | Hub process | built |
-| Session, Run/Step, Job, Device, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
-| Nothing durable | desktop agent, PWA | planned |
+| Session, Run/Step, Job, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
+| Nothing durable (the agent keeps only its token, in keyring) | desktop agent, PWA | planned (T-0007) |
 
 `core` and `migrations` are infrastructure, not modules. Every other subpackage of
 `apps/hub` is a module with a `service.py`. A module may also have `models.py` (ORM
@@ -67,6 +72,9 @@ rows, private to the module) and `api.py` (a FastAPI router built on its own ser
 | B8 | The PWA is only a client of the Hub HTTP API. | Reviewer (planned) |
 | B9 | Business code depends on `models.ModelProvider`, never on a vendor SDK. | Reviewer now; planned import-linter `forbidden` contract once `models` exists |
 | B10 | The Hub binds to loopback by default and reads no `.env` file. | `test_hub_defaults_to_loopback_and_ignores_dotenv` |
+| B11 | `apps.hub` and `apps.desktop_agent` never import each other; `packages.contracts` imports neither. | import-linter contracts "hub and desktop agent share only contracts" and "contracts import no app"; `test_only_contracts_cross_between_hub_and_agent` |
+| B12 | One module never imports another to call back: `devices` reports agent results through `AgentHooks`, which `main` wires to `actions`. | B3 plus reviewer |
+| B13 | The Hub runs one uvicorn worker, because live agent connections are held in memory. | `apps/hub/__main__.py` (`workers=1`) |
 
 The gate `uv run python -m tools.check` runs import-linter as its "module boundaries" step.
 
@@ -90,9 +98,15 @@ New table checklist: subclass `Entity`, add a migration, import the models in
 `audit.service.record` in the same transaction as each write (today only
 `tasks.service._audited` does this; nothing enforces it for a new module).
 
-## 5. Action contract (planned, HANDOFF §4.2)
+## 5. Action contract (HANDOFF §4.2, ADR 0014)
 
-Nothing in this section is built. The types will live in `packages/contracts`.
+Built in T-0006 (Hub side): `packages/contracts/actions.py` holds the whitelist
+`ACTION_SPECS` (`open_url`, `open_folder_in_editor`, both P1) and the request and result
+types; `agent_protocol.py` holds the WebSocket messages and close codes. `POST /actions`
+needs `Idempotency-Key`; the `action_run` row is committed before the frame is sent and
+is never resent, so an unanswered run becomes `lost`. An offline agent gives 503 without
+consuming the key; P2 and above give 403 until S8. The agent side is T-0007/T-0008.
+The rest of this section is the HANDOFF plan.
 
 - Each action declares `name`, a parameter schema, `risk_level` (P0-P4), whether it
   is reversible, a `timeout`, and a `verify()` step.
@@ -111,12 +125,12 @@ Nothing in this section is built. The types will live in `packages/contracts`.
 
 ## 6. Planned, not built yet
 
-- `apps/desktop_agent` (`WindowsAdapter` behind `DesktopController`), WebSocket with
-  heartbeat, "PC offline" shown in the PWA (ADR 0007).
+- `apps/desktop_agent` (`WindowsAdapter` behind `DesktopController`, T-0007/T-0008);
+  "PC offline" shown in the PWA (ADR 0007). The Hub side of the link is built.
 - `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
   web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
 - Hub modules: sessions, planner, runs, jobs (SQLite
-  queue, incl. commands queued while the agent is offline), permissions, devices (pairing token), notify (ntfy), backup (`pos export` /
+  queue, incl. commands queued while the agent is offline), permissions, notify (ntfy), backup (`pos export` /
   `pos import`), models (`ModelProvider`, `FakeProvider`, ModelCall cost rows).
 - More Evidence kinds and grants on who may complete a task (S6, S8).
 - Emergency stop, credentials via `keyring`, binding to the Tailscale interface.

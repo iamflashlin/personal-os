@@ -14,3 +14,4 @@ class Settings(BaseSettings):
     hub_host: str = "127.0.0.1"
     hub_port: int = 8765
     owner_id: str = "local"
+    agent_heartbeat_s: float = 15.0

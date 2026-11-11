@@ -5,6 +5,7 @@
     uv run python scripts/verify/hub.py crud [--audit-out audit-sample.json]
     uv run python scripts/verify/hub.py roundtrip [--manifest-out manifest-sample.json]
     uv run python scripts/verify/hub.py memory
+    uv run python scripts/verify/hub.py agent
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -30,12 +31,34 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.sync.client import ClientConnection
+from websockets.sync.client import connect as ws_connect
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from apps.hub.backup.service import table_rows  # noqa: E402
 from apps.hub.core.db import DB_FILENAME, head_revision  # noqa: E402
+from packages.contracts.actions import (  # noqa: E402
+    ActionEvidenceKind,
+    ActionName,
+    ActionResult,
+    ActionStatus,
+    EvidenceItem,
+)
+from packages.contracts.agent_protocol import (  # noqa: E402
+    AGENT_WS_PATH,
+    HUB_TO_AGENT,
+    ActionRequestMsg,
+    ActionResultMsg,
+    CloseCode,
+    Heartbeat,
+    HeartbeatAck,
+    Hello,
+    HubToAgent,
+    Welcome,
+)
 
 STARTUP_TIMEOUT_S = 30.0
 
@@ -325,11 +348,155 @@ def verify_memory(client: httpx.Client, data_dir: Path, _args: argparse.Namespac
         )
 
 
+def _ws_url(client: httpx.Client) -> str:
+    return str(client.base_url).replace("http://", "ws://").rstrip("/") + AGENT_WS_PATH
+
+
+def _handshake_status(client: httpx.Client, **headers: str) -> int | None:
+    """The HTTP status of a refused handshake, or None if the Hub accepted it."""
+    try:
+        with ws_connect(_ws_url(client), additional_headers=headers, open_timeout=5):
+            return None
+    except InvalidStatus as exc:
+        return exc.response.status_code
+
+
+def _recv(ws: ClientConnection) -> HubToAgent:
+    return HUB_TO_AGENT.validate_json(ws.recv(timeout=5))
+
+
+def _hello(ws: ClientConnection) -> Welcome:
+    ws.send(
+        Hello(
+            agent_version="verify", platform="windows", supported_actions=list(ActionName)
+        ).model_dump_json()
+    )
+    welcome = _recv(ws)
+    check(isinstance(welcome, Welcome), f"hello -> welcome ({type(welcome).__name__})")
+    assert isinstance(welcome, Welcome)
+    return welcome
+
+
+def _only_ack(ws: ClientConnection, why: str) -> None:
+    ws.send(Heartbeat().model_dump_json())
+    frame = _recv(ws)
+    check(isinstance(frame, HeartbeatAck), f"next frame is heartbeat_ack: {why}")
+
+
+def _run(client: httpx.Client, run_id: str, until: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 5
+    while True:
+        run = client.get(f"/actions/{run_id}").json()
+        if run["status"] == until or time.monotonic() > deadline:
+            return run
+        time.sleep(0.05)
+
+
+def _pair(client: httpx.Client, code: str) -> httpx.Response:
+    body = {"code": code, "device_name": "verify-pc", "platform": "windows"}
+    return client.post("/devices/pair", json=body)
+
+
+def _act(client: httpx.Client, key: str | None) -> httpx.Response:
+    body = {
+        "name": "open_url",
+        "params": {"url": "https://example.com/verify", "expect_title_contains": "Example"},
+    }
+    headers = {} if key is None else {"Idempotency-Key": key}
+    return client.post("/actions", json=body, headers=headers)
+
+
+def _result(run_id: str, key: str) -> str:
+    now = datetime.now(UTC)
+    result = ActionResult(
+        action_id=run_id,
+        idempotency_key=key,
+        status=ActionStatus.succeeded,
+        message="opened",
+        evidence=[
+            EvidenceItem(
+                kind=ActionEvidenceKind.window,
+                summary="browser window title contains Example",
+                data={"title": "Example Domain"},
+                captured_at=now,
+            )
+        ],
+        started_at=now,
+        finished_at=now,
+    )
+    return ActionResultMsg(result=result).model_dump_json()
+
+
+def verify_agent(client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    code = client.post("/devices/pairing-codes").json()["code"]
+    paired = _pair(client, code)
+    check(paired.status_code == 201, "POST /devices/pair with a fresh code -> 201")
+    device_id, token = paired.json()["device_id"], paired.json()["token"]
+    check(_pair(client, code).status_code == 403, "the same code a second time -> 403")
+    bearer = {"Authorization": f"Bearer {token}"}
+
+    check(_handshake_status(client) == 403, "handshake without a token -> HTTP 403")
+    status = _handshake_status(client, **bearer, Origin="http://evil.example")
+    check(status == 403, "handshake with a valid token plus an Origin header -> HTTP 403")
+    check(_act(client, "verify-1").status_code == 503, "POST /actions while offline -> 503")
+
+    with ws_connect(_ws_url(client), additional_headers=bearer, open_timeout=5) as ws:
+        check(_hello(ws).device_id == device_id, "welcome names the paired device")
+        _only_ack(ws, "heartbeat answered")
+        agent = client.get("/agent/status").json()
+        check(agent["online"] and agent["device_id"] == device_id, "GET /agent/status online")
+
+        sent = _act(client, "verify-1")
+        check(sent.status_code == 202, "the offline key was not consumed: same key now -> 202")
+        run = sent.json()
+        request = _recv(ws)
+        check(isinstance(request, ActionRequestMsg), "one action_request frame delivered")
+        assert isinstance(request, ActionRequestMsg)
+        check(request.request.action_id == run["id"], "the frame carries the stored run id")
+
+        check(_act(client, None).status_code == 422, "POST /actions without the key -> 422")
+        replay = _act(client, "verify-1")
+        check(
+            replay.headers.get("Idempotent-Replayed") == "true"
+            and replay.json()["id"] == run["id"],
+            "replay returns the same run with Idempotent-Replayed: true",
+        )
+        _only_ack(ws, "the replay delivered no second action_request")
+
+        ws.send(_result(run["id"], "verify-1"))
+        stored = _run(client, run["id"], "succeeded")
+        check(stored["status"] == "succeeded", "the agent's result is stored")
+        check(stored["evidence"][0]["data"] == {"title": "Example Domain"}, "with its evidence")
+
+        flight = _act(client, "verify-2")
+        check(isinstance(_recv(ws), ActionRequestMsg), "a second action is delivered")
+    lost = _run(client, flight.json()["id"], "lost")
+    check(lost["status"] == "lost", "agent disconnected mid-flight -> run is lost, not resent")
+    check(not client.get("/agent/status").json()["online"], "GET /agent/status offline")
+
+    with ws_connect(_ws_url(client), additional_headers=bearer, open_timeout=5) as ws:
+        _hello(ws)
+        revoked = client.post(f"/devices/{device_id}/revoke")
+        check(revoked.status_code == 200, "POST /devices/{id}/revoke -> 200")
+        try:
+            ws.recv(timeout=5)
+            close_code = None
+        except ConnectionClosed as exc:
+            close_code = exc.rcvd.code if exc.rcvd else None
+        check(close_code == CloseCode.unauthorized, f"revoke closed the socket with {close_code}")
+    check(_handshake_status(client, **bearer) == 403, "reconnect with the revoked token -> 403")
+
+    stored_bytes = b"".join(p.read_bytes() for p in data_dir.glob(f"{DB_FILENAME}*"))
+    check(token.encode() not in stored_bytes, "the token is not in the bytes of hub.sqlite*")
+    check(code.replace("-", "").encode() not in stored_bytes, "nor is the pairing code")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
     "roundtrip": verify_roundtrip,
     "memory": verify_memory,
+    "agent": verify_agent,
 }
 
 

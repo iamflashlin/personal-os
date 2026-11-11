@@ -2,8 +2,10 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
+import uvicorn
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from fastapi.testclient import TestClient
@@ -12,6 +14,7 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.orm.exc import StaleDataError
 
+import apps.hub.__main__ as hub_main
 from apps.hub.core.base import Base, Entity
 from apps.hub.core.db import DB_FILENAME, head_revision, make_engine
 from apps.hub.core.settings import Settings
@@ -47,6 +50,17 @@ def test_hub_defaults_to_loopback_and_ignores_dotenv(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv("POS_HUB_HOST", raising=False)
     assert Settings().hub_host == "127.0.0.1"
     assert Settings.model_config.get("env_file") is None
+
+
+def test_hub_runs_one_worker_with_the_supported_websocket_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(uvicorn, "run", lambda *_a, **kw: seen.update(kw))
+    hub_main.main()
+    # Live agent links are held in memory, so one process only (ADR 0014).
+    assert seen["workers"] == 1
+    assert seen["ws"] == "websockets-sansio"
 
 
 def test_failed_migration_leaves_no_partial_schema(tmp_path: Path) -> None:

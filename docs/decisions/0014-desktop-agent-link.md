@@ -1,6 +1,6 @@
-# 0014 — Desktop agent link: pairing, WebSocket protocol, at-most-once actions (PROPOSAL)
+# 0014 — Desktop agent link: pairing, WebSocket protocol, at-most-once actions
 
-- Status: **accepted (user, 2026-11-10: "全部按推荐", all defaults D1–D5)**. Implementation starts with T-0006.
+- Status: **accepted (user, 2026-11-10: "全部按推荐", all defaults D1–D5)**. Hub side built in T-0006.
 - Date: 2026-11-10
 - Cards: T-0006 (contracts + Hub), T-0007 (agent core), T-0008 (Windows adapter + real
   verification). HANDOFF S2; VISION direction 3 (数字世界的执行者).
@@ -117,6 +117,42 @@
 | R8 | TestClient POST from a second thread while a WebSocket is open | 1 h; fallback: an in-thread uvicorn server |
 | R9 | An import-linter independence contract across two root packages of the `apps` namespace | 15 min |
 | R12 | A 40-bit pairing code without an attempt limit is acceptable only on loopback | before S4: invalidate codes after 10 failed attempts in 5 min |
+
+## Spike and implementation results (T-0006)
+
+- **R1 passed.** uvicorn 0.54 with `websockets` 17.4 serves `/agent/ws`. A close
+  before `accept()` reaches a raw `websockets` client as HTTP 403 (`InvalidStatus`);
+  a close after accept arrives as close code 4401. Starlette does not reject an
+  `Origin` header by itself, so the endpoint checks it. The Hub pins
+  `ws="websockets-sansio"`, because uvicorn 0.54 deprecates the plain `websockets`
+  implementation, and `workers=1`.
+- **R8 passed.** TestClient used as a context manager shares one event loop between
+  HTTP calls and open WebSocket sessions, so tests drive `POST /actions` while a fake
+  agent is connected. No in-thread uvicorn server was needed.
+- **R9 passed.** An import-linter `independence` contract across `apps.hub` and
+  `apps.desktop_agent` works because `apps` is a namespace package. With a regular
+  parent package, lint-imports exits 1 without judging any contract, so the fake
+  package in `tests/test_import_boundaries.py` mirrors the namespace layout and the
+  test asserts on the report text, not only on the exit code.
+- **Callbacks instead of a cycle.** `devices` owns the socket but must hand results
+  to `actions`, while `actions` needs the live link from `devices`. `main` passes
+  `devices.service.AgentHooks(on_result, on_lost)` wired to `actions.service`, so
+  only `actions` imports `devices`.
+- **Which runs become `lost`.** Each live link tracks the run ids sent on it
+  (`in_flight`). When it drops, exactly those runs become `lost`, never runs that a
+  newer connection of the same device was given. At startup every run still
+  `dispatched` becomes `lost`. A late result for a `lost` run is still recorded.
+- **Handshake order.** `welcome` is sent before the link becomes live, so no
+  `action_request` can overtake it. Revokes are also remembered in memory
+  (`AgentLinks.mark_revoked`) and checked with no await before `attach()`, so a revoke
+  that lands mid-handshake closes the socket with 4401 right after `welcome`.
+- **Failure paths.** If storing a result fails, the run stays in flight and becomes `lost`
+  on disconnect; the link stays up. On disconnect, lost runs are marked before the
+  disconnect is recorded, each step guarded on its own. Agent messages and evidence pass
+  through redaction before storage. Folder paths refuse `\\host\share` and `\\?\` forms.
+- **Not done in T-0006.** A run whose agent stays connected but never answers stays
+  `dispatched`; T-0007's agent enforces `timeout_s` and reports `failed`. The
+  pairing-code attempt limit (R12) is still due before S4.
 
 ## User decisions (2026-11-10)
 
