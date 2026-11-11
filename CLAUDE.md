@@ -4,8 +4,8 @@ Personal AI execution system: the user states an intent, the system recalls pers
 memory, prepares/does the work on the PC within granted permissions, and proves the
 result with evidence. Full background: `docs/HANDOFF.md` (read the relevant section
 when you need it; do not import it whole). It overrides `docs/source/` on conflict.
-**What to build** follows the user's vision in `docs/VISION.md` (eight directions); HANDOFF
-decides **how**. The roadmap realignment in `docs/decisions/0012-*` awaits the user.
+**What to build** follows the user's vision in `docs/VISION.md` (eight directions) and their
+eight-phase roadmap (`docs/decisions/0012-*`, `0026-*`); HANDOFF decides **how**.
 
 ## Commands
 
@@ -39,33 +39,30 @@ decides **how**. The roadmap realignment in `docs/decisions/0012-*` awaits the u
    Never push to `main` directly (blocked by `.githooks/pre-push` and permissions).
 7. Record decisions in `docs/decisions/NNNN-*.md`; repeated mistakes in
    `docs/lessons.md`, then turn them into a lint rule, test, type or hook.
-8. Merge it yourself when the merge rule below allows; otherwise leave it for the user.
+8. Merge it yourself under the merge rule below, then update the always-on Hub.
 9. Once a day — at the end of the day's last session, or at the start of the next
    day's first session if it was missed — update `docs/progress.md`: a 「今天」 section
    at the top in plain Chinese (what got done, what waits for the user, what is next).
    Until card T-0020 makes `tools.report` keep that section, run `tools.report` first,
    then write 「今天」 by hand.
 
-## Merging (ADR 0024)
+## Merging (ADR 0030, replaces ADR 0024's categories)
 
-The user does not read code; their check is trying the feature. You merge a PR with
-exactly `gh pr merge <n> --match-head-commit <sha> --squash` (other forms prompt) only
-when **all** of these hold for that head commit:
+The user does not read code; their check is trying the feature. You merge every PR
+yourself (the user, 2026-11-11: "接下来都你自己合并", no exceptions) with exactly
+`gh pr merge <n> --match-head-commit <sha> --squash`, once **all** of these hold for that
+head commit:
 - every check in `gh pr checks <n>` passed on windows-latest and ubuntu-latest (none
   pending, failed or cancelled);
 - the `reviewer` subagent's latest verdict on that exact diff is APPROVE;
-- the PR targets `main` (not stacked on an unmerged branch);
-- `gh pr diff <n> --name-only` touches none of:
-  - database migrations: `apps/hub/migrations/**`;
-  - permission or security rules: `.claude/**`, `CLAUDE.md`, `.githooks/**`,
-    `apps/hub/credentials/**`, `apps/desktop_agent/token_store.py`,
-    `apps/desktop_agent/config.py`, `apps/desktop_agent/actions/**` (the action
-    whitelist), device pairing/auth, or anything that changes the security model;
-  - CI config: `.github/**`;
-  - deleting data: any code path that removes rows from the Hub database, or files from
-    the Hub file dir or the user's PC.
-If unsure whether a category applies, leave it for the user and say so in the PR's
-「给 Flash 看的」 section. Never use `--admin`, never delete branches when merging.
+- the PR targets `main` (not stacked on an unmerged branch).
+This includes migrations, new dependencies, CI and rule changes. For those, the PR's
+「给 Flash 看的」 says plainly what changed, so the user can still object afterwards.
+Never use `--admin`, never delete branches when merging, never merge with a red check.
+
+After merging, update the always-on Hub with exactly
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run\update-hub.ps1` (no
+arguments: it always deploys origin/main) and check that its last line says `Hub is up`.
 
 ## PR description
 
@@ -76,7 +73,7 @@ Every PR description starts with this section, before any technical detail:
 **做了什么**：(at most 3 sentences, everyday words, no jargon)
 **要你拍板**：(yes/no questions, each with 推荐：是/否 and one reason; "无" if none)
 **怎么试**：(exact steps: what to open or click, and what you should see)
-**合并**：我会自己合并 / 需要你合并（原因）
+**合并**：我会在检查通过后自己合并（涉及数据库、依赖、权限时写明改了什么）
 ```
 
 The technical part (acceptance table, evidence, open questions, 我学到了什么) follows
@@ -94,8 +91,9 @@ Your own report is never evidence; command output, screenshots and tests are.
 
 - Read or write `.env*` files, print secrets, or put credentials in the repo or logs
   (use `keyring`).
-- Force-push, push to `main`, merge PRs outside the merge rule above, delete
-  branches/data, or deploy.
+- Force-push, push to `main`, merge a PR before the merge rule above holds, delete
+  branches/data, or deploy anywhere (updating the local always-on Hub with
+  `update-hub.ps1` is allowed).
 - Bypass git hooks (`--no-verify`, `-c core.hooksPath=...`, changing `core.hooksPath`).
 - Install dependencies or system software, change system settings, or download
   without telling the user first. New dependency → note it in a decision record.

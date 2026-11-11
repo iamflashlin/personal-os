@@ -65,6 +65,12 @@ by that allow plus denies on `--admin`, `--auto`, `--merge`, `--rebase`,
 `--delete-branch`, `-d`, `-R` and `--repo`. Item 3 above ("only the user merges") no
 longer holds for those PRs.
 
+## Amendment 2026-11-11 (later): ADR 0030
+
+The assistant now merges every PR once CI and the reviewer pass (no category exceptions),
+and may run exactly `scripts\run\update-hub.ps1` (no arguments) to update the always-on
+Hub. The merge-flag and push denies are unchanged.
+
 ## Consequences
 
 Two parallel rule sets (Bash + PowerShell) must be kept in sync; a future check could

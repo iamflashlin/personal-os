@@ -689,7 +689,7 @@ claude mcp list
 2. 输入 `/pstack:poteto-mode 完成 docs/tasks/T-0003.md`（换成当前的任务卡编号）。
 3. 处理它弹出的权限确认和问题。
 4. 在 GitHub 上看 PR 最上面的「给 Flash 看的」：照“怎么试”亲手试一下，回答“要你拍板”的是/否题。代码不用看。
-5. 只有标着“需要你合并”的 PR 才要你点 Squash and merge（ADR 0024），其余的 Claude 会自己合并。然后在终端运行 `git checkout main` 和 `git pull` 同步到本地。
+5. PR 都由 Claude 在检查通过后自己合并，并更新后台运行的 Hub（ADR 0030）。你只需要试用新功能、回答是/否题。
 6. 任务之间输入 `/clear`，让下一个任务从干净的上下文开始。
 
 ### 遇到问题怎么办
