@@ -1,4 +1,5 @@
 # ruff: noqa: RUF001  (asserts on user-facing Chinese text with full-width punctuation)
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -7,13 +8,17 @@ import pytest
 from tools import report as report_module
 from tools.report import (
     Card,
+    Commit,
     Problem,
     Source,
+    _with_merged_in,
+    branch_card_ids,
     build_report,
     load_cards,
     main,
     parse_card,
     parse_git_log,
+    read_today_note,
     render,
     week_bounds,
 )
@@ -196,3 +201,110 @@ def test_missing_ref_gives_a_plain_message_not_a_traceback(
     assert code == 2
     assert "找不到 no-such-branch-xyz" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_github_merge_commit_counts_the_cards_it_brought_in() -> None:
+    merged_in = branch_card_ids(
+        [
+            "Merge remote-tracking branch 'origin/main' into t/stack-catchup",
+            "fix(run): recognise the Hub behind the venv launcher (T-0016)",
+            "feat(hub): second brain v0 (T-0005)",
+            "feat(hub,web): today page (T-0019) (#25)",
+            "docs: desktop agent link design (T-0006..T-0008), pending decisions",
+            "chore: no card here",
+        ]
+    )
+    assert merged_in == ("T-0016", "T-0005", "T-0019")
+    commits = (
+        Commit("m1", TODAY, "Merge pull request #27 from me/t/stack-catchup", merged_in),
+        *parse_git_log(FIXTURE_LOG),
+    )
+    report = build_report(
+        TODAY,
+        [ok(card_text("T-0005", "done"))],
+        [],
+        Source("origin/main", "abc", commits, frozenset()),
+    )
+    assert {"T-0005", "T-0016"} <= report.merged_ids
+    assert not report.problems
+    assert "本周合并了 1 张任务卡：T-0005" in render(report)
+
+
+def test_today_section_survives_regeneration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "T-0001.md").write_text(card_text("T-0001"), encoding="utf-8")
+    monkeypatch.setattr(report_module, "read_source", lambda _ref: source())
+    out = tmp_path / "progress.md"
+    note = "<!-- today:start -->\n## 今天\n\n- 合并了新规则。\n<!-- today:end -->"
+    out.write_text(f"# old\n\n{note}\n\nold body\n", encoding="utf-8")
+
+    argv = ["--today", "2026-11-17", "--tasks-dir", str(tasks), "--out", str(out)]
+    assert main(argv) == 0
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith(f"# 进度报告\n\n{note}\n")
+    assert "old body" not in text
+    first = out.read_bytes()
+    assert main(argv) == 0
+    assert out.read_bytes() == first
+
+
+def test_today_placeholder_when_there_is_no_note() -> None:
+    text = render(build_report(TODAY, [], [], source()))
+    assert text.startswith(
+        "# 进度报告\n\n<!-- today:start -->\n## 今天\n\n- （今天还没写）\n<!-- today:end -->\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        "<!-- today:start -->\n## 今天\n- note without an end marker\n",
+        "<!-- today:end -->\n- end before start\n<!-- today:start -->\n",
+        "- only an end marker\n<!-- today:end -->\n",
+    ],
+)
+def test_broken_today_markers_stop_without_overwriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], broken: str
+) -> None:
+    monkeypatch.setattr(report_module, "read_source", lambda _ref: source())
+    out = tmp_path / "progress.md"
+    out.write_text(broken, encoding="utf-8")
+    code = main(["--today", "2026-11-17", "--tasks-dir", str(tmp_path), "--out", str(out)])
+    assert code == 2
+    assert "标记不完整" in capsys.readouterr().err
+    assert out.read_text(encoding="utf-8") == broken
+
+
+def test_today_note_with_windows_line_endings_is_normalised(tmp_path: Path) -> None:
+    out = tmp_path / "progress.md"
+    out.write_bytes(b"<!-- today:start -->\r\n- a\r\n<!-- today:end -->\r\nrest\r\n")
+    assert read_today_note(out) == "<!-- today:start -->\n- a\n<!-- today:end -->"
+
+
+def test_merge_commit_reads_the_merged_in_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "feat: x (T-0005)\nchore: y\n", "")
+
+    monkeypatch.setattr(report_module, "_git", fake_git)
+    merge = Commit("m1", TODAY, "Merge pull request #27 from me/x")
+    assert _with_merged_in(merge).card_ids == ("T-0005",)
+    assert calls == [("log", "--format=%s", "m1^1..m1^2")]
+
+    squash = Commit("s1", TODAY, "feat: z (T-0003) (#9)")
+    assert _with_merged_in(squash) is squash
+
+
+def test_merge_commit_with_one_parent_counts_no_cards(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        report_module,
+        "_git",
+        lambda *args: subprocess.CompletedProcess(args, 128, "", "bad revision"),
+    )
+    merge = Commit("m1", TODAY, "Merge pull request #27 from me/x")
+    assert _with_merged_in(merge).card_ids == ()
