@@ -36,12 +36,20 @@ function errorText(err: unknown): string {
   return String(err);
 }
 
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("zh-CN");
+}
+
 export function MemoryView({ api }: { api: Api }) {
   const [memories, setMemories] = useState<Memory[] | null>(null);
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const latest = useRef(0);
+  // The query that is on screen now; actions refresh with this, not the one they began with.
+  const queryRef = useRef(activeQuery);
+  queryRef.current = activeQuery;
 
   const reload = useCallback(
     async (q: string) => {
@@ -50,9 +58,12 @@ export function MemoryView({ api }: { api: Api }) {
         const found = q.trim()
           ? (await api.searchMemories(q.trim())).map((hit) => hit.memory)
           : await api.memories();
-        if (ticket === latest.current) setMemories(found);
+        if (ticket === latest.current) {
+          setMemories(found);
+          setLoadError(null);
+        }
       } catch (err) {
-        setError(errorText(err));
+        if (ticket === latest.current) setLoadError(`连不上 Hub：${errorText(err)}`);
       }
     },
     [api],
@@ -66,13 +77,13 @@ export function MemoryView({ api }: { api: Api }) {
   const run = async (action: () => Promise<unknown>): Promise<boolean> => {
     try {
       await action();
-      setError(null);
+      setActionError(null);
       return true;
     } catch (err) {
-      setError(errorText(err));
+      setActionError(errorText(err));
       return false;
     } finally {
-      await reload(activeQuery);
+      await reload(queryRef.current);
     }
   };
 
@@ -81,11 +92,13 @@ export function MemoryView({ api }: { api: Api }) {
     setActiveQuery(query);
   };
 
+  const error = actionError ?? loadError;
   return (
     <section data-testid="memories">
       <h2>记忆</h2>
       <p className="muted">
-        Personal OS 记住的关于你的事。“AI 推测”的内容在你确认前只作参考；机密内容不会出现在搜索结果里。
+        Personal OS 记住的关于你的事。“AI 推测”的内容在你确认或改正前只作参考；
+        机密内容不出现在搜索结果里（在“显示全部”里能看到）。
       </p>
       {error && (
         <p className="error" role="alert">
@@ -111,9 +124,11 @@ export function MemoryView({ api }: { api: Api }) {
         )}
       </form>
       <NewMemoryForm onCreate={(m) => run(() => api.createMemory(m))} />
-      {memories === null && <p>加载中…</p>}
+      {memories === null && !loadError && <p>加载中…</p>}
       {memories?.length === 0 && (
-        <p className="muted">{activeQuery ? "没有找到匹配的记忆" : "还没有记忆"}</p>
+        <p className="muted">
+          {activeQuery ? "没有找到匹配的记忆（机密内容不参与搜索）" : "还没有记忆"}
+        </p>
       )}
       <ul className="memories">
         {memories?.map((m) => (
@@ -133,7 +148,11 @@ export function MemoryView({ api }: { api: Api }) {
 function NewMemoryForm({
   onCreate,
 }: {
-  onCreate: (memory: { kind: MemoryKind; body: string; sensitivity: Sensitivity }) => Promise<boolean>;
+  onCreate: (memory: {
+    kind: MemoryKind;
+    body: string;
+    sensitivity: Sensitivity;
+  }) => Promise<boolean>;
 }) {
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<MemoryKind>("fact");
@@ -192,6 +211,25 @@ function NewMemoryForm({
   );
 }
 
+function SourceLine({ memory }: { memory: Memory }) {
+  const ref = memory.source_ref.trim();
+  const isLink = /^https?:\/\//i.test(ref);
+  return (
+    <span className="muted memory-source">
+      {formatDate(memory.created_at)} 记下
+      {ref && " · 来源："}
+      {ref &&
+        (isLink ? (
+          <a href={ref} target="_blank" rel="noreferrer noopener">
+            {ref}
+          </a>
+        ) : (
+          ref
+        ))}
+    </span>
+  );
+}
+
 function MemoryRow({
   memory,
   onConfirm,
@@ -204,12 +242,15 @@ function MemoryRow({
   onDelete: () => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(memory.body);
+  const [draft, setDraft] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pending, setPending] = useState(false);
   const masked = memory.sensitivity === "secret" && !revealed;
-  const confirmable = memory.provenance === "raw" || memory.provenance === "ai_inferred";
+  const bodyId = `memory-body-${memory.id}`;
+  // A memory backed by evidence is not edited by hand; an AI guess is the one to confirm.
+  const editable = memory.provenance !== "verified";
+  const confirmable = memory.provenance === "ai_inferred";
 
   const act = async (action: () => Promise<boolean>, after?: () => void) => {
     if (pending) return;
@@ -228,7 +269,15 @@ function MemoryRow({
             <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} />
           </label>
         ) : (
-          <span className="memory-body">{masked ? "••••••（机密）" : memory.body}</span>
+          <span className="memory-body" id={bodyId} data-testid="memory-body">
+            {masked ? (
+              <>
+                <span aria-hidden="true">••••••</span>（机密，按“显示”查看）
+              </>
+            ) : (
+              memory.body
+            )}
+          </span>
         )}
         <span className="badge">{KIND[memory.kind]}</span>
         <span
@@ -241,8 +290,9 @@ function MemoryRow({
         {memory.sensitivity !== "normal" && (
           <span className="badge">{SENSITIVITY[memory.sensitivity]}</span>
         )}
+        <SourceLine memory={memory} />
       </div>
-      <div className="memory-actions">
+      <div className="memory-actions" aria-describedby={masked ? undefined : bodyId}>
         {memory.sensitivity === "secret" && !editing && (
           <button type="button" onClick={() => setRevealed(!revealed)}>
             {revealed ? "隐藏" : "显示"}
@@ -269,23 +319,32 @@ function MemoryRow({
                 确认没错
               </button>
             )}
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => {
-                setDraft(memory.body);
-                setEditing(true);
-              }}
-            >
-              改正
-            </button>
+            {editable && (
+              <button
+                type="button"
+                disabled={pending || masked}
+                title={masked ? "先按“显示”再改正" : undefined}
+                onClick={() => {
+                  setDraft(memory.body);
+                  setEditing(true);
+                }}
+              >
+                改正
+              </button>
+            )}
             {confirmingDelete ? (
               <>
-                <button type="button" className="danger" disabled={pending} onClick={() => act(onDelete)}>
-                  确定删除
-                </button>
+                {/* "不删" takes the spot where "删除" was, so a double-click cannot delete. */}
                 <button type="button" disabled={pending} onClick={() => setConfirmingDelete(false)}>
                   不删
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={pending}
+                  onClick={() => act(onDelete)}
+                >
+                  确定删除
                 </button>
               </>
             ) : (

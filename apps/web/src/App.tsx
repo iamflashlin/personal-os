@@ -86,21 +86,8 @@ export function App({ api }: { api: Api }) {
     }
   };
 
-  if (!data) {
-    return (
-      <main className="page">
-        {error ? (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        ) : (
-          <p>加载中…</p>
-        )}
-      </main>
-    );
-  }
-  const goalTitle = new Map(data.goals.map((g) => [g.id, g.title]));
-  const projectTitle = new Map(data.projects.map((p) => [p.id, p.title]));
+  const goalTitle = new Map((data?.goals ?? []).map((g) => [g.id, g.title]));
+  const projectTitle = new Map((data?.projects ?? []).map((p) => [p.id, p.title]));
 
   return (
     <main className="page">
@@ -112,7 +99,7 @@ export function App({ api }: { api: Api }) {
               key={v}
               type="button"
               className={view === v ? "active" : ""}
-              aria-pressed={view === v}
+              aria-current={view === v ? "page" : undefined}
               onClick={() => setView(v)}
             >
               {v === "tasks" ? "任务" : "记忆"}
@@ -121,12 +108,13 @@ export function App({ api }: { api: Api }) {
         </nav>
       </header>
       {view === "memories" && <MemoryView api={api} />}
+      {view === "tasks" && !data && !error && <p>加载中…</p>}
       {view === "tasks" && error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      {view === "tasks" && (
+      {view === "tasks" && data && (
       <>
       <div className="columns">
         <section data-testid="goals">

@@ -75,7 +75,12 @@ describe("memory client", () => {
     await api.correctMemory(memory, "new");
     await api.confirmMemory(memory);
     expect(calls[0].init?.method).toBe("PATCH");
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ version: 2, body: "new" });
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      version: 2,
+      body: "new",
+      provenance: "user_confirmed",
+      confidence: 1,
+    });
     expect(calls[1].url).toBe("/memories/01MEM/confirm");
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ version: 2 });
   });

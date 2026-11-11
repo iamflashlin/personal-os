@@ -122,15 +122,21 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         body: JSON.stringify({ version: task.version, note }),
       }),
     memories: () => call<Memory[]>("/memories"),
-    /** Secret memories stay out of search results unless the Hub is asked for them. */
+    /** Search never returns secret memories (this client does not ask for them). */
     searchMemories: (q: string) =>
       call<MemoryHit[]>(`/memories/search?${new URLSearchParams({ q })}`),
     createMemory: (memory: NewMemory) =>
       call<Memory>("/memories", { method: "POST", body: JSON.stringify(memory) }),
+    /** The user wrote the new text, so it is user_confirmed (contracts/memory.py). */
     correctMemory: (memory: Memory, body: string) =>
       call<Memory>(`/memories/${memory.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ version: memory.version, body }),
+        body: JSON.stringify({
+          version: memory.version,
+          body,
+          provenance: "user_confirmed",
+          confidence: 1,
+        }),
       }),
     confirmMemory: (memory: Memory) =>
       call<Memory>(`/memories/${memory.id}/confirm`, {

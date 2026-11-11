@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import httpx  # noqa: E402
 from hub import CheckFailed, check, running_hub  # noqa: E402
-from playwright.sync_api import Page, sync_playwright  # noqa: E402
+from playwright.sync_api import Locator, Page, sync_playwright  # noqa: E402
 
 TASK_TITLE = "读第 3 次实验的说明"
 NOTE = "读完了，记下了三个问题"
@@ -56,78 +57,145 @@ def shot(page: Page, out: Path, name: str) -> None:
 
 MEMORY = "我更喜欢早上学习，晚上复习英语"
 AI_GUESS = "Prefers studying in short sessions"
+AI_WRONG = "Usually studies after midnight"
+AI_FIXED = "Usually studies before 10pm"
 CORRECTED = "我更喜欢晚上学习，早上跑步"
+SECRET = "门禁密码 6291"
 
 
 def _memory_bodies(api: httpx.Client) -> dict[str, dict[str, Any]]:
     return {m["body"]: m for m in api.get("/memories").json()}
 
 
-def verify_memory_view(page: Page, api: httpx.Client, out: Path) -> None:
-    """T-0009: the memory page, driven like a person, checked against the Hub API."""
+def _hub_search(api: httpx.Client, q: str) -> list[str]:
+    return [h["memory"]["body"] for h in api.get("/memories/search", params={"q": q}).json()]
+
+
+def _page_search(page: Page, q: str, expected: list[str]) -> list[str]:
+    """Search in the page; wait (up to 5 s) for the list to settle on `expected`."""
+    box = page.get_by_role("search")
+    box.get_by_label("搜索", exact=False).fill(q)
+    box.get_by_role("button", name="搜索").click()
+    bodies = page.get_by_test_id("memories").get_by_test_id("memory-body")
+    deadline = time.monotonic() + 5
+    shown = bodies.all_inner_texts()
+    while shown != expected and time.monotonic() < deadline:
+        time.sleep(0.1)
+        shown = bodies.all_inner_texts()
+    print(f"page search {q!r} -> {shown}", flush=True)
+    return shown
+
+
+def _seed_guess(api: httpx.Client, body: str) -> None:
     guess = api.post(
         "/memories",
-        json={
-            "kind": "preference",
-            "body": AI_GUESS,
-            "provenance": "ai_inferred",
-            "confidence": 0.4,
-        },
+        json={"kind": "preference", "body": body, "provenance": "ai_inferred", "confidence": 0.4},
     )
-    check(guess.status_code == 201, "seed an AI-inferred memory over HTTP")
+    check(guess.status_code == 201, f"seed AI-inferred memory {body!r} over HTTP")
 
+
+def verify_memory_view(page: Page, api: httpx.Client, out: Path, errors: list[str]) -> None:
+    """T-0009: the memory page, driven like a person, checked against the Hub API."""
+    _seed_guess(api, AI_GUESS)
+    _seed_guess(api, AI_WRONG)
     page.get_by_role("button", name="记忆").click()
     view = page.get_by_test_id("memories")
     view.get_by_text(AI_GUESS).wait_for()
+
+    def row_of(body: str) -> Locator:
+        # By id, not text: while editing, the text sits in an input.
+        return page.get_by_test_id(f"memory-{_memory_bodies(api)[body]['id']}")
 
     form = page.get_by_role("form", name="添加记忆")
     form.get_by_label("要记住的内容").fill(MEMORY)
     form.get_by_label("类型").select_option(label="偏好")
     form.get_by_role("button", name="记住").click()
-    row = view.locator("li.memory", has_text=MEMORY)
-    row.wait_for()
-    check(MEMORY in _memory_bodies(api), "memory added through the form is in the Hub")
+    view.get_by_text(MEMORY).wait_for()
+    check(_memory_bodies(api)[MEMORY]["kind"] == "preference", "form stored kind 偏好")
     shot(page, out, "05-memory-added")
 
-    search = page.get_by_role("search")
-    search.get_by_label("搜索", exact=False).fill("英语")
-    search.get_by_role("button", name="搜索").click()
-    page.wait_for_function(
-        "() => document.querySelectorAll('[data-testid=memories] li.memory').length === 1"
+    hub = _hub_search(api, "英语")
+    check(
+        _page_search(page, "英语", hub) == hub == [MEMORY], "2-character search 英语: page == Hub"
     )
-    check(row.count() == 1, "two-character Chinese search 英语 finds the memory")
     shot(page, out, "06-memory-search")
-    search.get_by_role("button", name="显示全部").click()
+    page.get_by_role("search").get_by_role("button", name="显示全部").click()
 
-    guess_row = view.locator("li.memory", has_text=AI_GUESS)
-    guess_row.get_by_role("button", name="确认没错").click()
-    guess_row.get_by_text("已确认").wait_for()
+    row_of(AI_GUESS).get_by_role("button", name="确认没错").click()
+    row_of(AI_GUESS).get_by_text("已确认").wait_for()
     stored = _memory_bodies(api)[AI_GUESS]
     check(
         stored["provenance"] == "user_confirmed" and stored["confidence"] == 1,
-        "confirming in the page makes the AI guess user_confirmed in the Hub",
+        "确认没错 makes an AI guess user_confirmed in the Hub",
     )
 
-    # While editing, the text sits in an input, so find the row by its id, not its text.
-    memory_id = _memory_bodies(api)[MEMORY]["id"]
-    editing = page.get_by_test_id(f"memory-{memory_id}")
+    wrong = row_of(AI_WRONG)
+    wrong.get_by_role("button", name="改正").click()
+    wrong.get_by_label("改正为").fill(AI_FIXED)
+    wrong.get_by_role("button", name="保存改正").click()
+    view.get_by_text(AI_FIXED).wait_for()
+    fixed = _memory_bodies(api)[AI_FIXED]
+    check(
+        fixed["provenance"] == "user_confirmed" and fixed["confidence"] == 1,
+        "correcting an AI guess makes it user_confirmed in the Hub",
+    )
+
+    editing = row_of(MEMORY)
+    memory = _memory_bodies(api)[MEMORY]
     editing.get_by_role("button", name="改正").click()
+    bumped = api.patch(
+        f"/memories/{memory['id']}", json={"version": memory["version"], "source_ref": "chat"}
+    )
+    check(bumped.status_code == 200, "someone else changes the memory while the page edits it")
     editing.get_by_label("改正为").fill(CORRECTED)
     editing.get_by_role("button", name="保存改正").click()
-    corrected = view.locator("li.memory", has_text=CORRECTED)
-    corrected.wait_for()
-    check(CORRECTED in _memory_bodies(api), "correction saved in the Hub")
-    found = [
-        h["memory"]["body"] for h in api.get("/memories/search", params={"q": "晚上学习"}).json()
-    ]
-    check(found == [CORRECTED], "Hub search finds the corrected wording")
+    alert = page.get_by_role("alert")
+    alert.wait_for()
+    check("409" in alert.inner_text(), "stale save shows a 409 alert and keeps the edit open")
+    # That 409 was provoked on purpose; drop exactly its console lines, nothing else.
+    provoked = [e for e in errors if "409" in e]
+    check(len(provoked) == 2, f"the provoked 409 is the only one logged ({provoked})")
+    for line in provoked:
+        errors.remove(line)
+    editing.get_by_role("button", name="保存改正").click()
+    view.get_by_text(CORRECTED).wait_for()
+    bodies = _memory_bodies(api)
+    check(
+        CORRECTED in bodies and MEMORY not in bodies,
+        "retry after 409 saves the correction in place (no duplicate)",
+    )
+    hub = _hub_search(api, "晚上学习")
+    check(hub == [CORRECTED], "Hub search finds the new wording")
+    check(_page_search(page, "晚上学习", hub) == hub, "page search shows the same result")
     shot(page, out, "07-memory-corrected")
+    page.get_by_role("search").get_by_role("button", name="显示全部").click()
 
-    corrected.get_by_role("button", name="删除").click()
+    form.get_by_label("要记住的内容").fill(SECRET)
+    form.get_by_label("敏感度").select_option(label="机密")
+    form.get_by_role("button", name="记住").click()
+    view.get_by_text("机密，按“显示”查看").wait_for()
+    check(_memory_bodies(api)[SECRET]["sensitivity"] == "secret", "form stored sensitivity 机密")
+    secret = row_of(SECRET)
+    body = secret.get_by_test_id("memory-body")
+    check(SECRET not in body.inner_text(), "secret body masked until 显示")
+    check(secret.get_by_role("button", name="改正").is_disabled(), "改正 disabled while masked")
+    shot(page, out, "08-memory-secret-masked")
+    secret.get_by_role("button", name="显示").click()
+    check(SECRET in body.inner_text(), "显示 reveals the secret body")
+    secret.get_by_role("button", name="隐藏").click()
+    check(
+        _hub_search(api, "门禁") == [] == _page_search(page, "门禁", []),
+        "secret left out of search",
+    )
+    page.get_by_role("search").get_by_role("button", name="显示全部").click()
+
+    target = row_of(CORRECTED)
+    target.get_by_role("button", name="删除").click()
+    target.get_by_role("button", name="确定删除").wait_for()
     check(CORRECTED in _memory_bodies(api), "a single click on 删除 deletes nothing")
-    corrected.get_by_role("button", name="确定删除").click()
-    corrected.wait_for(state="detached")
-    check(CORRECTED not in _memory_bodies(api), "deleted after the second click")
+    target.get_by_role("button", name="确定删除").click()
+    view.get_by_text(CORRECTED).wait_for(state="detached")
+    check(CORRECTED not in _memory_bodies(api), "deleted after 确定删除")
 
 
 def run(out: Path, headed: bool) -> None:
@@ -197,7 +265,7 @@ def run(out: Path, headed: bool) -> None:
                 row.get_by_test_id("task-status").inner_text() == "已完成",
                 "still 已完成 after reloading the page",
             )
-            verify_memory_view(page, api, out)
+            verify_memory_view(page, api, out, errors)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 
