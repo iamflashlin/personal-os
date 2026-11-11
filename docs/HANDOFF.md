@@ -688,8 +688,8 @@ claude mcp list
 1. 打开终端，`cd C:\dev\personal-os`，运行 `claude`。
 2. 输入 `/pstack:poteto-mode 完成 docs/tasks/T-0003.md`（换成当前的任务卡编号）。
 3. 处理它弹出的权限确认和问题。
-4. 在 GitHub 上看 PR：读“证据摘要”和“这次学到什么”，点 Files changed 大致看改了哪些文件。
-5. 满意就点 Squash and merge 合并。然后在终端运行 `git checkout main` 和 `git pull` 同步到本地。
+4. 在 GitHub 上看 PR 最上面的「给 Flash 看的」：照“怎么试”亲手试一下，回答“要你拍板”的是/否题。代码不用看。
+5. 只有标着“需要你合并”的 PR 才要你点 Squash and merge（ADR 0024），其余的 Claude 会自己合并。然后在终端运行 `git checkout main` 和 `git pull` 同步到本地。
 6. 任务之间输入 `/clear`，让下一个任务从干净的上下文开始。
 
 ### 遇到问题怎么办
