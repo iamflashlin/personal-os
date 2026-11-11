@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from packages.contracts.summaries import SummaryStatus
+
 
 class EntryKind(StrEnum):
     assignment = "assignment"
@@ -12,6 +14,16 @@ class EntryKind(StrEnum):
     event = "event"
     mail = "mail"
     announcement = "announcement"
+
+
+class EntrySummary(BaseModel):
+    """The AI summary of a mail entry (ADR 0027)."""
+
+    status: SummaryStatus
+    gist: str = ""
+    action_needed: bool = False
+    action: str = ""
+    deadline_text: str = ""
 
 
 class TodayEntry(BaseModel):
@@ -24,6 +36,7 @@ class TodayEntry(BaseModel):
     url: str = ""
     badge: str = ""  # 缺交, 已提交, 未读, 逾期 …
     ref: str = ""  # task id or synced item id, for links back
+    summary: EntrySummary | None = None  # mail only, once summarised or skipped
 
 
 class SourceProblem(BaseModel):
@@ -46,3 +59,6 @@ class TodayView(BaseModel):
     in_progress: list[TodayEntry]
     problems: list[SourceProblem]  # sources whose last sync failed
     sources: int  # connected sources, so an empty day can say why it is empty
+    # Mail from the last 7 days that the AI says needs action, read or not, deadline first.
+    mail_actions: list[TodayEntry] = []
+    ai_notice: str = ""  # why summaries are not running (budget, key), or ""

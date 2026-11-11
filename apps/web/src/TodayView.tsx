@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Api, ApiError, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
+import { SummaryLine } from "./Summary";
 
 const BADGE_CLASS: Record<string, string> = {
   缺交: "submission-缺交",
@@ -62,6 +63,7 @@ function Entry({ entry, withDay }: { entry: TodayEntry; withDay: boolean }) {
         )}
       </div>
       <div className="muted">{[entry.note, entry.source].filter(Boolean).join(" · ")}</div>
+      <SummaryLine summary={entry.summary} />
     </li>
   );
 }
@@ -155,6 +157,14 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
           </button>
         </p>
       )}
+      {today.ai_notice && (
+        <p className="error" data-testid="today-ai-notice">
+          AI 邮件总结暂停：{today.ai_notice}{" "}
+          <button type="button" onClick={onConnect}>
+            去处理
+          </button>
+        </p>
+      )}
       {today.problems.length > 0 && (
         <section data-testid="today-problems">
           <h2>同步出错</h2>
@@ -173,6 +183,12 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
         entries={today.due_today}
         testId="today-due"
         empty="今天没有截止的作业或任务"
+      />
+      <Section
+        title="需要处理的邮件（7 天内）"
+        entries={today.mail_actions ?? []}
+        testId="today-mail-actions"
+        withDay
       />
       <Section title="今日日程" entries={today.events} testId="today-events" />
       <Section

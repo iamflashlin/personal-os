@@ -440,6 +440,86 @@ def verify_email_view(
                 keyring.delete_password(service, key)
 
 
+def verify_summaries_view(
+    page: Page, api: httpx.Client, out: Path, service: str, hub_log: Path
+) -> None:
+    """T-0023: the DeepSeek key form, summaries on 最近邮件 and 今日 (FakeProvider)."""
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    model_key = f"sk-verify-{uuid.uuid4().hex}"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(
+        fake_mail("CIS 22A Lab 5 截止提醒", "Lab 5 截止 周五 23:59，请在 Canvas 提交。"),
+        received=recent(3),
+    )
+    box.add(fake_mail("网易邮箱验证码", "您的验证码是 482913，10分钟内有效。"), received=recent(2))
+    box.add(fake_mail("The Weekly Digest", "Campus news this week."), received=recent(1))
+    imap = FakeImapServer(box)
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    name = f"mail.{uuid.uuid4().hex[:10]}"
+    try:
+        api.put(f"/credentials/{name}", json={"secret": code, "note": "163"})
+        created = api.post(
+            "/integrations",
+            json={
+                "kind": "email",
+                "name": "163 邮箱",
+                "credential_name": name,
+                "config": {
+                    "host": "127.0.0.1",
+                    "port": str(imap.port),
+                    "username": "student@example.com",
+                    "tls": "off",
+                },
+            },
+        )
+        check(created.status_code == 201, "an email connection for summaries was added")
+        open_view(page, "连接")
+        mail = page.get_by_test_id("mail")
+        mail.get_by_text("CIS 22A Lab 5 截止提醒").wait_for(timeout=40_000)
+        card = page.get_by_test_id("ai-card")
+        card.get_by_text("还没有设置 key").wait_for()
+        check(True, "the AI card says no key is set")
+        mail.get_by_text("未发送给 AI（可能含验证码或重置密码）").wait_for(timeout=20_000)
+        check(True, "the OTP mail shows 未发送给 AI before any key exists")
+        shot(page, out, "15-ai-no-key")
+
+        key_field = card.get_by_test_id("ai-key")
+        key_field.fill(model_key)
+        card.get_by_role("button", name="保存 key").click()
+        check(key_field.input_value() == "", "the key field is cleared at once")
+        mail.get_by_text("（测试摘要）CIS 22A Lab 5 截止提醒").wait_for(timeout=40_000)
+        check(True, "entering a key fills the summaries on 最近邮件")
+        check(mail.get_by_text("需处理").count() >= 1, "the Lab mail is marked 需处理")
+        card.get_by_text("已设置 key").wait_for(timeout=20_000)
+        check("本月已用 $" in card.inner_text(), "the card shows this month's spend")
+        # page.content() omits live input values; the cleared field above is the real proof.
+        check(model_key not in page.content(), "the key is not in the page markup")
+        shot(page, out, "16-ai-summaries")
+
+        open_view(page, "今日")
+        actions = page.get_by_test_id("today-mail-actions")
+        actions.get_by_text("CIS 22A Lab 5 截止提醒", exact=True).wait_for()
+        check(True, "需要处理的邮件 lists the Canvas mail")
+        check(
+            page.get_by_test_id("today-mail").get_by_text("（测试摘要）The Weekly Digest").count()
+            == 1,
+            "今日 mail entries carry their summary",
+        )
+        check(model_key not in page.content(), "the key is nowhere on 今日 either")
+        shot(page, out, "17-today-ai")
+        log = hub_log.read_text(encoding="utf-8", errors="replace")
+        check(model_key not in log and "482913" not in log, "neither key nor OTP in the Hub log")
+    finally:
+        imap.close()
+        for iid in [i["id"] for i in api.get("/integrations").json() if i["name"] == "163 邮箱"]:
+            api.delete(f"/integrations/{iid}")
+        for cred in (name, "deepseek"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{cred}")
+
+
 def open_view(page: Page, name: str) -> None:
     page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
 
@@ -466,6 +546,7 @@ def run(out: Path, headed: bool) -> None:
     # Feed links go to a throwaway Credential Manager service, removed at the end.
     service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
     os.environ["POS_CREDENTIALS_SERVICE"] = service
+    os.environ["POS_MODEL_PROVIDER"] = "fake"  # summaries without a real model (ADR 0027)
     with (
         tempfile.TemporaryDirectory(dir=scratch_root, ignore_cleanup_errors=True) as tmp,
         running_hub(Path(tmp) / "data") as api,
@@ -537,6 +618,7 @@ def run(out: Path, headed: bool) -> None:
             verify_connections_view(page, api, out, errors, service, hub_log)
             verify_canvas_view(page, api, out, service, hub_log)
             verify_email_view(page, api, out, service, hub_log)
+            verify_summaries_view(page, api, out, service, hub_log)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

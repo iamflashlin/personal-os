@@ -319,11 +319,15 @@ def run_job(
             request_run(session, actor, now, idempotency_key=f"{JOB}:cont:{job_id}")
 
 
-def summaries_for(session: Session, actor: Actor, item_ids: list[str]) -> list[EmailSummary]:
+def summaries_for(
+    session: Session, actor: Actor, item_ids: list[str], limit: int | None = MAX_ITEM_IDS
+) -> list[EmailSummary]:
+    """Summaries of these mails. HTTP callers are capped; Hub views pass `limit=None`."""
+    wanted = item_ids if limit is None else item_ids[:limit]
     rows = session.scalars(
         select(EmailSummaryRow).where(
             EmailSummaryRow.owner_id == actor.owner_id,
-            EmailSummaryRow.item_id.in_(item_ids[:MAX_ITEM_IDS]),
+            EmailSummaryRow.item_id.in_(wanted),
         )
     )
     return [_read(r) for r in rows]

@@ -9,10 +9,18 @@ from sqlalchemy.orm import Session
 
 from apps.hub.core.domain import Actor
 from apps.hub.integrations import service as integrations
+from apps.hub.summaries import service as summaries
 from apps.hub.tasks import service as tasks
 from packages.contracts.integrations import IntegrationStatus, SyncedItem
+from packages.contracts.summaries import EmailSummary, SummaryStatus
 from packages.contracts.tasks import Task, TaskStatus
-from packages.contracts.today import EntryKind, SourceProblem, TodayEntry, TodayView
+from packages.contracts.today import (
+    EntryKind,
+    EntrySummary,
+    SourceProblem,
+    TodayEntry,
+    TodayView,
+)
 
 SOON_DAYS = 3
 RECENT_DAYS = 2  # covers the 24 h mail and 48 h announcement windows from any time today
@@ -20,6 +28,8 @@ MISSING_DAYS = 120  # Canvas keeps old missing work actionable; look back a whol
 MAIL_HOURS = 24
 NEWS_HOURS = 48
 MAX_MAIL = 8
+ACTION_DAYS = 7  # 需要处理的邮件: read or not, from the last week
+MAX_ACTIONS = 10
 OPEN = {TaskStatus.todo, TaskStatus.in_progress, TaskStatus.blocked}
 
 
@@ -104,7 +114,51 @@ def zone_name(tz: tzinfo, now: datetime) -> str:
     return str(getattr(tz, "key", "") or now.astimezone(tz).tzname() or "UTC")
 
 
-def today(session: Session, actor: Actor, now: datetime, tz: tzinfo) -> TodayView:
+def _summary(found: EmailSummary | None) -> EntrySummary | None:
+    if found is None or found.status is SummaryStatus.pending:
+        return None
+    return EntrySummary(
+        status=found.status,
+        gist=found.gist,
+        action_needed=found.action_needed,
+        action=found.action,
+        deadline_text=found.deadline_text,
+    )
+
+
+def _mail_actions(
+    session: Session, actor: Actor, now: datetime, names: dict[str, str]
+) -> list[TodayEntry]:
+    """Mail the AI says needs action: deadline first (soonest), then newest."""
+    week = integrations.items_between(
+        session,
+        actor,
+        now - timedelta(days=ACTION_DAYS),
+        now + timedelta(days=1),
+        item_type="email_message",
+    )
+    found = {
+        s.item_id: s
+        for s in summaries.summaries_for(session, actor, [i.id for i in week], limit=None)
+    }
+    picked: list[tuple[EmailSummary, TodayEntry]] = []
+    for item in week:
+        summary = found.get(item.id)
+        if summary is None or summary.status is not SummaryStatus.ok or not summary.action_needed:
+            continue
+        entry = _entry(item, names.get(item.integration_id, ""))
+        entry.summary = _summary(summary)
+        picked.append((summary, entry))
+    latest = date.max
+    oldest = datetime.min.replace(tzinfo=UTC)
+    picked.sort(key=lambda p: p[1].at or oldest, reverse=True)  # newest first ...
+    picked.sort(key=lambda p: p[0].deadline_date or latest)  # ... within the deadline order
+    return [entry for _, entry in picked[:MAX_ACTIONS]]
+
+
+def today(
+    session: Session, actor: Actor, now: datetime, tz: tzinfo, ai_notice: str = ""
+) -> TodayView:
     local_today = now.astimezone(tz).date()
     day_start = datetime.combine(local_today, time(), tz).astimezone(UTC)
     recent_start = day_start - timedelta(days=RECENT_DAYS)
@@ -175,6 +229,13 @@ def today(session: Session, actor: Actor, now: datetime, tz: tzinfo) -> TodayVie
     def newest(e: TodayEntry) -> datetime:
         return e.at or datetime.min.replace(tzinfo=UTC)
 
+    mail_found = {
+        s.item_id: s
+        for s in summaries.summaries_for(session, actor, [e.ref for e in mail], limit=None)
+    }
+    for entry in mail:
+        entry.summary = _summary(mail_found.get(entry.ref))
+
     view: dict[str, Any] = {
         "due_today": sorted(due_today, key=by_day),
         "due_soon": sorted(due_soon, key=by_day),
@@ -197,5 +258,7 @@ def today(session: Session, actor: Actor, now: datetime, tz: tzinfo) -> TodayVie
         headline=_headline(view, len(problems)),
         problems=problems,
         sources=len(sources),
+        mail_actions=_mail_actions(session, actor, now, names),
+        ai_notice=ai_notice,
         **view,
     )
