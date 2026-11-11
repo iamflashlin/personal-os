@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, createApi, type Memory, parseTags, type Task } from "./api";
+import { ApiError, createApi, type Integration, type Memory, parseTags, type Task } from "./api";
 
 interface Call {
   url: string;
@@ -50,6 +50,84 @@ describe("api client", () => {
   it("reports a non-JSON error body instead of a parse error", async () => {
     const api = createApi(async () => new Response("Internal Server Error", { status: 500 }));
     await expect(api.goals()).rejects.toEqual(new ApiError(500, "Internal Server Error"));
+  });
+});
+
+describe("connections", () => {
+  const integration = { id: "01I", credential_name: "feed.ab12" } as Integration;
+
+  it("stores the feed address as a credential, then creates the integration", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, integration, calls));
+    await api.connectFeed({ name: "Canvas", url: "https://x/feed.ics", interval_s: 900 }, "feed.ab12");
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
+      ["PUT", "/credentials/feed.ab12"],
+      ["POST", "/integrations"],
+    ]);
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      secret: "https://x/feed.ics",
+      note: "Canvas",
+    });
+    const created = JSON.parse(String(calls[1].init?.body));
+    expect(created).toEqual({
+      kind: "ics",
+      name: "Canvas",
+      credential_name: "feed.ab12",
+      interval_s: 900,
+    });
+    expect(JSON.stringify(created)).not.toContain("https://x/feed.ics");
+  });
+
+  it("removes the credential again when the integration cannot be created", async () => {
+    const calls: Call[] = [];
+    const api = createApi(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      const failing = url === "/integrations";
+      return new Response(failing ? JSON.stringify({ detail: "bad" }) : null, {
+        status: failing ? 422 : 204,
+      });
+    });
+    await expect(
+      api.connectFeed({ name: "x", url: "https://x/f.ics", interval_s: 900 }, "feed.ab12"),
+    ).rejects.toEqual(new ApiError(422, "bad"));
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
+      ["PUT", "/credentials/feed.ab12"],
+      ["POST", "/integrations"],
+      ["DELETE", "/credentials/feed.ab12"],
+    ]);
+  });
+
+  it("deletes the integration and then its credential; a missing credential is fine", async () => {
+    const calls: Call[] = [];
+    const api = createApi(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      const missing = url.startsWith("/credentials/");
+      return new Response(missing ? JSON.stringify({ detail: "gone" }) : null, {
+        status: missing ? 404 : 204,
+      });
+    });
+    await api.disconnect(integration);
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
+      ["DELETE", "/integrations/01I"],
+      ["DELETE", "/credentials/feed.ab12"],
+    ]);
+  });
+
+  it("keeps a credential that another integration still uses", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(204, null, calls));
+    await api.disconnect(integration, { keepCredential: true });
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([["DELETE", "/integrations/01I"]]);
+  });
+
+  it("asks for items in a time window", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, [], calls));
+    const start = new Date("2026-11-10T00:00:00Z");
+    await api.integrationItems(integration, start, new Date("2026-11-24T00:00:00Z"));
+    const url = new URL(calls[0].url, "http://hub");
+    expect(url.pathname).toBe("/integrations/01I/items");
+    expect(url.searchParams.get("start")).toBe("2026-11-10T00:00:00.000Z");
   });
 });
 

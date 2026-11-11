@@ -266,3 +266,18 @@ button.danger {
     grid-template-columns: 1fr;
   }
 }
+
+.badge.status-ok {
+  background: #e3f4e8;
+  color: #1d6b35;
+}
+
+.badge.status-error {
+  background: #fde8e8;
+  color: #a12020;
+}
+
+/* Hides a secret while it is typed without making it a password field (see ConnectionsView). */
+input.masked {
+  -webkit-text-security: disc;
+}

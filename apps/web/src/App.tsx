@@ -10,6 +10,7 @@ import {
   type TaskStatus,
   parseTags,
 } from "./api";
+import { ConnectionsView } from "./ConnectionsView";
 import { MemoryView } from "./MemoryView";
 
 const TASK_STATUS: Record<TaskStatus, string> = {
@@ -25,6 +26,8 @@ const MODE: Record<ExecutionMode, string> = {
   collaborate: "一起做",
   human_led: "自己做",
 };
+
+const VIEW = { tasks: "任务", memories: "记忆", connections: "连接" } as const;
 
 interface Data {
   goals: Goal[];
@@ -54,7 +57,7 @@ function errorText(err: unknown): string {
 export function App({ api }: { api: Api }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"tasks" | "memories">("tasks");
+  const [view, setView] = useState<"tasks" | "memories" | "connections">("tasks");
   const latestReload = useRef(0);
 
   const reload = useCallback(async () => {
@@ -94,7 +97,7 @@ export function App({ api }: { api: Api }) {
       <header>
         <h1>Personal OS</h1>
         <nav className="views" aria-label="切换页面">
-          {(["tasks", "memories"] as const).map((v) => (
+          {(["tasks", "memories", "connections"] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -102,12 +105,13 @@ export function App({ api }: { api: Api }) {
               aria-current={view === v ? "page" : undefined}
               onClick={() => setView(v)}
             >
-              {v === "tasks" ? "任务" : "记忆"}
+              {VIEW[v]}
             </button>
           ))}
         </nav>
       </header>
       {view === "memories" && <MemoryView api={api} />}
+      {view === "connections" && <ConnectionsView api={api} />}
       {view === "tasks" && !data && !error && <p>加载中…</p>}
       {view === "tasks" && error && (
         <p className="error" role="alert">

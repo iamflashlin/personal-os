@@ -66,6 +66,48 @@ export interface NewMemory {
   sensitivity: Sensitivity;
 }
 
+export type IntegrationStatus = "never_synced" | "ok" | "error";
+
+export interface Integration extends Stored {
+  kind: "ics";
+  name: string;
+  credential_name: string;
+  interval_s: number;
+  status: IntegrationStatus;
+  last_sync_at: string | null;
+  last_success_at: string | null;
+  last_error: string;
+  item_count: number;
+}
+
+export interface SyncedItem extends Stored {
+  integration_id: string;
+  item_type: string;
+  external_id: string;
+  title: string;
+  body: string;
+  location: string;
+  url: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  all_day: boolean;
+  data: Record<string, unknown>;
+}
+
+export interface Job {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "dead";
+  attempts: number;
+  last_error: string;
+}
+
+export interface NewFeed {
+  name: string;
+  /** The private feed address; sent once to the credential store, never shown again. */
+  url: string;
+  interval_s: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -145,6 +187,52 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       }),
     deleteMemory: (memory: Memory) =>
       call<null>(`/memories/${memory.id}`, { method: "DELETE" }),
+    integrations: () => call<Integration[]>("/integrations"),
+    /**
+     * Stores the feed address as a credential first, then creates the integration. If the
+     * second step fails, the credential is removed again so no unused secret is left.
+     */
+    connectFeed: async (feed: NewFeed, credentialName: string) => {
+      const credential = `/credentials/${encodeURIComponent(credentialName)}`;
+      await call<unknown>(credential, {
+        method: "PUT",
+        body: JSON.stringify({ secret: feed.url, note: feed.name }),
+      });
+      try {
+        return await call<Integration>("/integrations", {
+          method: "POST",
+          body: JSON.stringify({
+            kind: "ics",
+            name: feed.name,
+            credential_name: credentialName,
+            interval_s: feed.interval_s,
+          }),
+        });
+      } catch (err) {
+        await call<null>(credential, { method: "DELETE" }).catch(() => null);
+        throw err;
+      }
+    },
+    syncIntegration: (integration: Integration) =>
+      call<{ job_id: string }>(`/integrations/${integration.id}/sync`, { method: "POST" }),
+    /** Deletes the integration, its synced items and (unless kept) its credential. */
+    disconnect: async (integration: Integration, options: { keepCredential?: boolean } = {}) => {
+      await call<null>(`/integrations/${integration.id}`, { method: "DELETE" });
+      if (options.keepCredential) return;
+      await call<null>(`/credentials/${encodeURIComponent(integration.credential_name)}`, {
+        method: "DELETE",
+      }).catch((err: unknown) => {
+        if (!(err instanceof ApiError && err.status === 404)) throw err;
+      });
+    },
+    job: (jobId: string) => call<Job>(`/jobs/${jobId}`),
+    integrationItems: (integration: Integration, start: Date, end: Date) =>
+      call<SyncedItem[]>(
+        `/integrations/${integration.id}/items?${new URLSearchParams({
+          start: start.toISOString(),
+          end: end.toISOString(),
+        })}`,
+      ),
   };
 }
 
