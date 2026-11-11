@@ -1,6 +1,6 @@
 # Makes the Personal OS Hub always available on this PC (ADR 0021).
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\run\install-always-on.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\run\install-always-on.ps1 [-Ref <commit or branch>]
 #
 # - Puts a separate copy of the code at -CopyDir (a git worktree, detached at -Ref), so
 #   development never disturbs the running Hub. Running this again updates that copy.
@@ -16,22 +16,50 @@ param(
     [switch]$PrepareOnly
 )
 
-$ErrorActionPreference = "Stop"
+# Native tools (git, uv, pnpm) write progress to stderr; failures are caught by exit code.
+$ErrorActionPreference = "Continue"
+$CopyDir = $CopyDir.TrimEnd('\')
+$DataDir = $DataDir.TrimEnd('\')
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $taskName = "PersonalOS Hub"
+$user = "$env:USERDOMAIN\$env:USERNAME"
 
 function Step([string]$text) { Write-Output "== $text" }
+function Fail([string]$text) { Write-Output "FAILED: $text"; exit 1 }
 
-$uv = (Get-Command uv -ErrorAction Stop).Source
-$pnpm = (Get-Command pnpm -ErrorAction Stop).Source
-$commit = (git -C $repo rev-parse $Ref).Trim()
+function Hub-From-Copy {
+    # True only if the process listening on 8765 runs from this copy's .venv.
+    $listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $listener) { return $false }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
+    return $proc -and $proc.ExecutablePath -like "$CopyDir\*"
+}
 
+$uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
+$pnpm = (Get-Command pnpm -ErrorAction SilentlyContinue).Source
+if (-not $uv -or -not $pnpm) { Fail "uv and pnpm must be on PATH" }
+$commit = (git -C $repo rev-parse $Ref 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $commit) { Fail "unknown -Ref '$Ref'" }
+$commit = $commit.Trim()
+if ($DataDir -like "$CopyDir\*") { Fail "-DataDir must not be inside -CopyDir" }
+
+$running = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" |
+    Where-Object { $_.CommandLine -like "*run-hub.ps1*" -and $_.CommandLine -like "*$CopyDir*" }
+$hadTask = [bool](Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
+if ($PrepareOnly -and $running) {
+    Fail "a Hub is running from $CopyDir; stop it first (scripts\run\stop-hub.ps1)"
+}
 if (-not $PrepareOnly) {
     Step "stop the running Hub, if any"
-    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $taskName
-    }
-    & (Join-Path $PSScriptRoot "stop-hub.ps1") -DataDir $DataDir
+    if ($hadTask) { Stop-ScheduledTask -TaskName $taskName }
+    & (Join-Path $PSScriptRoot "stop-hub.ps1") -CopyDir $CopyDir -DataDir $DataDir
+}
+
+function Restore-And-Fail([string]$text) {
+    # A failed update must not leave the site down: start the previous setup again.
+    if ($hadTask -and -not $PrepareOnly) { Start-ScheduledTask -TaskName $taskName }
+    Fail $text
 }
 
 Step "runtime copy at $CopyDir (commit $($commit.Substring(0, 10)))"
@@ -40,21 +68,27 @@ if (Test-Path (Join-Path $CopyDir ".git")) {
 } else {
     git -C $repo worktree add --detach $CopyDir $commit
 }
-if ($LASTEXITCODE -ne 0) { throw "git could not prepare $CopyDir" }
+if ($LASTEXITCODE -ne 0) { Restore-And-Fail "git could not prepare $CopyDir" }
+$runner = Join-Path $CopyDir "scripts\run\run-hub.ps1"
+if (-not (Test-Path $runner)) {
+    Restore-And-Fail "commit $Ref has no scripts\run\run-hub.ps1; use a newer -Ref"
+}
 
-Step "install Python packages in the copy (from the local cache)"
 Push-Location $CopyDir
-try {
-    & $uv sync --frozen
-    if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+Step "install Python packages in the copy (from the local cache)"
+& $uv sync --frozen
+$ok = $LASTEXITCODE -eq 0
+if ($ok) {
     Step "build the web page in the copy"
     & $pnpm install --frozen-lockfile --prefer-offline
-    if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
-    & $pnpm --dir apps/web build
-    if ($LASTEXITCODE -ne 0) { throw "web build failed" }
-} finally {
-    Pop-Location
+    $ok = $LASTEXITCODE -eq 0
 }
+if ($ok) {
+    & $pnpm --dir apps/web build
+    $ok = $LASTEXITCODE -eq 0
+}
+Pop-Location
+if (-not $ok) { Restore-And-Fail "installing or building in $CopyDir failed (see above)" }
 
 Step "data folder $DataDir"
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
@@ -64,17 +98,21 @@ if ($PrepareOnly) {
 }
 
 Step "register the scheduled task '$taskName' (starts at your logon, hidden)"
-$runner = Join-Path $CopyDir "scripts\run\run-hub.ps1"
 $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`" " +
     "-CopyDir `"$CopyDir`" -DataDir `"$DataDir`" -Uv `"$uv`""
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments -WorkingDirectory $CopyDir
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+# The supervisor restarts the Hub itself; Task Scheduler only restarts the supervisor if
+# powershell.exe exits with an error (3 times, then until the next logon).
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew `
-    -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 5
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description "Personal OS Hub on http://127.0.0.1:8765 (ADR 0021)" -Force | Out-Null
+if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
+    Fail "the scheduled task could not be registered"
+}
 
 Step "start it now"
 Start-ScheduledTask -TaskName $taskName
@@ -82,13 +120,13 @@ $deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $deadline) {
     try {
         $health = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 2
-        if ($health.status -eq "ok") {
+        if ($health.status -eq "ok" -and (Hub-From-Copy)) {
             Write-Output "Hub is up: http://127.0.0.1:8765 (schema $($health.schema_version))"
             exit 0
         }
     } catch {
-        Start-Sleep -Seconds 2
+        # not up yet
     }
+    Start-Sleep -Seconds 2
 }
-Write-Output "Hub did not answer within 60 s; see $DataDir\logs\hub.log"
-exit 1
+Fail "the Hub from $CopyDir did not answer within 60 s; see $DataDir\logs"
