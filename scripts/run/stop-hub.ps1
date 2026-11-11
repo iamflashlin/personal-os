@@ -31,6 +31,10 @@ foreach ($p in $hubs) {
     $isOurUv = $p.Name -eq "uv.exe" -and $p.ProcessId -eq $recorded
     $isOurPython = $p.Name -eq "python.exe" -and $p.ExecutablePath -like "$CopyDir\*"
     if ($isOurUv -or $isOurPython) {
+        # A venv python.exe on Windows is a launcher: the interpreter holding the port and the
+        # copy's .pyd files is its child, outside the copy. Remember it so we wait for it too.
+        Get-CimInstance Win32_Process -Filter "ParentProcessId = $($p.ProcessId)" |
+            ForEach-Object { $stopped += $_.ProcessId }
         & taskkill.exe /PID $p.ProcessId /T /F 2>$null | Out-Null
         $stopped += $p.ProcessId
     }

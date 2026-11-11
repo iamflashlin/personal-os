@@ -27,13 +27,31 @@ $user = "$env:USERDOMAIN\$env:USERNAME"
 function Step([string]$text) { Write-Output "== $text" }
 function Fail([string]$text) { Write-Output "FAILED: $text"; exit 1 }
 
-function Hub-From-Copy {
-    # True only if the process listening on 8765 runs from this copy's .venv.
-    $listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
+function Get-Listener {
+    # The process listening on 8765 and its parent, or $null.
+    $conn = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
         Select-Object -First 1
-    if (-not $listener) { return $false }
-    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
-    return $proc -and $proc.ExecutablePath -like "$CopyDir\*"
+    if (-not $conn) { return $null }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)"
+    if (-not $proc) { return $null }
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)"
+    return [pscustomobject]@{ Proc = $proc; Parent = $parent }
+}
+
+function Describe-Listener($l) {
+    $text = "pid $($l.Proc.ProcessId) $($l.Proc.ExecutablePath)"
+    if ($l.Parent) { $text += " <- $($l.Parent.ExecutablePath)" }
+    return $text
+}
+
+function Hub-From-Copy {
+    # True only if the process listening on 8765 is this copy's Hub.
+    $l = Get-Listener
+    if (-not $l -or $l.Proc.CommandLine -notlike "*apps.hub*") { return $false }
+    if ($l.Proc.ExecutablePath -like "$CopyDir\*") { return $true }
+    # On Windows a venv's python.exe is a launcher: the interpreter that owns the socket is
+    # its child and runs from the base Python install, so check the parent too.
+    return $l.Parent -and $l.Parent.ExecutablePath -like "$CopyDir\*"
 }
 
 $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
@@ -54,6 +72,13 @@ if (-not $PrepareOnly) {
     Step "stop the running Hub, if any"
     if ($hadTask) { Stop-ScheduledTask -TaskName $taskName }
     & (Join-Path $PSScriptRoot "stop-hub.ps1") -CopyDir $CopyDir -DataDir $DataDir
+}
+
+$blocker = Get-Listener
+if (-not $PrepareOnly -and $blocker) {
+    # Something we could not prove ours still holds the port; the new Hub could never start.
+    if ($hadTask) { Start-ScheduledTask -TaskName $taskName }
+    Fail "port 8765 is in use by $(Describe-Listener $blocker); stop it first"
 }
 
 function Restore-And-Fail([string]$text) {
@@ -128,5 +153,9 @@ while ((Get-Date) -lt $deadline) {
         # not up yet
     }
     Start-Sleep -Seconds 2
+}
+$l = Get-Listener
+if ($l) {
+    Fail "a Hub answers on 8765 but not from ${CopyDir}: $(Describe-Listener $l); see $DataDir\logs"
 }
 Fail "the Hub from $CopyDir did not answer within 60 s; see $DataDir\logs"

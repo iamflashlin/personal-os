@@ -58,13 +58,19 @@ def powershell(command: str) -> str:
     return done.stdout.strip()
 
 
-def listener_path() -> str:
-    """The executable of the process listening on 127.0.0.1:8765, or ''."""
-    return powershell(
+def listener_paths() -> list[str]:
+    """Executables of the process listening on 127.0.0.1:8765 and of its parent.
+
+    On Windows a venv's python.exe is a launcher: the interpreter that owns the socket is
+    its child and runs from the base Python install, so the parent identifies the copy.
+    """
+    out = powershell(
         "$c = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue"
-        " | Select-Object -First 1; if ($c) { (Get-CimInstance Win32_Process -Filter "
-        '"ProcessId = $($c.OwningProcess)").ExecutablePath }'
+        " | Select-Object -First 1; if ($c) { $p = Get-CimInstance Win32_Process -Filter "
+        '"ProcessId = $($c.OwningProcess)"; $p.ExecutablePath; (Get-CimInstance '
+        'Win32_Process -Filter "ProcessId = $($p.ParentProcessId)").ExecutablePath }'
     )
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def supervisor_log(data_dir: Path) -> str:
@@ -81,10 +87,10 @@ def run(data_dir: Path, copy_dir: Path, expect_task: bool) -> None:
     check(up is not None, "GET /health answers ok on 127.0.0.1:8765")
     page = httpx.get(f"{HUB}/", timeout=5)
     check(page.status_code == 200 and "<div id=" in page.text, "the web page loads at /")
-    served_by = listener_path()
+    served_by = listener_paths()
     check(
-        served_by.lower().startswith(str(copy_dir).lower() + "\\"),
-        f"the Hub on 8765 runs from the runtime copy ({served_by})",
+        any(path.lower().startswith(str(copy_dir).lower() + "\\") for path in served_by),
+        f"the Hub on 8765 runs from the runtime copy ({' <- '.join(served_by)})",
     )
 
     starts = [line for line in supervisor_log(data_dir).splitlines() if "starting Hub" in line]
