@@ -302,3 +302,12 @@ input.masked {
   font-weight: 600;
 }
 
+
+.today .headline {
+  font-size: 1.1rem;
+  margin: 8px 0 16px;
+}
+
+.today section {
+  margin-bottom: 16px;
+}

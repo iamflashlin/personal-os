@@ -36,6 +36,7 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from websockets.exceptions import ConnectionClosed, InvalidStatus
@@ -1000,6 +1001,124 @@ def verify_email(_client: httpx.Client, data_dir: Path, _args: argparse.Namespac
             keyring.delete_password(service, f"{owner}:mail.code")
 
 
+def verify_today(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    token = f"canvastoken-{uuid.uuid4().hex[:20]}"
+    canvas = FakeCanvas(token)
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(fake_mail("作业提醒 Lab 3 明天截止", "请在明天之前提交。"), received=recent(2))
+    box.add(fake_mail("Already read", "x"), seen=True, received=recent(1))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "today-data"
+    os.environ["POS_CREDENTIALS_SERVICE"] = service
+    zone = "America/Los_Angeles"
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    try:
+        with running_hub(hub_dir) as hub:
+            empty = hub.get("/today", params={"tz": zone})
+            check(empty.status_code == 200, "GET /today -> 200 on an empty Hub")
+            check(empty.json()["sources"] == 0, "an empty Hub reports no sources")
+            check(
+                hub.get("/today", params={"tz": "Not/AZone"}).status_code == 422,
+                "an unknown time zone is refused",
+            )
+            local_today = datetime.now(UTC).astimezone(ZoneInfo(zone)).date()
+            for title, due in (
+                ("交房租", local_today.isoformat()),
+                ("还图书馆的书", (local_today - timedelta(days=2)).isoformat()),
+            ):
+                made = hub.post("/tasks", json={"title": title, "due_date": due})
+                check(made.status_code == 201, f"task {title} created")
+            hub.put("/credentials/canvas.token", json={"secret": token})
+            hub.put("/credentials/mail.code", json={"secret": code})
+            sources = [
+                ("canvas", "Canvas", "canvas.token", {"base_url": canvas.base}),
+                (
+                    "email",
+                    "163 邮箱",
+                    "mail.code",
+                    {
+                        "host": "127.0.0.1",
+                        "port": str(imap.port),
+                        "username": "student@example.com",
+                        "tls": "off",
+                    },
+                ),
+            ]
+            for kind, name, credential, config in sources:
+                created = hub.post(
+                    "/integrations",
+                    json={
+                        "kind": kind,
+                        "name": name,
+                        "credential_name": credential,
+                        "config": config,
+                    },
+                )
+                check(created.status_code == 201, f"{kind} connected")
+
+            def today() -> dict[str, Any]:
+                return hub.get("/today", params={"tz": zone}).json()
+
+            wait(
+                "both sources synced into 今日",
+                lambda: today()["unread_mail"] == 1 and len(today()["missing"]) == 2,
+            )
+            view = today()
+            print(f"headline: {view['headline']}", flush=True)
+            check(view["timezone"] == zone, "the view is computed in the browser's zone")
+            check(
+                [e["title"] for e in view["due_today"]] == ["交房租"], "today's task is due today"
+            )
+            missing = {e["title"]: e["badge"] for e in view["missing"]}
+            check(
+                missing == {"Lab 3 实验报告": "缺交", "还图书馆的书": "逾期"},
+                "missing Canvas work and the overdue task are listed",
+            )
+            check(
+                [e["title"] for e in view["mail"]] == ["作业提醒 Lab 3 明天截止"],
+                "only unread mail is listed",
+            )
+            check(
+                [e["title"] for e in view["announcements"]] == ["Midterm moved"],
+                "yesterday's announcement is listed",
+            )
+            check(
+                "1 封未读邮件" in view["headline"] and "今天有 1 项截止" in view["headline"],
+                "the headline counts deadlines and unread mail",
+            )
+            check(view["sources"] == 2 and view["problems"] == [], "two healthy sources")
+
+            box.password = "rotated"
+            mail_id = next(i["id"] for i in hub.get("/integrations").json() if i["kind"] == "email")
+            hub.post(f"/integrations/{mail_id}/sync")
+            wait("a failing source shows under problems", lambda: len(today()["problems"]) == 1)
+            check(code not in json.dumps(today()), "the code is not in the view")
+    finally:
+        os.environ.pop("POS_CREDENTIALS_SERVICE", None)
+        imap.close()
+        canvas.close()
+        for name in ("canvas.token", "mail.code"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{name}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -1011,6 +1130,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "integrations": verify_integrations,
     "canvas": verify_canvas,
     "email": verify_email,
+    "today": verify_today,
 }
 
 

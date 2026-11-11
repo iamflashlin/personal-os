@@ -1,0 +1,48 @@
+"""The 今日 page: one day's deadlines, missing work, events, mail and news (ADR 0023)."""
+
+from datetime import date, datetime
+from enum import StrEnum
+
+from pydantic import BaseModel
+
+
+class EntryKind(StrEnum):
+    assignment = "assignment"
+    task = "task"
+    event = "event"
+    mail = "mail"
+    announcement = "announcement"
+
+
+class TodayEntry(BaseModel):
+    kind: EntryKind
+    title: str
+    at: datetime | None
+    all_day: bool = False
+    source: str  # the integration's name, or "任务"
+    note: str = ""  # course, sender, project
+    url: str = ""
+    badge: str = ""  # 缺交, 已提交, 未读, 逾期 …
+    ref: str = ""  # task id or synced item id, for links back
+
+
+class SourceProblem(BaseModel):
+    name: str
+    error: str
+
+
+class TodayView(BaseModel):
+    date: date
+    timezone: str
+    generated_at: datetime
+    headline: str
+    due_today: list[TodayEntry]
+    due_soon: list[TodayEntry]  # the next 3 days
+    missing: list[TodayEntry]  # missing assignments and overdue tasks
+    events: list[TodayEntry]
+    unread_mail: int
+    mail: list[TodayEntry]  # unread, last 24 h, newest first, at most 8
+    announcements: list[TodayEntry]  # last 48 h
+    in_progress: list[TodayEntry]
+    problems: list[SourceProblem]  # sources whose last sync failed
+    sources: int  # connected sources, so an empty day can say why it is empty
