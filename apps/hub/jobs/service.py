@@ -35,14 +35,24 @@ class JobKinds:
 
     def __init__(self) -> None:
         self._handlers: dict[str, Handler] = {}
+        self._families: dict[str, Handler] = {}
 
     def register(self, kind: str, handler: Handler) -> None:
-        if kind in self._handlers:
+        if kind in self._handlers or kind in self._families:
             raise ValueError(f"job kind {kind} is already registered")
         self._handlers[kind] = handler
 
+    def register_family(self, family: str, handler: Handler) -> None:
+        """Handle `family` and every `family:<anything>` (one schedule per integration).
+        Only registered families route this way; another kind with a colon has no handler."""
+        if family in self._handlers or family in self._families:
+            raise ValueError(f"job kind {family} is already registered")
+        self._families[family] = handler
+
     def get(self, kind: str) -> Handler | None:
-        return self._handlers.get(kind)
+        if kind in self._handlers:
+            return self._handlers[kind]
+        return self._families.get(kind.partition(":")[0])
 
 
 def _read(row: JobRow) -> Job:
@@ -357,6 +367,22 @@ def fire_due_schedules(session: Session, actor: Actor, now: datetime) -> list[Jo
             # Already audited and rolled back; one bad schedule must not stop the others.
             logger.exception("schedule %s (%s) could not fire", schedule.id, schedule.kind)
     return jobs
+
+
+def delete_schedule(session: Session, actor: Actor, kind: str) -> None:
+    """Stop a schedule. Jobs it already queued still run; deleting nothing is fine."""
+    row = session.scalars(
+        select(ScheduleRow).where(ScheduleRow.owner_id == actor.owner_id, ScheduleRow.kind == kind)
+    ).one_or_none()
+    if row is None:
+        return
+
+    def op() -> audit.Outcome[None]:
+        session.delete(row)
+        session.flush()
+        return audit.Outcome(row.id, None)
+
+    audit.audited(session, actor, "job_schedule", "delete", row.id, {"kind": kind}, op)
 
 
 def list_schedules(session: Session, actor: Actor) -> list[Schedule]:

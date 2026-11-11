@@ -8,6 +8,7 @@
     uv run python scripts/verify/hub.py agent
     uv run python scripts/verify/hub.py jobs
     uv run python scripts/verify/hub.py credentials
+    uv run python scripts/verify/hub.py integrations
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -587,6 +588,119 @@ def verify_credentials(_client: httpx.Client, data_dir: Path, _args: argparse.Na
             keyring.delete_password(service, key)
 
 
+def verify_integrations(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    import threading
+    import uuid
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import keyring
+
+    token = f"feedtoken-{uuid.uuid4().hex[:16]}"
+    state = {"status": 200, "body": ""}
+
+    def calendar(*events: tuple[str, str]) -> str:
+        crlf = "\r\n"
+        lines = ["BEGIN:VCALENDAR", "VERSION:2.0"]
+        for uid, title in events:
+            lines += ["BEGIN:VEVENT", f"UID:{uid}", f"SUMMARY:{title}"]
+            lines += ["DTSTART:20261112T075900Z", "END:VEVENT"]
+        return crlf.join([*lines, "END:VCALENDAR", ""])
+
+    class Feed(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = state["body"].encode()
+            self.send_response(int(state["status"]))
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Feed)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    feed_url = f"http://127.0.0.1:{server.server_address[1]}/feeds/{token}.ics"
+    state["body"] = calendar(("a", "Lab 3"), ("b", "Quiz 2"))
+
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "integrations-data"
+    os.environ["POS_CREDENTIALS_SERVICE"] = service
+
+    def wait(hub: httpx.Client, what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 20
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    try:
+        with running_hub(hub_dir) as hub:
+            put = hub.put("/credentials/canvas.feed", json={"secret": feed_url})
+            check(put.status_code == 200, "the private feed URL is stored as a credential")
+            created = hub.post(
+                "/integrations",
+                json={"kind": "ics", "name": "Canvas calendar", "credential_name": "canvas.feed"},
+            )
+            check(created.status_code == 201, "POST /integrations -> 201")
+            iid = created.json()["id"]
+            items_url = f"/integrations/{iid}/items"
+            wait(
+                hub,
+                "the schedule synced 2 events in the background",
+                lambda: len(hub.get(items_url).json()) == 2,
+            )
+
+            state["body"] = calendar(("a", "Lab 3 (moved)"), ("b", "Quiz 2"), ("c", "Final"))
+            manual = hub.post(f"/integrations/{iid}/sync")
+            check(manual.status_code == 202, "POST /integrations/{id}/sync -> 202")
+            manual_job = manual.json()["job_id"]
+            wait(
+                hub,
+                "that manual sync job succeeded",
+                lambda: hub.get(f"/jobs/{manual_job}").json()["status"] == "succeeded",
+            )
+            wait(
+                hub,
+                "a manual sync added 1 and updated 1, without duplicates",
+                lambda: (
+                    sorted(i["title"] for i in hub.get(items_url).json())
+                    == ["Final", "Lab 3 (moved)", "Quiz 2"]
+                ),
+            )
+
+            state["status"] = 500
+            failing = hub.post(f"/integrations/{iid}/sync")
+            check(failing.status_code == 202, "a second manual sync is queued")
+            failing_job = failing.json()["job_id"]
+            wait(
+                hub,
+                "the failing sync job is queued again for a retry",
+                lambda: (
+                    hub.get(f"/jobs/{failing_job}").json()["attempts"] >= 1
+                    and hub.get(f"/jobs/{failing_job}").json()["status"] == "queued"
+                ),
+            )
+            wait(
+                hub,
+                "a failing feed shows status error",
+                lambda: hub.get(f"/integrations/{iid}").json()["status"] == "error",
+            )
+            shown = hub.get(f"/integrations/{iid}").text + hub.get("/jobs").text
+            check(token not in shown, "the feed token is in no response")
+            stored = b"".join(p.read_bytes() for p in hub_dir.glob(f"{DB_FILENAME}*"))
+            check(token.encode() not in stored, "the feed token is in no byte of hub.sqlite*")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(token not in hub_log, "the feed token is not in the Hub log")
+    finally:
+        os.environ.pop("POS_CREDENTIALS_SERVICE", None)
+        server.shutdown()
+        server.server_close()
+        with contextlib.suppress(Exception):
+            keyring.delete_password(service, f"{owner}:canvas.feed")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -595,6 +709,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "agent": verify_agent,
     "jobs": verify_jobs,
     "credentials": verify_credentials,
+    "integrations": verify_integrations,
 }
 
 

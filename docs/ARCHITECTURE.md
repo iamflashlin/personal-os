@@ -14,7 +14,7 @@ Phone or PC browser: PWA apps/web (planned)
 +------------------- Hub: apps/hub, one FastAPI process -------------------+
 | entry    __main__ (uvicorn) -> main.create_app()                [built]  |
 | modules  system, tasks, audit, evidence, backup, memory,        [built]  |
-|          devices, actions, jobs, credentials                   [built]  |
+|          devices, actions, jobs, credentials, integrations     [built]  |
 |          sessions, planner, runs, permissions,                           |
 |          notify, models                                        [planned] |
 | core     settings, db engine + PRAGMAs, Entity mixin, UTC type  [built]  |
@@ -30,7 +30,7 @@ Phone or PC browser: PWA apps/web (planned)
 +----------------------------+
 
 packages/contracts: cross-process Pydantic types + openapi.json (built: health, tasks,
-memory, devices, actions, agent_protocol, jobs, credentials)
+memory, devices, actions, agent_protocol, jobs, credentials, integrations)
 ```
 
 Default bind: `127.0.0.1:8765`. Config comes only from `POS_*` environment variables;
@@ -49,6 +49,7 @@ the Hub never reads `.env` (ADR 0008).
 | `action_run` table, unique `(owner_id, idempotency_key)` | `apps/hub/actions` | built (T-0006) |
 | `job` and `job_schedule` tables, and the one in-process `JobWorker` (at least once, ADR 0017) | `apps/hub/jobs` | built (T-0010) |
 | `credential` table (name and dates only); the secrets themselves live in Windows Credential Manager (ADR 0018) | `apps/hub/credentials` | built (T-0011) |
+| `integration` and `synced_item` tables; one sync schedule per integration; ICS calendar-feed connector (ADR 0019) | `apps/hub/integrations` | built (T-0012) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
@@ -133,8 +134,8 @@ The rest of this section is the HANDOFF plan.
 - `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
   web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
 - Hub modules: sessions, planner, runs, permissions, notify (ntfy), models
-  (`ModelProvider`, `FakeProvider`, ModelCall cost rows); integrations with a credential
-  framework (T-0012); commands queued while the agent is offline (on top of jobs).
+  (`ModelProvider`, `FakeProvider`, ModelCall cost rows); email and Canvas REST connectors
+  (after the user picks and authorises the accounts); commands queued while the agent is offline (on top of jobs).
 - More Evidence kinds and grants on who may complete a task (S6, S8).
 - Emergency stop, credentials via `keyring`, binding to the Tailscale interface.
 - Not planned for V0.1: event bus, workflow engine, sync service, vector store,

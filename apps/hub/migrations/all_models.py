@@ -10,6 +10,7 @@ import apps.hub.audit.models
 import apps.hub.credentials.models
 import apps.hub.devices.models
 import apps.hub.evidence.models
+import apps.hub.integrations.models
 import apps.hub.jobs.models
 import apps.hub.memory.models
 import apps.hub.tasks.models  # noqa: F401

@@ -19,6 +19,8 @@ from apps.hub.credentials import api as credentials_api
 from apps.hub.credentials import service as credentials
 from apps.hub.devices import api as devices_api
 from apps.hub.devices import service as devices
+from apps.hub.integrations import api as integrations_api
+from apps.hub.integrations import service as integrations
 from apps.hub.jobs import api as jobs_api
 from apps.hub.jobs import service as jobs
 from apps.hub.jobs.worker import JobWorker
@@ -38,10 +40,23 @@ def _allowed_hosts(bind_host: str) -> list[str]:
     return sorted(hosts)
 
 
-def job_kinds() -> jobs.JobKinds:
-    """Every background job kind the Hub knows. Modules add theirs here (ADR 0017)."""
+def job_kinds(
+    store: credentials.SecretStore | None = None, owner_id: str = "local"
+) -> jobs.JobKinds:
+    """Every background job kind the Hub knows. Modules add theirs here (ADR 0017).
+
+    Integration syncs need the secret store; without one they are not registered.
+    """
     kinds = jobs.JobKinds()
     kinds.register("system.noop", lambda _engine, _job: None)
+    if store is not None:
+        actor = Actor(owner_id=owner_id, source="jobs")
+        kinds.register_family(
+            integrations.SYNC_JOB,
+            lambda engine, job: integrations.run_sync_job(
+                engine, store, actor, job.payload, datetime.now(UTC)
+            ),
+        )
     return kinds
 
 
@@ -54,10 +69,11 @@ def create_app(
     """The Hub API; also serves the built web UI at `/` when `web_dist` exists."""
     settings = settings or Settings()
     engine = make_engine(settings.data_dir)
+    store = secret_store or credentials.KeyringSecretStore(settings.credentials_service)
     worker = JobWorker(
         engine,
         settings.owner_id,
-        kinds or job_kinds(),
+        kinds or job_kinds(store, settings.owner_id),
         poll_s=settings.jobs_poll_s,
         retry_base=timedelta(seconds=settings.jobs_retry_base_s),
     )
@@ -71,6 +87,7 @@ def create_app(
             actions.mark_orphans_lost(session, hub)
             retry_base = timedelta(seconds=settings.jobs_retry_base_s)
             jobs.requeue_interrupted(session, hub, datetime.now(UTC), retry_base)
+            integrations.ensure_schedules(session, hub, datetime.now(UTC))
         if settings.jobs_enabled:
             worker.start()
         try:
@@ -84,9 +101,7 @@ def create_app(
     app.state.settings = settings
     app.state.agent_links = devices.AgentLinks()
     app.state.job_worker = worker
-    app.state.secret_store = secret_store or credentials.KeyringSecretStore(
-        settings.credentials_service
-    )
+    app.state.secret_store = store
     # Rejects requests whose Host is not this machine, so a web page that DNS-rebinds its
     # own domain to 127.0.0.1 cannot drive the API from the user's browser (ADR 0011).
     app.add_middleware(
@@ -117,6 +132,7 @@ def create_app(
     app.include_router(actions_api.build_router())
     app.include_router(jobs_api.build_router())
     app.include_router(credentials_api.build_router())
+    app.include_router(integrations_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
         # method on an API path therefore falls through to here and gets 404, not 405.
