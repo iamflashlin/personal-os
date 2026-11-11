@@ -14,8 +14,8 @@ Phone or PC browser: PWA apps/web (planned)
 +------------------- Hub: apps/hub, one FastAPI process -------------------+
 | entry    __main__ (uvicorn) -> main.create_app()                [built]  |
 | modules  system, tasks, audit, evidence, backup, memory,        [built]  |
-|          devices, actions                                      [built]  |
-|          sessions, planner, runs, jobs, permissions,                     |
+|          devices, actions, jobs                                [built]  |
+|          sessions, planner, runs, permissions,                           |
 |          notify, models                                        [planned] |
 | core     settings, db engine + PRAGMAs, Entity mixin, UTC type  [built]  |
 | state    POS_DATA_DIR/hub.sqlite (WAL) + file dir: the only state owner  |
@@ -30,7 +30,7 @@ Phone or PC browser: PWA apps/web (planned)
 +----------------------------+
 
 packages/contracts: cross-process Pydantic types + openapi.json (built: health, tasks,
-memory, devices, actions, agent_protocol)
+memory, devices, actions, agent_protocol, jobs)
 ```
 
 Default bind: `127.0.0.1:8765`. Config comes only from `POS_*` environment variables;
@@ -47,6 +47,7 @@ the Hub never reads `.env` (ADR 0008).
 | `memory` table and its `memory_fts` trigram index | `apps/hub/memory` | built (T-0005) |
 | `device`, `pairing_code` tables (token and code stored as SHA-256 only) and the in-memory live-agent registry `AgentLinks` (one agent per owner, newest wins) | `apps/hub/devices` | built (T-0006) |
 | `action_run` table, unique `(owner_id, idempotency_key)` | `apps/hub/actions` | built (T-0006) |
+| `job` and `job_schedule` tables, and the one in-process `JobWorker` (at least once, ADR 0017) | `apps/hub/jobs` | built (T-0010) |
 | Health report (reads schema head, owns no table) | `apps/hub/system` | built |
 | Schema version (`alembic_version`) and migrations | `apps/hub/migrations` | built |
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
@@ -130,9 +131,9 @@ The rest of this section is the HANDOFF plan.
   "PC offline" shown in the PWA (ADR 0007). The Hub side of the link is built.
 - `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
   web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
-- Hub modules: sessions, planner, runs, jobs (SQLite
-  queue, incl. commands queued while the agent is offline), permissions, notify (ntfy), backup (`pos export` /
-  `pos import`), models (`ModelProvider`, `FakeProvider`, ModelCall cost rows).
+- Hub modules: sessions, planner, runs, permissions, notify (ntfy), models
+  (`ModelProvider`, `FakeProvider`, ModelCall cost rows); integrations with a credential
+  store (T-0011, T-0012); commands queued while the agent is offline (on top of jobs).
 - More Evidence kinds and grants on who may complete a task (S6, S8).
 - Emergency stop, credentials via `keyring`, binding to the Tailscale interface.
 - Not planned for V0.1: event bus, workflow engine, sync service, vector store,

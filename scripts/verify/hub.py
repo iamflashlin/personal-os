@@ -6,6 +6,7 @@
     uv run python scripts/verify/hub.py roundtrip [--manifest-out manifest-sample.json]
     uv run python scripts/verify/hub.py memory
     uv run python scripts/verify/hub.py agent
+    uv run python scripts/verify/hub.py jobs
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -15,6 +16,7 @@ then stops it. Exit code 0 only if every check passed.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import socket
@@ -491,12 +493,68 @@ def verify_agent(client: httpx.Client, data_dir: Path, _args: argparse.Namespace
     check(code.replace("-", "").encode() not in stored_bytes, "nor is the pairing code")
 
 
+def _scheduled_jobs(data_dir: Path) -> list[dict[str, Any]]:
+    with closing(sqlite3.connect(data_dir / DB_FILENAME)) as db:
+        db.row_factory = sqlite3.Row
+        rows = db.execute("SELECT * FROM job WHERE idempotency_key LIKE 'schedule:%'")
+        return [dict(r) for r in rows]
+
+
+def verify_jobs(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    from sqlalchemy.orm import Session
+
+    from apps.hub.core.db import make_engine
+    from apps.hub.core.domain import Actor
+    from apps.hub.jobs import service as jobs
+
+    # Its own data dir: the restart below needs the Hub stopped, which the outer one is not.
+    jobs_dir = data_dir.parent / "jobs-data"
+    actor = Actor(owner_id="local", source="verify")
+    with running_hub(jobs_dir) as hub:
+        engine = make_engine(jobs_dir)
+        with Session(engine) as s:
+            job = jobs.enqueue(s, actor, "system.noop", {"why": "verify"}, now=datetime.now(UTC))
+            scheduled_at = datetime.now(UTC)
+            jobs.ensure_schedule(s, actor, "system.noop", 1, {}, now=scheduled_at)
+        deadline = time.monotonic() + 10
+        while hub.get(f"/jobs/{job.id}").json()["status"] != "succeeded":
+            if time.monotonic() > deadline:
+                check(False, "the queued job ran within 10 s")
+            time.sleep(0.2)
+        check(True, "a queued job ran in the real Hub within 10 s")
+        time.sleep(3.5)
+        first = _scheduled_jobs(jobs_dir)
+        check(len(first) >= 2, f"a 1-second schedule produced {len(first)} jobs")
+        engine.dispose()
+    with running_hub(jobs_dir) as hub:
+        time.sleep(3.5)
+        listed = hub.get("/jobs", params={"limit": 200}).json()
+        check(all(j["status"] != "running" for j in listed), "nothing is left running")
+    scheduled = _scheduled_jobs(jobs_dir)
+    keys = [j["idempotency_key"] for j in scheduled]
+    check(
+        len(scheduled) > len(first),
+        f"the schedule continued after the restart ({len(scheduled)} jobs)",
+    )
+    slots = sorted(datetime.fromisoformat(k.split(":", 2)[2]) for k in keys)
+    gaps = [(b - a).total_seconds() for a, b in itertools.pairwise(slots)]
+    check(min(gaps) >= 1, f"no two jobs share a 1-second slot (smallest gap {min(gaps):.2f} s)")
+    elapsed = (datetime.now(UTC) - scheduled_at).total_seconds()
+    check(
+        len(slots) <= elapsed + 1,
+        f"{len(slots)} jobs in {elapsed:.1f} s: no burst of catch-up jobs after the restart",
+    )
+    states = {j["status"] for j in scheduled}
+    check(states <= {"succeeded", "queued"}, f"schedule jobs ended {sorted(states)}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
     "roundtrip": verify_roundtrip,
     "memory": verify_memory,
     "agent": verify_agent,
+    "jobs": verify_jobs,
 }
 
 

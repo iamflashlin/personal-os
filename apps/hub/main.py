@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,6 +15,9 @@ from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
 from apps.hub.devices import api as devices_api
 from apps.hub.devices import service as devices
+from apps.hub.jobs import api as jobs_api
+from apps.hub.jobs import service as jobs
+from apps.hub.jobs.worker import JobWorker
 from apps.hub.memory import api as memory_api
 from apps.hub.system import service as system
 from apps.hub.tasks import api as tasks_api
@@ -30,24 +34,51 @@ def _allowed_hosts(bind_host: str) -> list[str]:
     return sorted(hosts)
 
 
-def create_app(settings: Settings | None = None, web_dist: Path | None = WEB_DIST) -> FastAPI:
+def job_kinds() -> jobs.JobKinds:
+    """Every background job kind the Hub knows. Modules add theirs here (ADR 0017)."""
+    kinds = jobs.JobKinds()
+    kinds.register("system.noop", lambda _engine, _job: None)
+    return kinds
+
+
+def create_app(
+    settings: Settings | None = None,
+    web_dist: Path | None = WEB_DIST,
+    kinds: jobs.JobKinds | None = None,
+) -> FastAPI:
     """The Hub API; also serves the built web UI at `/` when `web_dist` exists."""
     settings = settings or Settings()
     engine = make_engine(settings.data_dir)
+    worker = JobWorker(
+        engine,
+        settings.owner_id,
+        kinds or job_kinds(),
+        poll_s=settings.jobs_poll_s,
+        retry_base=timedelta(seconds=settings.jobs_retry_base_s),
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         upgrade_to_head(engine)
+        hub = Actor(owner_id=settings.owner_id, source="hub")
         with Session(engine) as session:
-            actions.mark_orphans_lost(session, Actor(owner_id=settings.owner_id, source="hub"))
-        yield
-        engine.dispose()
+            actions.mark_orphans_lost(session, hub)
+            retry_base = timedelta(seconds=settings.jobs_retry_base_s)
+            jobs.requeue_interrupted(session, hub, datetime.now(UTC), retry_base)
+        if settings.jobs_enabled:
+            worker.start()
+        try:
+            yield
+        finally:
+            await worker.stop()
+            engine.dispose()
 
     app = FastAPI(title="Personal OS Hub", lifespan=lifespan)
     app.state.engine = engine
     app.state.settings = settings
     app.state.agent_links = devices.AgentLinks()
+    app.state.job_worker = worker
     # Rejects requests whose Host is not this machine, so a web page that DNS-rebinds its
     # own domain to 127.0.0.1 cannot drive the API from the user's browser (ADR 0011).
     app.add_middleware(
@@ -67,6 +98,7 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = WEB_DIS
         )
     )
     app.include_router(actions_api.build_router())
+    app.include_router(jobs_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
         # method on an API path therefore falls through to here and gets 404, not 405.

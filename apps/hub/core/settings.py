@@ -1,5 +1,7 @@
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -15,3 +17,6 @@ class Settings(BaseSettings):
     hub_port: int = 8765
     owner_id: str = "local"
     agent_heartbeat_s: float = 15.0
+    jobs_enabled: bool = True
+    jobs_poll_s: Annotated[float, Field(gt=0)] = 1.0
+    jobs_retry_base_s: Annotated[float, Field(gt=0)] = 5.0
