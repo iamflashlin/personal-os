@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
@@ -42,7 +42,13 @@ def build_router() -> APIRouter:
         start: datetime | None = None,
         end: datetime | None = None,
         limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+        order: Literal["asc", "desc"] = "asc",
+        item_type: Annotated[str | None, Query(max_length=32)] = None,
     ) -> list[SyncedItem]:
-        return call(lambda: service.items(session, actor, integration_id, start, end, limit))
+        return call(
+            lambda: service.items(
+                session, actor, integration_id, start, end, limit, order == "desc", item_type
+            )
+        )
 
     return router

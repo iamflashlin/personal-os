@@ -791,7 +791,8 @@
       "IntegrationKind": {
         "enum": [
           "ics",
-          "canvas"
+          "canvas",
+          "email"
         ],
         "title": "IntegrationKind",
         "type": "string"
@@ -3179,6 +3180,37 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "item_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Item Type"
             }
           }
         ],

@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import httpx  # noqa: E402
 import keyring  # noqa: E402
-from hub import CheckFailed, FakeCanvas, check, running_hub  # noqa: E402
+from hub import CheckFailed, FakeCanvas, check, fake_mail, recent, running_hub  # noqa: E402
 from playwright.sync_api import Locator, Page, sync_playwright  # noqa: E402
 
 TASK_TITLE = "读第 3 次实验的说明"
@@ -370,6 +370,65 @@ def verify_canvas_view(
                 keyring.delete_password(service, key)
 
 
+def verify_email_view(
+    page: Page, api: httpx.Client, out: Path, service: str, hub_log: Path
+) -> None:
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(fake_mail("作业提醒 Lab 3 明天截止", "请在明天之前提交。"), received=recent(2))
+    imap = FakeImapServer(box)
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    key: str | None = None
+    try:
+        # The form only offers real servers; the stand-in is local, so it is added through
+        # the same API calls the form makes, with the test server's address.
+        name = f"mail.{uuid.uuid4().hex[:10]}"
+        api.put(f"/credentials/{name}", json={"secret": code, "note": "163"})
+        key = f"{owner}:{name}"
+        config = {
+            "host": "127.0.0.1",
+            "port": str(imap.port),
+            "username": "student@example.com",
+            "tls": "off",
+        }
+        created = api.post(
+            "/integrations",
+            json={"kind": "email", "name": "163 邮箱", "credential_name": name, "config": config},
+        )
+        check(created.status_code == 201, "an email connection was added")
+        form = page.get_by_role("form", name="连接邮箱")
+        check(
+            form.get_by_label("邮箱服务").input_value() == "imap.163.com", "163 is the first preset"
+        )
+        mail = page.get_by_test_id("mail")
+        mail.get_by_text("作业提醒 Lab 3 明天截止").wait_for(timeout=40_000)
+        check(True, "the mail shows in 最近邮件")
+        check(mail.get_by_text("未读").count() == 1, "unread mail is marked 未读")
+        check(code not in page.content(), "the code is nowhere in the page")
+        shot(page, out, "13-email")
+        (row,) = [
+            r
+            for r in page.get_by_test_id("integrations").get_by_role("listitem").all()
+            if "163 邮箱" in r.inner_text()
+        ]
+        row.get_by_role("button", name="删除").click()
+        row.get_by_role(
+            "button", name="确定删除（只删本系统里的邮件副本和授权码，不会动邮箱里的邮件）"
+        ).click()
+        page.get_by_text("还没有连接任何来源").wait_for()
+        check(keyring.get_password(service, key) is None, "deleting removed the code too")
+        check(
+            code not in hub_log.read_text(encoding="utf-8", errors="replace"), "code not in Hub log"
+        )
+    finally:
+        imap.close()
+        if key is not None:
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, key)
+
+
 def run(out: Path, headed: bool) -> None:
     build_web()
     scratch_root = ROOT / "data" / "verify"
@@ -444,6 +503,7 @@ def run(out: Path, headed: bool) -> None:
             hub_log = Path(tmp) / "hub-data.log"  # where running_hub writes the Hub's log
             verify_connections_view(page, api, out, errors, service, hub_log)
             verify_canvas_view(page, api, out, service, hub_log)
+            verify_email_view(page, api, out, service, hub_log)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

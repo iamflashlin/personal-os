@@ -5,6 +5,7 @@ import {
   type Integration,
   type IntegrationStatus,
   type NewCanvas,
+  type NewEmail,
   type NewFeed,
   type SyncedItem,
 } from "./api";
@@ -23,12 +24,26 @@ const INTERVALS: [number, string][] = [
 
 const UPCOMING_DAYS = 14;
 const NEWS_DAYS = 7;
+const SECRET_NAME: Record<Integration["kind"], string> = {
+  ics: "订阅链接",
+  canvas: "访问令牌",
+  email: "授权码",
+};
 const REFRESH_MS = 10_000;
 const SYNC_WAIT_MS = 60_000;
 const INTRO =
   "把外部来源接进来，系统会在后台定时同步。现在支持“日历订阅链接”（ICS），" +
   "例如 Canvas 的 Calendar Feed；也可以用 Canvas 的访问令牌直接接入（能看到是否已交、" +
-  "分数和公告）。链接和令牌都只存进 Windows 凭据管理器，页面不会再显示它们。";
+  "分数和公告）；邮箱用 IMAP 接入（163 要用授权码）。链接、令牌和授权码都只存进 " +
+  "Windows 凭据管理器，页面不会再显示它们。";
+
+const MAIL_LIMIT = 30;
+
+const MAIL_PRESETS: [string, string][] = [
+  ["imap.163.com", "163 邮箱"],
+  ["imap.gmail.com", "Gmail"],
+  ["imap.qq.com", "QQ 邮箱"],
+];
 
 interface Upcoming {
   item: SyncedItem;
@@ -91,7 +106,7 @@ function time(iso: string | null): number {
 }
 
 /** A fresh credential name that the Hub accepts: lower-case letters, digits and dots. */
-function newCredentialName(prefix: "feed" | "canvas"): string {
+function newCredentialName(prefix: "feed" | "canvas" | "mail"): string {
   const bytes = crypto.getRandomValues(new Uint8Array(5));
   return `${prefix}.${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
@@ -112,6 +127,7 @@ export function ConnectionsView({ api }: { api: Api }) {
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [news, setNews] = useState<Upcoming[]>([]);
+  const [mail, setMail] = useState<Upcoming[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
@@ -131,19 +147,40 @@ export function ConnectionsView({ api }: { api: Api }) {
       const load = async (from: Date, to: Date) =>
         (
           await Promise.allSettled(
-            found.map(async (i) =>
-              (await api.integrationItems(i, from, to)).map((item) => ({ item, source: i.name })),
-            ),
+            found
+              .filter((i) => i.kind !== "email")
+              .map(async (i) =>
+                (await api.integrationItems(i, from, to)).map((item) => ({ item, source: i.name })),
+              ),
           )
         ).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-      const [past, coming] = await Promise.all([load(pastStart, today), load(today, end)]);
+      // Mail is read newest first and on its own, so a week of mail never hides older unread.
+      const loadMail = async () =>
+        (
+          await Promise.allSettled(
+            found
+              .filter((i) => i.kind === "email")
+              .map(async (i) =>
+                (await api.recentMail(i, MAIL_LIMIT)).map((item) => ({ item, source: i.name })),
+              ),
+          )
+        ).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+      const [past, coming, recent] = await Promise.all([
+        load(pastStart, today),
+        load(today, end),
+        loadMail(),
+      ]);
       const byTime = (a: Upcoming, b: Upcoming) => time(a.item.starts_at) - time(b.item.starts_at);
       const isNews = (u: Upcoming) => u.item.item_type === "canvas_announcement";
+      const isMail = (u: Upcoming) => u.item.item_type === "email_message";
       // Canvas marks work "missing" only after it was due: show last week's missing work too.
       const overdue = past.filter((u) => submissionBadge(u.item) === "缺交");
       if (mounted.current && ticket === latest.current) {
         setIntegrations(found);
-        setUpcoming([...overdue, ...coming.filter((u) => !isNews(u))].sort(byTime));
+        setUpcoming(
+          [...overdue, ...coming.filter((u) => !isNews(u) && !isMail(u))].sort(byTime),
+        );
+        setMail(recent.sort(byTime).reverse().slice(0, MAIL_LIMIT));
         setNews([...past, ...coming].filter(isNews).sort(byTime).reverse());
         setLoadError(null);
       }
@@ -227,6 +264,9 @@ export function ConnectionsView({ api }: { api: Api }) {
       <NewFeedForm
         onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
       />
+      <NewEmailForm
+        onConnect={(m) => run(() => api.connectEmail(m, newCredentialName("mail")))}
+      />
       <NewCanvasForm
         onConnect={(canvas) => run(() => api.connectCanvas(canvas, newCredentialName("canvas")))}
       />
@@ -255,6 +295,16 @@ export function ConnectionsView({ api }: { api: Api }) {
           ))}
         </ul>
       </section>
+      {mail.length > 0 && (
+        <section data-testid="mail">
+          <h2>最近邮件（最新 {MAIL_LIMIT} 封）</h2>
+          <ul className="memories">
+            {mail.map((u) => (
+              <MailRow key={u.item.id} entry={u} />
+            ))}
+          </ul>
+        </section>
+      )}
       {news.length > 0 && (
         <section data-testid="news">
           <h2>最近公告（{NEWS_DAYS} 天内）</h2>
@@ -295,6 +345,94 @@ function ItemRow({ entry, testId }: { entry: Upcoming; testId: string }) {
         <p className="muted">{item.body.slice(0, 200)}</p>
       )}
     </li>
+  );
+}
+
+function MailRow({ entry }: { entry: Upcoming }) {
+  const { item } = entry;
+  const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
+  const from = data.from_name || data.from_address || "";
+  return (
+    <li className={`memory${data.seen ? "" : " unread"}`} data-testid="mail-item">
+      <div className="memory-main">
+        <span className="badge">{when(item)}</span>
+        <span className="memory-body">{item.title}</span>
+        {!data.seen && <span className="badge unread">未读</span>}
+        <span className="muted">{from}</span>
+      </div>
+      {item.body && <p className="muted">{item.body.slice(0, 160)}</p>}
+    </li>
+  );
+}
+
+function NewEmailForm({ onConnect }: { onConnect: (mail: NewEmail) => Promise<boolean> }) {
+  const [name, setName] = useState("邮箱");
+  const [host, setHost] = useState(MAIL_PRESETS[0][0]);
+  const [username, setUsername] = useState("");
+  const [busy, setBusy] = useState(false);
+  const code = useRef<HTMLInputElement>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const field = code.current;
+    if (!field) return;
+    setBusy(true);
+    try {
+      const mail = {
+        name: name.trim(),
+        host: host.trim(),
+        username: username.trim(),
+        code: field.value.trim(),
+      };
+      if (await onConnect(mail)) field.value = "";
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="new-memory" onSubmit={submit} aria-label="连接邮箱" autoComplete="off">
+      <label>
+        <span className="label">名称</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
+      </label>
+      <label>
+        <span className="label">邮箱服务</span>
+        <select value={host} onChange={(e) => setHost(e.target.value)}>
+          {MAIL_PRESETS.map(([value, text]) => (
+            <option key={value} value={value}>
+              {text}（{value}）
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="label">邮箱地址</span>
+        <input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="name@163.com"
+          autoComplete="off"
+          required
+        />
+      </label>
+      <label className="grow">
+        <span className="label">授权码（不会再显示）</span>
+        <input
+          ref={code}
+          type="text"
+          className="masked"
+          autoComplete="off"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          required
+        />
+      </label>
+      <button type="submit" className="primary" disabled={busy}>
+        {busy ? "连接中…" : "连接邮箱"}
+      </button>
+    </form>
   );
 }
 
@@ -478,7 +616,9 @@ function IntegrationRow({
               onClick={() => void remove()}
               disabled={deleting}
             >
-              确定删除（连同已同步的条目和{integration.kind === "canvas" ? "访问令牌" : "订阅链接"}）
+              {integration.kind === "email"
+                ? "确定删除（只删本系统里的邮件副本和授权码，不会动邮箱里的邮件）"
+                : `确定删除（连同已同步的条目和${SECRET_NAME[integration.kind]}）`}
             </button>
             <button type="button" onClick={() => setConfirming(false)} disabled={deleting}>
               不删

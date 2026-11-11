@@ -42,6 +42,11 @@ class Batch:
     # True only if `items` is everything the source has: then stored items that are not in
     # it were deleted at the source and are removed here too (ADR 0019 §2).
     complete: bool = False
+    # Field updates for items already stored: (item_type, external_id, data fields), e.g. an
+    # email's read state, which changes without the message being fetched again.
+    patches: list[tuple[str, str, dict[str, Any]]] = field(
+        default_factory=list[tuple[str, str, dict[str, Any]]]
+    )
 
 
 class Connector(Protocol):

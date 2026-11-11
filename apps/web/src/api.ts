@@ -69,7 +69,7 @@ export interface NewMemory {
 export type IntegrationStatus = "never_synced" | "ok" | "error";
 
 export interface Integration extends Stored {
-  kind: "ics" | "canvas";
+  kind: "ics" | "canvas" | "email";
   config: Record<string, string>;
   name: string;
   credential_name: string;
@@ -116,6 +116,16 @@ export interface NewCanvas {
   /** The personal access token; sent once to the credential store, never shown again. */
   token: string;
   interval_s: number;
+}
+
+export interface NewEmail {
+  name: string;
+  /** imap.163.com, imap.gmail.com, …; not secret. */
+  host: string;
+  /** The mailbox address; not secret, but personal: it is entered, never built in. */
+  username: string;
+  /** For 163 the client authorisation code (授权码); sent once to the credential store. */
+  code: string;
 }
 
 export class ApiError extends Error {
@@ -232,6 +242,15 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
      */
     connectFeed: (feed: NewFeed, credentialName: string) =>
       connect("ics", feed.name, feed.url, {}, feed.interval_s, credentialName),
+    connectEmail: (mail: NewEmail, credentialName: string) =>
+      connect(
+        "email",
+        mail.name,
+        mail.code,
+        { host: mail.host, username: mail.username },
+        900,
+        credentialName,
+      ),
     connectCanvas: (canvas: NewCanvas, credentialName: string) =>
       connect(
         "canvas",
@@ -259,6 +278,14 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         `/integrations/${integration.id}/items?${new URLSearchParams({
           start: start.toISOString(),
           end: end.toISOString(),
+        })}`,
+      ),
+    recentMail: (integration: Integration, limit = 30) =>
+      call<SyncedItem[]>(
+        `/integrations/${integration.id}/items?${new URLSearchParams({
+          order: "desc",
+          item_type: "email_message",
+          limit: String(limit),
         })}`,
       ),
   };

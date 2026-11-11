@@ -293,3 +293,12 @@ input.masked {
   color: #1d6b35;
 }
 
+.badge.unread {
+  background: #e6effc;
+  color: #1f4e9c;
+}
+
+.memory.unread .memory-body {
+  font-weight: 600;
+}
+

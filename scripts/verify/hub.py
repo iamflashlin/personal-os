@@ -10,6 +10,7 @@
     uv run python scripts/verify/hub.py credentials
     uv run python scripts/verify/hub.py integrations
     uv run python scripts/verify/hub.py canvas
+    uv run python scripts/verify/hub.py email
 
 Each subcommand starts `python -m apps.hub` on a free 127.0.0.1 port with a fresh data
 dir under `data/verify/` (gitignored, on the repo drive), talks to it over real HTTP,
@@ -883,6 +884,122 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
             keyring.delete_password(service, f"{owner}:canvas.token")
 
 
+def recent(hours_ago: float) -> str:
+    """An IMAP INTERNALDATE this many hours ago."""
+    return (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime("%d-%b-%Y %H:%M:%S +0000")
+
+
+def fake_mail(subject: str, body: str) -> bytes:
+    from email.message import EmailMessage
+    from email.utils import format_datetime
+
+    m = EmailMessage()
+    m["From"] = "Canvas 通知 <notifications@instructure.com>"
+    m["To"] = "student@example.com"
+    m["Subject"] = subject
+    m["Date"] = format_datetime(datetime.now(UTC) - timedelta(hours=1))
+    m.set_content(body)
+    return m.as_bytes()
+
+
+def verify_email(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(fake_mail("作业提醒 Lab 3 明天截止", "请在明天之前提交。"), received=recent(2))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "email-data"
+    os.environ["POS_CREDENTIALS_SERVICE"] = service
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    try:
+        with running_hub(hub_dir) as hub:
+            put = hub.put("/credentials/mail.code", json={"secret": code})
+            check(put.status_code == 200, "the mail authorisation code is stored as a credential")
+            config = {
+                "host": "127.0.0.1",
+                "port": str(imap.port),
+                "username": "student@example.com",
+                "tls": "off",
+            }
+            created = hub.post(
+                "/integrations",
+                json={
+                    "kind": "email",
+                    "name": "163",
+                    "credential_name": "mail.code",
+                    "config": config,
+                },
+            )
+            check(created.status_code == 201, "POST /integrations (email) -> 201")
+            iid = created.json()["id"]
+            items_url = f"/integrations/{iid}/items"
+            wait("the background sync read the mail", lambda: len(hub.get(items_url).json()) == 1)
+            (first,) = hub.get(items_url).json()
+            check(first["body"] == "请在明天之前提交。", "subject and text were read")
+            verbs = {c.split(" ", 1)[0] for c in box.commands}
+            check("EXAMINE" in verbs and "STORE" not in verbs, "opened read-only, nothing changed")
+            check(
+                all(
+                    "BODY.PEEK" in c
+                    for c in box.commands
+                    if c.startswith("UID FETCH") and "BODY" in c
+                ),
+                "fetched without marking as read",
+            )
+            box.messages[0].seen = True
+            box.add(fake_mail("Midterm moved", "Now on Friday"), received=recent(0.5))
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a manual sync finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            check(len(hub.get(items_url).json()) == 2, "only the new mail was added")
+            newest = hub.get(
+                items_url, params={"order": "desc", "item_type": "email_message"}
+            ).json()
+            check(
+                newest[0]["title"] == "Midterm moved",
+                "mail can be listed newest first",
+            )
+            check(newest[1]["data"]["seen"] is True, "mail read elsewhere shows as read here")
+            box.password = "rotated"
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a refused code shows status error",
+                lambda: hub.get(f"/integrations/{iid}").json()["status"] == "error",
+            )
+            check(
+                "授权码" in hub.get(f"/integrations/{iid}").json()["last_error"],
+                "it says to use the 授权码",
+            )
+            shown = hub.get(f"/integrations/{iid}").text + hub.get("/jobs").text
+            check(code not in shown, "the code is in no response")
+            stored = b"".join(p.read_bytes() for p in hub_dir.glob(f"{DB_FILENAME}*"))
+            check(code.encode() not in stored, "the code is in no byte of hub.sqlite*")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(code not in hub_log, "the code is not in the Hub log")
+    finally:
+        os.environ.pop("POS_CREDENTIALS_SERVICE", None)
+        imap.close()
+        with contextlib.suppress(Exception):
+            keyring.delete_password(service, f"{owner}:mail.code")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -893,6 +1010,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "credentials": verify_credentials,
     "integrations": verify_integrations,
     "canvas": verify_canvas,
+    "email": verify_email,
 }
 
 

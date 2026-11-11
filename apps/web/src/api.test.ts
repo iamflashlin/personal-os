@@ -128,6 +128,20 @@ describe("connections", () => {
     expect(JSON.stringify(created)).not.toContain("tok-123");
   });
 
+  it("sends the mail code only to the credential store, server and address as config", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, integration, calls));
+    await api.connectEmail(
+      { name: "邮箱", host: "imap.163.com", username: "me@163.com", code: "CODE-9" },
+      "mail.ab12",
+    );
+    expect(JSON.parse(String(calls[0].init?.body)).secret).toBe("CODE-9");
+    const created = JSON.parse(String(calls[1].init?.body));
+    expect(created.kind).toBe("email");
+    expect(created.config).toEqual({ host: "imap.163.com", username: "me@163.com" });
+    expect(JSON.stringify(created)).not.toContain("CODE-9");
+  });
+
   it("keeps a credential that another integration still uses", async () => {
     const calls: Call[] = [];
     const api = createApi(fakeFetch(204, null, calls));
@@ -143,6 +157,19 @@ describe("connections", () => {
     const url = new URL(calls[0].url, "http://hub");
     expect(url.pathname).toBe("/integrations/01I/items");
     expect(url.searchParams.get("start")).toBe("2026-11-10T00:00:00.000Z");
+  });
+
+  it("asks for the newest mail first, mail only", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, [], calls));
+    await api.recentMail(integration);
+    const url = new URL(calls[0].url, "http://hub");
+    expect(url.pathname).toBe("/integrations/01I/items");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      order: "desc",
+      item_type: "email_message",
+      limit: "30",
+    });
   });
 });
 

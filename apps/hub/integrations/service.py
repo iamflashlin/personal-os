@@ -133,6 +133,8 @@ def items(
     start: datetime | None = None,
     end: datetime | None = None,
     limit: int = 200,
+    newest_first: bool = False,
+    item_type: str | None = None,
 ) -> list[SyncedItem]:
     _get_row(session, actor, integration_id)
     query = select(SyncedItemRow).where(SyncedItemRow.integration_id == integration_id)
@@ -140,9 +142,10 @@ def items(
         query = query.where(SyncedItemRow.starts_at >= start)
     if end is not None:
         query = query.where(SyncedItemRow.starts_at < end)
-    rows = session.scalars(
-        query.order_by(SyncedItemRow.starts_at, SyncedItemRow.external_id).limit(limit)
-    )
+    if item_type is not None:
+        query = query.where(SyncedItemRow.item_type == item_type)
+    when = SyncedItemRow.starts_at.desc() if newest_first else SyncedItemRow.starts_at
+    rows = session.scalars(query.order_by(when, SyncedItemRow.external_id).limit(limit))
     return [SyncedItem.model_validate(r, from_attributes=True) for r in rows]
 
 
@@ -234,6 +237,15 @@ def _store(
         stored.ends_at = item.ends_at
         stored.all_day = item.all_day
         stored.data = item.data
+    # Patched fields (e.g. an email's read state) are left out of content_hash on purpose:
+    # a connector must not also send them in the hashed item, or every sync would differ.
+    for item_type, external_id, fields in batch.patches:
+        stored = existing.get((item_type, external_id))
+        if stored is not None and (item_type, external_id) not in seen:
+            changed = {k: v for k, v in fields.items() if stored.data.get(k) != v}
+            if changed:
+                stored.data = {**stored.data, **changed}
+                counts["updated"] += 1
     # Only a complete answer can say something is gone, and only twice in a row: one odd
     # answer (a course briefly missing from a list) must not delete anything. An empty
     # answer is more likely a glitch than everything vanishing, so it never counts.

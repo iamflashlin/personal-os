@@ -12,6 +12,7 @@ from packages.contracts.credentials import CredentialName
 class IntegrationKind(StrEnum):
     ics = "ics"  # a calendar feed; its URL is the credential (Canvas puts a token in it)
     canvas = "canvas"  # Canvas REST API; the token is the credential, config["base_url"]
+    email = "email"  # IMAP, read-only; the password or authorisation code is the credential
 
 
 class IntegrationStatus(StrEnum):
