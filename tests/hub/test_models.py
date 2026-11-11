@@ -1,6 +1,8 @@
 # ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation on purpose)
 import json
 import logging
+import os
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,8 +18,8 @@ from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
 from apps.hub.credentials import service as credentials
 from apps.hub.models import pricing, service
-from apps.hub.models.deepseek import DeepSeekProvider, check_base_url
 from apps.hub.models.fake import FakeProvider
+from apps.hub.models.litellm_adapter import LiteLLMProvider, check_base_url
 from apps.hub.models.models import ModelCallRow
 from apps.hub.models.prompts import Prompt, load_prompt
 from apps.hub.models.provider import ModelProvider, ProviderErrorKind, Usage
@@ -96,14 +98,14 @@ def rows(engine: Engine) -> list[ModelCallRow]:
 
 def test_adapter_sends_json_mode_and_reads_usage(engine, store, stub) -> None:
     stub.replies.append(Reply(prefix=b"\n\n  \n"))  # keep-alive blank lines first
-    answer, call_id = call(client(engine, store, DeepSeekProvider(stub.url)))
+    answer, call_id = call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
 
     assert answer.answer == "ok"
     sent = stub.requests[0]
     assert sent["model"] == MODEL
     assert sent["response_format"] == {"type": "json_object"}
     assert sent["max_tokens"] == 200
-    assert sent["stream"] is False
+    assert sent.get("stream") in (None, False)  # no streaming
     assert sent["messages"][1]["content"] == "Subject: hi\nhello"
     assert stub.headers[0]["Authorization"] == f"Bearer {KEY}"
 
@@ -132,7 +134,7 @@ def test_adapter_sends_json_mode_and_reads_usage(engine, store, stub) -> None:
 def test_account_errors_make_the_model_unavailable(engine, store, stub, status, reason) -> None:
     stub.replies.append(Reply(status=status))
     with pytest.raises(service.ModelUnavailable) as caught:
-        call(client(engine, store, DeepSeekProvider(stub.url)))
+        call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     assert caught.value.reason == reason
     [row] = rows(engine)
     assert (row.status, row.cost_micro_usd) == ("error", 0)
@@ -143,7 +145,7 @@ def test_account_errors_make_the_model_unavailable(engine, store, stub, status, 
 def test_server_error_is_retryable_and_free(engine, store, stub) -> None:
     stub.replies.append(Reply(status=500))
     with pytest.raises(service.ModelFailed) as caught:
-        call(client(engine, store, DeepSeekProvider(stub.url)))
+        call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     assert caught.value.retryable
     assert caught.value.kind == ProviderErrorKind.transient
     assert rows(engine)[0].cost_micro_usd == 0
@@ -151,7 +153,7 @@ def test_server_error_is_retryable_and_free(engine, store, stub) -> None:
 
 def test_timeout_is_retryable_and_counts_the_estimate(engine, store, stub) -> None:
     stub.replies.append(Reply(delay_s=1.0))
-    slow = DeepSeekProvider(stub.url, timeout_s=0.2)
+    slow = LiteLLMProvider("deepseek", stub.url, timeout_s=0.2)
     with pytest.raises(service.ModelFailed) as caught:
         call(client(engine, store, slow))
     assert caught.value.retryable
@@ -172,7 +174,7 @@ def test_timeout_is_retryable_and_counts_the_estimate(engine, store, stub) -> No
 def test_bad_output_is_retryable(engine, store, stub, reply) -> None:
     stub.replies.append(reply)
     with pytest.raises(service.ModelFailed) as caught:
-        call(client(engine, store, DeepSeekProvider(stub.url)))
+        call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     assert caught.value.retryable
     assert caught.value.kind == ProviderErrorKind.bad_output
     [row] = rows(engine)
@@ -200,7 +202,7 @@ def test_estimate_is_an_upper_bound(engine, store, stub, body) -> None:
 
 
 def test_budget_refuses_before_any_request(engine, store, stub) -> None:
-    c = client(engine, store, DeepSeekProvider(stub.url), budget=10)  # 10 micro-USD
+    c = client(engine, store, LiteLLMProvider("deepseek", stub.url), budget=10)  # 10 micro-USD
     with pytest.raises(service.ModelUnavailable) as caught:
         call(c)
     assert caught.value.reason == "budget"
@@ -248,13 +250,13 @@ def test_spend_counts_this_utc_month_including_reserved_and_maybe_billed(engine,
 
 def test_no_key_means_no_request(engine, stub) -> None:
     with pytest.raises(service.ModelUnavailable) as caught:
-        client(engine, credentials.MemorySecretStore(), DeepSeekProvider(stub.url))
+        client(engine, credentials.MemorySecretStore(), LiteLLMProvider("deepseek", stub.url))
     assert caught.value.reason == "no_key"
     assert stub.requests == []
 
 
 def test_key_is_revealed_once_per_client(engine, store, stub) -> None:
-    c = client(engine, store, DeepSeekProvider(stub.url))
+    c = client(engine, store, LiteLLMProvider("deepseek", stub.url))
     call(c)
     call(c)
     with Session(engine) as session:
@@ -266,14 +268,14 @@ def test_key_is_revealed_once_per_client(engine, store, stub) -> None:
 
 def test_unpriced_model_is_refused(engine, store, stub) -> None:
     with pytest.raises(service.ModelUnavailable) as caught:
-        client(engine, store, DeepSeekProvider(stub.url), model="some-unpriced-model")
+        client(engine, store, LiteLLMProvider("deepseek", stub.url), model="some-unpriced-model")
     assert caught.value.reason == "unpriced"
 
 
 def test_key_and_text_are_never_stored_or_logged(engine, store, stub, caplog, tmp_path) -> None:
     caplog.set_level(logging.DEBUG)
     stub.replies += [Reply(), Reply(status=401), Reply(status=500)]
-    c = client(engine, store, DeepSeekProvider(stub.url))
+    c = client(engine, store, LiteLLMProvider("deepseek", stub.url))
     secret_body = "PRIVATE-MAIL-BODY-42"
     for _ in range(3):
         try:
@@ -363,20 +365,24 @@ def test_usage_json_roundtrip(engine, store) -> None:
     assert json.loads(u.model_dump_json())["budget_micro_usd"] == BIG
 
 
-def test_redirects_are_never_followed_so_the_key_stays_put(engine, store, stub) -> None:
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+def test_redirects_are_never_followed(engine, store, stub, status) -> None:
+    # 307/308 would resend the POST with the whole prompt (the email) to the new host.
     with FakeOpenAI() as elsewhere:
-        stub.replies.append(Reply(status=302, headers={"Location": f"{elsewhere.url}/steal"}))
+        stub.replies.append(Reply(status=status, headers={"Location": f"{elsewhere.url}/x"}))
         with pytest.raises(service.ModelFailed) as caught:
-            call(client(engine, store, DeepSeekProvider(stub.url)))
-        assert not caught.value.retryable  # 3xx -> bad_request
-        assert elsewhere.requests == []
+            call(client(engine, store, LiteLLMProvider("deepseek", stub.url)), body="SECRET-MAIL")
+        assert not caught.value.retryable  # a 3xx is a bad request, not a passing glitch
+        assert elsewhere.requests == []  # any method: the stub records GET/POST/PUT
         assert elsewhere.headers == []
-    assert rows(engine)[0].cost_micro_usd == 0
+    [row] = rows(engine)
+    assert (row.error_kind, row.cost_micro_usd) == ("bad_request", 0)
+    assert f"HTTP {status}" in row.error
 
 
 def test_missing_usage_is_charged_at_the_estimate(engine, store, stub) -> None:
     stub.replies.append(Reply(usage=None))
-    call(client(engine, store, DeepSeekProvider(stub.url)))
+    call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     [row] = rows(engine)
     assert row.status == "ok"
     assert row.cost_micro_usd == row.estimate_micro_usd > 0
@@ -388,7 +394,7 @@ def test_cost_above_the_estimate_is_flagged(engine, store, stub, caplog) -> None
             usage={"prompt_tokens": 10, "prompt_cache_miss_tokens": 10, "completion_tokens": 9999}
         )
     )
-    call(client(engine, store, DeepSeekProvider(stub.url)))
+    call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     [row] = rows(engine)
     assert row.cost_micro_usd > row.estimate_micro_usd
     assert "above its estimate" in caplog.text
@@ -400,7 +406,7 @@ def test_cost_above_the_estimate_is_flagged(engine, store, stub, caplog) -> None
 
 
 def test_key_is_not_in_the_client_repr(engine, store, stub) -> None:
-    c = client(engine, store, DeepSeekProvider(stub.url))
+    c = client(engine, store, LiteLLMProvider("deepseek", stub.url))
     assert KEY not in repr(c)
     assert KEY not in str(c)
 
@@ -428,8 +434,8 @@ def test_reservations_share_the_budget(engine, store, stub) -> None:
         "deepseek", MODEL, PROMPT.system, PROMPT.render({"subject": "hi", "body": "hello"}), 200
     )
     budget = estimate + estimate // 2
-    first = client(engine, store, DeepSeekProvider(stub.url), budget=budget)
-    second = client(engine, store, DeepSeekProvider(stub.url), budget=budget)
+    first = client(engine, store, LiteLLMProvider("deepseek", stub.url), budget=budget)
+    second = client(engine, store, LiteLLMProvider("deepseek", stub.url), budget=budget)
     stub.replies.append(Reply(delay_s=0.3, usage=None))  # charged at the estimate
     import threading
 
@@ -450,17 +456,77 @@ def test_reservations_share_the_budget(engine, store, stub) -> None:
     assert len(stub.requests) == 1
 
 
-def test_a_slow_drip_response_hits_the_total_deadline(engine, store, stub) -> None:
-    stub.replies.append(Reply(delay_s=0.5))
-    slow = DeepSeekProvider(stub.url, timeout_s=5, deadline_s=0.0)
-    with pytest.raises(service.ModelFailed):
-        call(client(engine, store, slow))
-
-
 def test_schema_failure_without_usage_is_charged_at_the_estimate(engine, store, stub) -> None:
     stub.replies.append(Reply(content='{"wrong": 1}', usage=None))
     with pytest.raises(service.ModelFailed):
-        call(client(engine, store, DeepSeekProvider(stub.url)))
+        call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
     [row] = rows(engine)
     assert (row.status, row.error_kind) == ("error", "bad_output")
     assert row.cost_micro_usd == row.estimate_micro_usd > 0
+
+
+def test_litellm_never_logs_the_mail_even_if_debug_was_switched_on(
+    engine, store, stub, caplog, capfd
+) -> None:
+    import os
+
+    for name in ("LiteLLM", "litellm"):
+        logging.getLogger(name).setLevel(logging.DEBUG)  # someone turned it on
+    caplog.set_level(logging.DEBUG)
+    body = "PRIVATE-MAIL-TEXT-7731"
+    call(client(engine, store, LiteLLMProvider("deepseek", stub.url)), body=body)
+    out, err = capfd.readouterr()
+    assert body not in caplog.text and body not in out and body not in err
+    assert KEY not in caplog.text and KEY not in out and KEY not in err
+    assert os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP") == "True"  # no cost-map download
+
+
+def test_a_slow_drip_response_hits_the_total_deadline(engine, store, stub) -> None:
+    stub.replies.append(Reply(delay_s=2.0))
+    slow = LiteLLMProvider("deepseek", stub.url, timeout_s=10, deadline_s=0.5)
+    started = time.monotonic()
+    with pytest.raises(service.ModelFailed) as caught:
+        call(client(engine, store, slow))
+    assert time.monotonic() - started < 1.8  # ended by the deadline, not the 10 s read timeout
+    assert caught.value.retryable
+    [row] = rows(engine)
+    assert row.cost_micro_usd == row.estimate_micro_usd  # it may have been billed
+
+
+def test_litellm_makes_no_other_network_calls(tmp_path) -> None:
+    """In a fresh interpreter, any non-loopback connection fails the call loudly."""
+    import subprocess
+    import sys
+
+    script = tmp_path / "net.py"
+    script.write_text(
+        """
+import socket, sys
+sys.path.insert(0, {root!r})
+real = socket.socket.connect
+outside = []
+def guarded(self, address):
+    host = address[0] if isinstance(address, tuple) else str(address)
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        outside.append(host)
+        raise OSError("blocked non-loopback connection to " + host)
+    return real(self, address)
+socket.socket.connect = guarded
+from apps.hub.models.litellm_adapter import LiteLLMProvider
+from apps.hub.models.provider import JsonRequest
+from tests.hub.fake_openai import FakeOpenAI
+with FakeOpenAI() as stub:
+    reply = LiteLLMProvider("deepseek", stub.url).complete_json(
+        JsonRequest("deepseek-flash", "json", "hi", 20), "sk-test"
+    )
+    print("requests", len(stub.requests), "outside", outside, "text", reply.text)
+""".replace("{root!r}", repr(str(Path(__file__).resolve().parents[2]))),
+        encoding="utf-8",
+    )
+    env = {k: v for k, v in os.environ.items() if k != "LITELLM_LOCAL_MODEL_COST_MAP"}
+    env["LITELLM_LOCAL_MODEL_COST_MAP"] = "False"  # the adapter must override this
+    done = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, env=env, timeout=120
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "requests 1 outside []" in done.stdout

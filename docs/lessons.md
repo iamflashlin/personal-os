@@ -65,3 +65,8 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   despite the 2026-11-10 lesson — the "patch script in a heredoc" habit made the same
   mistake one level down — edit regex and other backslash-heavy code only with the editor
   tool or a script file written by the editor, never through a heredoc.
+- 2026-11-11 — A spike "proved" LiteLLM does not follow redirects, but it did; the
+  reviewer caught it (T-0024) — the stub only answered POST, so the redirected GET got a
+  501 and was never recorded, and a missing request looked like a refused redirect — stubs
+  used to prove that something did not happen must record every method and path, and a
+  negative test must be shown to fail when the protection is removed.

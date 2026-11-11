@@ -35,7 +35,7 @@ from apps.hub.core.db import make_engine, upgrade_to_head  # noqa: E402
 from apps.hub.core.domain import Actor  # noqa: E402
 from apps.hub.credentials import service as credentials  # noqa: E402
 from apps.hub.models import service  # noqa: E402
-from apps.hub.models.deepseek import DeepSeekProvider  # noqa: E402
+from apps.hub.models.litellm_adapter import LiteLLMProvider  # noqa: E402
 from apps.hub.models.models import ModelCallRow  # noqa: E402
 from apps.hub.models.prompts import Prompt  # noqa: E402
 from tests.hub.fake_openai import FakeOpenAI, Reply  # noqa: E402
@@ -100,7 +100,7 @@ def offline() -> None:
 
     with FakeOpenAI() as stub:
         client = service.open_client(
-            engine, OWNER, store, DeepSeekProvider(stub.url), MODEL, 10_000_000
+            engine, OWNER, store, LiteLLMProvider("deepseek", stub.url), MODEL, 10_000_000
         )
         stub.replies.append(Reply(content='{"answer": "ok"}'))
         answer = ask(client, "ok")
@@ -138,7 +138,9 @@ def offline() -> None:
             )
 
         before = len(stub.requests)
-        tiny = service.open_client(engine, OWNER, store, DeepSeekProvider(stub.url), MODEL, 1)
+        tiny = service.open_client(
+            engine, OWNER, store, LiteLLMProvider("deepseek", stub.url), MODEL, 1
+        )
         try:
             ask(tiny, "x")
             check(False, "budget refusal raises")
@@ -166,7 +168,7 @@ def live() -> int:
     with Session(engine) as s:
         credentials.put(s, OWNER, store, service.CREDENTIAL, key, "")
     client = service.open_client(
-        engine, OWNER, store, DeepSeekProvider(), MODEL, LIVE_CAP_MICRO_USD
+        engine, OWNER, store, LiteLLMProvider("deepseek"), MODEL, LIVE_CAP_MICRO_USD
     )
     answer = ask(client, "pong")
     row = last_row(engine)

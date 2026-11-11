@@ -31,8 +31,8 @@ from apps.hub.core.domain import Actor, NotFound
 from apps.hub.core.settings import Settings
 from apps.hub.credentials import service as credentials
 from apps.hub.models import pricing
-from apps.hub.models.deepseek import DeepSeekProvider
 from apps.hub.models.fake import FakeProvider
+from apps.hub.models.litellm_adapter import LiteLLMProvider
 from apps.hub.models.models import ModelCallRow
 from apps.hub.models.prompts import Prompt, load_prompt
 from apps.hub.models.provider import (
@@ -83,7 +83,7 @@ class ModelFailed(Exception):
 def provider_from_settings(settings: Settings) -> ModelProvider:
     if settings.model_provider == "fake":
         return FakeProvider()
-    return DeepSeekProvider(settings.model_base_url)
+    return LiteLLMProvider("deepseek", settings.model_base_url)
 
 
 def model_name(settings: Settings) -> str:
