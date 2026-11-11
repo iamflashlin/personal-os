@@ -59,10 +59,22 @@
    - A malformed time is flagged (`bad_time`), and the rest of the feed still syncs.
    - UIDs longer than 500 characters are stored by their SHA-256, so they stay distinct.
    - Recurrence rules are not expanded; they are flagged.
-   - **Windows has no time-zone database without the `tzdata` package.** A `TZID` time
-     keeps its raw value under `data.timezone_unresolved` and gets no start time.
-   - Canvas feeds use UTC times and dates, so they are unaffected. Adding `tzdata` (a new
-     dependency) is a question for the user.
+   - **Time zones:** Windows has no time-zone database of its own. The user approved the
+     `tzdata` package on 2026-11-10 (T-0014). It is the IANA database published by the
+     Python core developers, and pure data. With it, a `TZID` time becomes an exact UTC
+     time, across daylight-saving changes too. An ambiguous local time is its first
+     occurrence, and a non-existent one is read with the earlier offset (RFC 5545 §3.3.5).
+     A vendor prefix such as Thunderbird's `/mozilla.org/<version>/America/Los_Angeles` is
+     accepted.
+   - **Still unresolved and flagged** under `data.timezone_unresolved`:
+     - Windows zone names, such as Outlook's `Pacific Standard Time`;
+     - zones defined only by a VTIMEZONE block;
+     - anything else unknown, including names of folders in the database, which used to
+       crash the parse.
+
+     Follow-up card: map Windows names to IANA names with the CLDR `windowsZones` table.
+   - Time-zone rules change a few times a year. Refresh them with
+     `uv lock --upgrade-package tzdata`.
 7. **A deliberate design change during the card.** The first version had one global
    "check every minute" schedule. That wrote a job and its audit rows every minute even
    with nothing to sync, roughly 5,700 audit rows a day. Per-integration schedules cost

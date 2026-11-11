@@ -1,8 +1,9 @@
 """A small iCalendar (RFC 5545) reader: enough for calendar feeds such as Canvas's.
 
 It reads VEVENTs with UID, SUMMARY, DESCRIPTION, LOCATION, URL, DTSTART and DTEND.
-Recurrence rules are not expanded. A TZID that this machine cannot resolve (Windows has
-no tz database without the `tzdata` package) keeps the raw value and is flagged.
+Recurrence rules are not expanded. Named time zones resolve through the `tzdata` package
+(Windows has no system tz database); a TZID that still cannot be resolved keeps the raw
+value and is flagged.
 """
 
 import re
@@ -12,6 +13,20 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _DATE = re.compile(r"\d{8}")
 _DATETIME = re.compile(r"\d{8}T\d{6}Z?")
+
+
+def _zone(tzid: str) -> ZoneInfo | None:
+    """The zone a TZID names, or None. Accepts a vendor prefix such as Thunderbird's
+    `/mozilla.org/20050126_1/America/Los_Angeles` by trying ever shorter tails."""
+    parts = [p for p in tzid.strip().split("/") if p]
+    for start in range(len(parts)):
+        candidate = "/".join(parts[start:])
+        try:
+            return ZoneInfo(candidate)
+        # OSError: with tzdata installed, a folder name such as "America" is a directory.
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            continue
+    return None
 
 
 class NotACalendar(ValueError):
@@ -87,11 +102,12 @@ def _when(
         return stamp.replace(tzinfo=UTC), False
     tzid = params.get("TZID")
     if tzid:
-        try:
-            return stamp.replace(tzinfo=ZoneInfo(tzid)).astimezone(UTC), False
-        except (ZoneInfoNotFoundError, ValueError):
-            flags.setdefault("timezone_unresolved", f"{tzid} {value}")
+        zone = _zone(tzid)
+        if zone is None:
+            flags.setdefault("timezone_unresolved", f"{tzid[:100]} {value}")
             return None, False
+        # fold=0: an ambiguous local time is its first occurrence, as RFC 5545 §3.3.5 says.
+        return stamp.replace(tzinfo=zone).astimezone(UTC), False
     flags.setdefault("floating_time", value)  # no zone: "local time wherever you are"
     return None, False
 

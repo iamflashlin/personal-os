@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.16.2",
     "python-ulid>=4.1.0",
     "sqlalchemy>=2.1.8",
+    "tzdata>=2025.2",
     "uvicorn>=0.54.0",
     "websockets>=17.4",
 ]
