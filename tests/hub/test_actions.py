@@ -1,3 +1,4 @@
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -340,9 +341,12 @@ def test_a_reconnect_of_the_same_device_loses_only_the_old_links_runs(
             second = post(client, OPEN_URL, key="new").json()
             assert isinstance(receive(new), ActionRequestMsg)
             heartbeat(new)
-            old.close()  # the old handler finishes; only its own run becomes lost
+            old.close()  # the old handler finishes on its own time; only its run is lost
+            deadline = time.monotonic() + 5
+            while client.get(f"/actions/{first['id']}").json()["status"] != "lost":
+                assert time.monotonic() < deadline, "the old link's run never became lost"
+                time.sleep(0.02)
             heartbeat(new)
-            assert client.get(f"/actions/{first['id']}").json()["status"] == "lost"
             assert client.get(f"/actions/{second['id']}").json()["status"] == "dispatched"
 
 

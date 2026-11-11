@@ -66,6 +66,99 @@ export interface NewMemory {
   sensitivity: Sensitivity;
 }
 
+export type IntegrationStatus = "never_synced" | "ok" | "error";
+
+export interface Integration extends Stored {
+  kind: "ics" | "canvas" | "email";
+  config: Record<string, string>;
+  name: string;
+  credential_name: string;
+  interval_s: number;
+  status: IntegrationStatus;
+  last_sync_at: string | null;
+  last_success_at: string | null;
+  last_error: string;
+  item_count: number;
+}
+
+export interface SyncedItem extends Stored {
+  integration_id: string;
+  item_type: string;
+  external_id: string;
+  title: string;
+  body: string;
+  location: string;
+  url: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  all_day: boolean;
+  data: Record<string, unknown>;
+}
+
+export type EntryKind = "assignment" | "task" | "event" | "mail" | "announcement";
+
+export interface TodayEntry {
+  kind: EntryKind;
+  title: string;
+  at: string | null;
+  all_day: boolean;
+  source: string;
+  note: string;
+  url: string;
+  badge: string;
+  ref: string;
+}
+
+export interface TodayView {
+  date: string;
+  timezone: string;
+  generated_at: string;
+  headline: string;
+  due_today: TodayEntry[];
+  due_soon: TodayEntry[];
+  missing: TodayEntry[];
+  events: TodayEntry[];
+  unread_mail: number;
+  mail: TodayEntry[];
+  announcements: TodayEntry[];
+  in_progress: TodayEntry[];
+  problems: { name: string; error: string }[];
+  sources: number;
+}
+
+export interface Job {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "dead";
+  attempts: number;
+  last_error: string;
+}
+
+export interface NewFeed {
+  name: string;
+  /** The private feed address; sent once to the credential store, never shown again. */
+  url: string;
+  interval_s: number;
+}
+
+export interface NewCanvas {
+  name: string;
+  /** e.g. https://school.instructure.com; not secret. */
+  baseUrl: string;
+  /** The personal access token; sent once to the credential store, never shown again. */
+  token: string;
+  interval_s: number;
+}
+
+export interface NewEmail {
+  name: string;
+  /** imap.163.com, imap.gmail.com, …; not secret. */
+  host: string;
+  /** The mailbox address; not secret, but personal: it is entered, never built in. */
+  username: string;
+  /** For 163 the client authorisation code (授权码); sent once to the credential store. */
+  code: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -103,6 +196,34 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       throw new ApiError(response.status, describe(body) || response.statusText);
     }
     return body as T;
+  }
+
+  /**
+   * Stores the secret as a credential first, then creates the integration. If the second
+   * step fails, the credential is removed again so no unused secret is left.
+   */
+  async function connect(
+    kind: Integration["kind"],
+    name: string,
+    secret: string,
+    config: Record<string, string>,
+    interval_s: number,
+    credentialName: string,
+  ): Promise<Integration> {
+    const credential = `/credentials/${encodeURIComponent(credentialName)}`;
+    await call<unknown>(credential, {
+      method: "PUT",
+      body: JSON.stringify({ secret, note: name }),
+    });
+    try {
+      return await call<Integration>("/integrations", {
+        method: "POST",
+        body: JSON.stringify({ kind, name, credential_name: credentialName, interval_s, config }),
+      });
+    } catch (err) {
+      await call<null>(credential, { method: "DELETE" }).catch(() => null);
+      throw err;
+    }
   }
 
   return {
@@ -145,6 +266,61 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       }),
     deleteMemory: (memory: Memory) =>
       call<null>(`/memories/${memory.id}`, { method: "DELETE" }),
+    integrations: () => call<Integration[]>("/integrations"),
+    /**
+     * Stores the feed address as a credential first, then creates the integration. If the
+     * second step fails, the credential is removed again so no unused secret is left.
+     */
+    connectFeed: (feed: NewFeed, credentialName: string) =>
+      connect("ics", feed.name, feed.url, {}, feed.interval_s, credentialName),
+    connectEmail: (mail: NewEmail, credentialName: string) =>
+      connect(
+        "email",
+        mail.name,
+        mail.code,
+        { host: mail.host, username: mail.username },
+        900,
+        credentialName,
+      ),
+    connectCanvas: (canvas: NewCanvas, credentialName: string) =>
+      connect(
+        "canvas",
+        canvas.name,
+        canvas.token,
+        { base_url: canvas.baseUrl },
+        canvas.interval_s,
+        credentialName,
+      ),
+    syncIntegration: (integration: Integration) =>
+      call<{ job_id: string }>(`/integrations/${integration.id}/sync`, { method: "POST" }),
+    /** Deletes the integration, its synced items and (unless kept) its credential. */
+    disconnect: async (integration: Integration, options: { keepCredential?: boolean } = {}) => {
+      await call<null>(`/integrations/${integration.id}`, { method: "DELETE" });
+      if (options.keepCredential) return;
+      await call<null>(`/credentials/${encodeURIComponent(integration.credential_name)}`, {
+        method: "DELETE",
+      }).catch((err: unknown) => {
+        if (!(err instanceof ApiError && err.status === 404)) throw err;
+      });
+    },
+    job: (jobId: string) => call<Job>(`/jobs/${jobId}`),
+    integrationItems: (integration: Integration, start: Date, end: Date) =>
+      call<SyncedItem[]>(
+        `/integrations/${integration.id}/items?${new URLSearchParams({
+          start: start.toISOString(),
+          end: end.toISOString(),
+        })}`,
+      ),
+    recentMail: (integration: Integration, limit = 30) =>
+      call<SyncedItem[]>(
+        `/integrations/${integration.id}/items?${new URLSearchParams({
+          order: "desc",
+          item_type: "email_message",
+          limit: String(limit),
+        })}`,
+      ),
+    today: (timeZone: string) =>
+      call<TodayView>(timeZone ? `/today?${new URLSearchParams({ tz: timeZone })}` : "/today"),
   };
 }
 

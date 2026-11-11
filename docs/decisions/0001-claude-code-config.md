@@ -57,6 +57,14 @@ User decision. Claude may now push feature branches and open PRs without a promp
   `uv add` / `pnpm add` in `ask`. `deny` beats `allow`, so `git push -u origin t/x --force`
   is still refused.
 
+## Amendment 2026-11-11: superseded in part by ADR 0024
+
+User decision. Claude may merge PRs that meet ADR 0024's conditions, with exactly
+`gh pr merge <n> --match-head-commit <sha> --squash`. The `gh pr merge *` deny is replaced
+by that allow plus denies on `--admin`, `--auto`, `--merge`, `--rebase`,
+`--delete-branch`, `-d`, `-R` and `--repo`. Item 3 above ("only the user merges") no
+longer holds for those PRs.
+
 ## Consequences
 
 Two parallel rule sets (Bash + PowerShell) must be kept in sync; a future check could

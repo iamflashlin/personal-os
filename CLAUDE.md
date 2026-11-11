@@ -39,19 +39,63 @@ decides **how**. The roadmap realignment in `docs/decisions/0012-*` awaits the u
    Never push to `main` directly (blocked by `.githooks/pre-push` and permissions).
 7. Record decisions in `docs/decisions/NNNN-*.md`; repeated mistakes in
    `docs/lessons.md`, then turn them into a lint rule, test, type or hook.
+8. Merge it yourself when the merge rule below allows; otherwise leave it for the user.
+9. Once a day — at the end of the day's last session, or at the start of the next
+   day's first session if it was missed — update `docs/progress.md`: a 「今天」 section
+   at the top in plain Chinese (what got done, what waits for the user, what is next).
+   Until card T-0020 makes `tools.report` keep that section, run `tools.report` first,
+   then write 「今天」 by hand.
+
+## Merging (ADR 0024)
+
+The user does not read code; their check is trying the feature. You merge a PR with
+exactly `gh pr merge <n> --match-head-commit <sha> --squash` (other forms prompt) only
+when **all** of these hold for that head commit:
+- every check in `gh pr checks <n>` passed on windows-latest and ubuntu-latest (none
+  pending, failed or cancelled);
+- the `reviewer` subagent's latest verdict on that exact diff is APPROVE;
+- the PR targets `main` (not stacked on an unmerged branch);
+- `gh pr diff <n> --name-only` touches none of:
+  - database migrations: `apps/hub/migrations/**`;
+  - permission or security rules: `.claude/**`, `CLAUDE.md`, `.githooks/**`,
+    `apps/hub/credentials/**`, `apps/desktop_agent/token_store.py`,
+    `apps/desktop_agent/config.py`, `apps/desktop_agent/actions/**` (the action
+    whitelist), device pairing/auth, or anything that changes the security model;
+  - CI config: `.github/**`;
+  - deleting data: any code path that removes rows from the Hub database, or files from
+    the Hub file dir or the user's PC.
+If unsure whether a category applies, leave it for the user and say so in the PR's
+「给 Flash 看的」 section. Never use `--admin`, never delete branches when merging.
+
+## PR description
+
+Every PR description starts with this section, before any technical detail:
+
+```
+## 给 Flash 看的
+**做了什么**：(at most 3 sentences, everyday words, no jargon)
+**要你拍板**：(yes/no questions, each with 推荐：是/否 and one reason; "无" if none)
+**怎么试**：(exact steps: what to open or click, and what you should see)
+**合并**：我会自己合并 / 需要你合并（原因）
+```
+
+The technical part (acceptance table, evidence, open questions, 我学到了什么) follows
+below it; the user may skip it.
 
 ## Definition of done
 
 Gate green locally and in CI (windows-latest + ubuntu-latest), real verification run
-with evidence, reviewer findings resolved, PR includes acceptance table, evidence
-summary, open questions, and a 3–5 sentence plain-language "what I learned" in Chinese.
+with evidence, reviewer findings resolved, PR starts with 「给 Flash 看的」 and includes
+acceptance table, evidence summary, open questions, and a 3–5 sentence plain-language
+"what I learned" in Chinese.
 Your own report is never evidence; command output, screenshots and tests are.
 
 ## Never
 
 - Read or write `.env*` files, print secrets, or put credentials in the repo or logs
   (use `keyring`).
-- Force-push, push to `main`, merge PRs, delete branches/data, or deploy.
+- Force-push, push to `main`, merge PRs outside the merge rule above, delete
+  branches/data, or deploy.
 - Bypass git hooks (`--no-verify`, `-c core.hooksPath=...`, changing `core.hooksPath`).
 - Install dependencies or system software, change system settings, or download
   without telling the user first. New dependency → note it in a decision record.
