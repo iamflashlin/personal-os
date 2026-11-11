@@ -5,8 +5,13 @@
 
 Progress is measured by verified merges, not activity: a card counts as done when a
 squash-merged PR on the measured ref (a first-parent commit whose subject ends in
-"(#N)") names its id. All git reads happen in `read_source`; `render` is a pure function
-of the cards, that source and `--today`, so the same inputs give byte-identical output.
+"(#N)") names its id, or when a merge-commit PR ("Merge pull request #N ...") brings in
+a commit whose subject ends in "(<card ids>)".
+
+A hand-written 「今天」 block between TODAY_START and TODAY_END in the existing output
+file is carried over unchanged, at the top. All git reads happen in `read_source`;
+`render` is a pure function of the cards, that source, `--today` and that block, so the
+same inputs give byte-identical output.
 """
 
 from __future__ import annotations
@@ -27,9 +32,16 @@ OUT = ROOT / "docs" / "progress.md"
 STATUSES = ("todo", "in_progress", "review", "done", "blocked")
 CARD_ID = re.compile(r"\b([A-Z][A-Z0-9]?-\d{2,4})\b")
 PR_MERGE = re.compile(r"\(#\d+\)\s*$")
+GITHUB_MERGE = re.compile(r"^Merge pull request #\d+ ")
+# Branch commits brought in by a merge-commit PR: ids in a "(...)" that ends the subject.
+# Looser than the squash rule, but such a commit really did reach the measured ref.
+TRAILING_CARDS = re.compile(r"\(([^()]*)\)\s*$")
 MERGED_CARDS = re.compile(r"\(([^()]*)\)\s*\(#\d+\)\s*$")
 FIX_SUBJECT = re.compile(r"^fix(\([^)]*\))?!?:")
 YAML_COMMENT = re.compile(r"\s+#(?:\s|$)")
+TODAY_START = "<!-- today:start -->"
+TODAY_END = "<!-- today:end -->"
+TODAY_PLACEHOLDER = f"{TODAY_START}\n## 今天\n\n- （今天还没写）\n{TODAY_END}"
 
 
 @dataclass(frozen=True)
@@ -53,16 +65,23 @@ class Commit:
     sha: str
     day: date
     subject: str
+    merged_in: tuple[str, ...] = ()  # cards brought in by a "Merge pull request" commit
 
     @property
     def card_ids(self) -> tuple[str, ...]:
-        """Cards this merge delivers: only those in the "(...)" just before "(#N)"."""
+        """Cards this merge delivers: those in the "(...)" just before "(#N)", or, for a
+        merge-commit PR, those named by the commits it brought in."""
+        if GITHUB_MERGE.match(self.subject):
+            return self.merged_in
         match = MERGED_CARDS.search(self.subject)
         return tuple(dict.fromkeys(CARD_ID.findall(match.group(1)))) if match else ()
 
     @property
     def is_pr_merge(self) -> bool:
-        return PR_MERGE.search(self.subject) is not None
+        return (
+            PR_MERGE.search(self.subject) is not None
+            or GITHUB_MERGE.match(self.subject) is not None
+        )
 
 
 @dataclass(frozen=True)
@@ -164,6 +183,17 @@ def load_cards(tasks_dir: Path) -> tuple[list[Card], list[Problem]]:
     return cards, problems
 
 
+def branch_card_ids(subjects: list[str]) -> tuple[str, ...]:
+    """Card ids at the end of branch commit subjects: "feat(hub): x (T-0005)", or
+    "feat(hub): x (T-0019) (#25)" for a PR squash-merged into a stacked branch."""
+    ids: list[str] = []
+    for subject in subjects:
+        match = MERGED_CARDS.search(subject) or TRAILING_CARDS.search(subject)
+        if match:
+            ids += CARD_ID.findall(match.group(1))
+    return tuple(dict.fromkeys(ids))
+
+
 def parse_git_log(text: str) -> tuple[Commit, ...]:
     """Parse `git log --format=%H%x1f%cs%x1f%s` output (newest first)."""
     commits: list[Commit] = []
@@ -186,15 +216,47 @@ def read_source(ref: str | None) -> Source:
         tip = _git("rev-parse", "--verify", "--quiet", f"{name}^{{commit}}")
         if tip.returncode == 0:
             log = _git("log", "--first-parent", name, "--format=%H%x1f%cs%x1f%s")
+            commits = tuple(_with_merged_in(c) for c in parse_git_log(log.stdout))
             existing = frozenset(
                 s.requires
                 for s in SHOWCASES
                 if _git("cat-file", "-e", f"{name}:{s.requires}").returncode == 0
             )
-            return Source(name, tip.stdout.strip()[:7], parse_git_log(log.stdout), existing)
+            return Source(name, tip.stdout.strip()[:7], commits, existing)
     raise SourceError(
         f"找不到 {' 或 '.join(candidates)}。请先运行 git fetch（或用 --ref 指定分支）再生成报告。"
     )
+
+
+def _with_merged_in(commit: Commit) -> Commit:
+    """For a merge-commit PR, record the cards named by the commits it brought in."""
+    if not GITHUB_MERGE.match(commit.subject):
+        return commit
+    merged = _git("log", "--format=%s", f"{commit.sha}^1..{commit.sha}^2")
+    if merged.returncode != 0:
+        return commit
+    ids = branch_card_ids(merged.stdout.splitlines())
+    return Commit(commit.sha, commit.day, commit.subject, ids)
+
+
+def read_today_note(path: Path) -> str | None:
+    """The hand-written 「今天」 block of an existing report, markers included.
+
+    Raises SourceError when the markers are broken, so a note is never silently lost.
+    """
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    start = text.find(TODAY_START)
+    end = text.find(TODAY_END, start) if start >= 0 else -1
+    if start < 0 and TODAY_END not in text:
+        return None
+    if start < 0 or end < 0:
+        raise SourceError(
+            f"{path} 里的「今天」标记不完整（需要 {TODAY_START} 在前、{TODAY_END} 在后）。"
+            "为了不丢掉手写的内容，这次没有生成报告；请先修好标记。"
+        )
+    return text[start : end + len(TODAY_END)]
 
 
 def week_bounds(today: date) -> tuple[date, date]:
@@ -244,7 +306,7 @@ def _card_line(card: Card) -> str:
     return f"- **{card.id}** {card.title}"
 
 
-def render(report: Report) -> str:
+def render(report: Report, today_note: str | None = None) -> str:
     by_status: dict[str, list[Card]] = {s: [] for s in STATUSES}
     for card in sorted(report.cards, key=lambda c: (c.id, c.path)):
         by_status[report.effective_status(card)].append(card)
@@ -261,8 +323,10 @@ def render(report: Report) -> str:
     out: list[str] = [
         "# 进度报告",
         "",
+        today_note or TODAY_PLACEHOLDER,
+        "",
         f"> 由 `uv run python -m tools.report --today {report.today.isoformat()}` 生成，"
-        "请不要手改。进度只按“合并进 main 的、验证过的改动”计算。",
+        "「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。",
         f"> 统计依据：{source.ref} @ {source.sha}"
         "（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。",
         "",
@@ -353,11 +417,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         source = read_source(args.ref)
+        note = read_today_note(args.out)
     except SourceError as exc:
         print(exc, file=sys.stderr)
         return 2
     cards, problems = load_cards(args.tasks_dir.resolve())
-    text = render(build_report(args.today, cards, problems, source))
+    text = render(build_report(args.today, cards, problems, source), note)
     args.out.write_text(text, encoding="utf-8", newline="\n")
     summary = f"{len(cards)} cards, {len(problems)} malformed, {source.ref} @ {source.sha}"
     print(f"wrote {args.out}: {summary}")
