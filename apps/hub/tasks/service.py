@@ -13,11 +13,11 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
 
 from apps.hub.audit import service as audit
+from apps.hub.core.domain import Actor, Conflict, DomainError, Invalid, NotFound
 from apps.hub.evidence import service as evidence
 from apps.hub.tasks.models import GoalRow, IdempotencyKeyRow, ProjectRow, TaskRow, WorkspaceRow
 from packages.contracts.evidence import Evidence, TaskCompletion
@@ -39,31 +39,7 @@ from packages.contracts.tasks import (
     WorkspaceUpdate,
 )
 
-
-class TaskError(Exception):
-    result = "error"
-
-
-class NotFound(TaskError):
-    result = "not_found"
-
-
-class Conflict(TaskError):
-    result = "conflict"
-
-
-class Invalid(TaskError):
-    result = "invalid"
-
-
-@dataclass(frozen=True)
-class Actor:
-    owner_id: str
-    source: str = "api"
-
-    @property
-    def name(self) -> str:
-        return f"owner:{self.owner_id}"
+TaskError = DomainError  # kept for callers that predate apps.hub.core.domain
 
 
 Rules = Callable[[dict[str, Any], Any], None]
@@ -157,62 +133,6 @@ def _read(kind: Kind, row: Any) -> BaseModel:
     return kind.read.model_validate(row, from_attributes=True)
 
 
-@dataclass(frozen=True)
-class _Outcome[T]:
-    entity_id: str | None
-    value: T
-    detail: dict[str, Any] = field(default_factory=dict[str, Any])
-    result: str = "ok"
-
-
-def _audited[T](
-    session: Session,
-    actor: Actor,
-    kind: Kind,
-    action: str,
-    entity_id: str | None,
-    detail: dict[str, Any],
-    op: Callable[[], _Outcome[T]],
-) -> T:
-    def log(result: str, logged_id: str | None, extra: dict[str, Any]) -> None:
-        audit.record(
-            session,
-            owner_id=actor.owner_id,
-            actor=actor.name,
-            action=f"{kind.name}.{action}",
-            entity_type=kind.name,
-            entity_id=logged_id,
-            result=result,
-            detail={**detail, **extra},
-        )
-
-    def log_alone(result: str, error: str) -> None:
-        # The change is already rolled back; if this audit write also fails, the caller
-        # still sees the original error rather than this one.
-        session.rollback()
-        try:
-            log(result, entity_id, {"error": error})
-            session.commit()
-        except Exception:
-            session.rollback()
-
-    try:
-        outcome = op()
-        log(outcome.result, outcome.entity_id, outcome.detail)
-        session.commit()
-    except TaskError as exc:
-        log_alone(exc.result, str(exc))
-        raise
-    except (OperationalError, StaleDataError) as exc:
-        # WAL: a transaction whose snapshot went stale gets SQLITE_BUSY_SNAPSHOT on write.
-        log_alone(Conflict.result, type(exc).__name__)
-        raise Conflict(f"{kind.name} was changed concurrently; retry") from exc
-    except Exception as exc:
-        log_alone("error", type(exc).__name__)
-        raise
-    return outcome.value
-
-
 def _request_hash(payload: BaseModel) -> str:
     """SHA-256 of the validated body, so omitted defaults and key order do not matter."""
     canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
@@ -229,7 +149,7 @@ def create(
     """Return the created resource and whether it is a replay of an earlier request."""
     request_hash = _request_hash(payload)
 
-    def op() -> _Outcome[tuple[BaseModel, bool]]:
+    def op() -> audit.Outcome[tuple[BaseModel, bool]]:
         if idempotency_key is not None:
             seen = session.scalars(
                 select(IdempotencyKeyRow).where(
@@ -243,7 +163,7 @@ def create(
                 if seen.request_hash != request_hash:
                     raise Invalid("Idempotency-Key was already used with a different body")
                 original = get(session, actor, kind, seen.entity_id)
-                return _Outcome(seen.entity_id, (original, True), result="replayed")
+                return audit.Outcome(seen.entity_id, (original, True), result="replayed")
 
         data = payload.model_dump()
         kind.rules(data, None)
@@ -267,10 +187,10 @@ def create(
             except IntegrityError as exc:
                 raise Conflict("Idempotency-Key is being used by a concurrent request") from exc
         stored = _read(kind, row)
-        return _Outcome(row.id, (stored, False), {"stored": stored.model_dump(mode="json")})
+        return audit.Outcome(row.id, (stored, False), {"stored": stored.model_dump(mode="json")})
 
     detail = {"payload": payload.model_dump(mode="json")}
-    return _audited(session, actor, kind, "create", None, detail, op)
+    return audit.audited(session, actor, kind.name, "create", None, detail, op)
 
 
 def get(session: Session, actor: Actor, kind: Kind, entity_id: str) -> BaseModel:
@@ -292,7 +212,7 @@ def update(
     changes = patch.model_dump(exclude_unset=True, exclude={"version"})
     expected_version: int = getattr(patch, "version")  # noqa: B009  (every Update has it)
 
-    def op() -> _Outcome[BaseModel]:
+    def op() -> audit.Outcome[BaseModel]:
         row = _get_row(session, actor, kind, entity_id)
         if row.version != expected_version:
             raise Conflict(f"version is {row.version}, request was based on {expected_version}")
@@ -306,14 +226,14 @@ def update(
         for name, value in merged.items():
             setattr(row, name, value)
         session.flush()
-        return _Outcome(row.id, _read(kind, row))
+        return audit.Outcome(row.id, _read(kind, row))
 
     detail = {"changes": patch.model_dump(mode="json", exclude_unset=True)}
-    return _audited(session, actor, kind, "update", entity_id, detail, op)
+    return audit.audited(session, actor, kind.name, "update", entity_id, detail, op)
 
 
 def delete(session: Session, actor: Actor, kind: Kind, entity_id: str) -> None:
-    def op() -> _Outcome[None]:
+    def op() -> audit.Outcome[None]:
         row = _get_row(session, actor, kind, entity_id)
         if kind.row is TaskRow:
             tasks = session.scalars(select(TaskRow).where(TaskRow.owner_id == actor.owner_id))
@@ -325,9 +245,9 @@ def delete(session: Session, actor: Actor, kind: Kind, entity_id: str) -> None:
             session.flush()
         except IntegrityError as exc:
             raise Conflict(f"{kind.name} {entity_id} is still referenced") from exc
-        return _Outcome(entity_id, None)
+        return audit.Outcome(entity_id, None)
 
-    _audited(session, actor, kind, "delete", entity_id, {}, op)
+    audit.audited(session, actor, kind.name, "delete", entity_id, {}, op)
 
 
 def complete(session: Session, actor: Actor, task_id: str, completion: TaskCompletion) -> Task:
@@ -337,7 +257,7 @@ def complete(session: Session, actor: Actor, task_id: str, completion: TaskCompl
     """
     kind = KINDS["task"]
 
-    def op() -> _Outcome[Task]:
+    def op() -> audit.Outcome[Task]:
         row = _get_row(session, actor, kind, task_id)
         if row.version != completion.version:
             raise Conflict(f"version is {row.version}, request was based on {completion.version}")
@@ -353,10 +273,10 @@ def complete(session: Session, actor: Actor, task_id: str, completion: TaskCompl
         row.status = TaskStatus.done
         session.flush()
         done = Task.model_validate(row, from_attributes=True)
-        return _Outcome(task_id, done, {"evidence_id": proof.id, "kind": proof.kind})
+        return audit.Outcome(task_id, done, {"evidence_id": proof.id, "kind": proof.kind})
 
     detail = {"request": completion.model_dump(mode="json")}
-    return _audited(session, actor, kind, "complete", task_id, detail, op)
+    return audit.audited(session, actor, kind.name, "complete", task_id, detail, op)
 
 
 def evidence_for(session: Session, actor: Actor, task_id: str) -> list[Evidence]:

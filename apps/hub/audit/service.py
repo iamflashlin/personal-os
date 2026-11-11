@@ -1,13 +1,17 @@
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from apps.hub.audit.models import AuditEventRow
+from apps.hub.core.domain import Actor, Conflict, DomainError
 
 REDACTED = "[REDACTED]"
 
@@ -107,3 +111,67 @@ def list_events(session: Session, owner_id: str, entity_id: str | None = None) -
         query = query.where(AuditEventRow.entity_id == entity_id)
     rows = session.scalars(query.order_by(AuditEventRow.created_at, AuditEventRow.id)).all()
     return [AuditEvent.model_validate(r, from_attributes=True) for r in rows]
+
+
+@dataclass(frozen=True)
+class Outcome[T]:
+    """What a write produced: the entity it touched, the value to return, extra detail."""
+
+    entity_id: str | None
+    value: T
+    detail: dict[str, Any] = field(default_factory=dict[str, Any])
+    result: str = "ok"
+
+
+def audited[T](
+    session: Session,
+    actor: Actor,
+    entity_type: str,
+    action: str,
+    entity_id: str | None,
+    detail: dict[str, Any],
+    op: Callable[[], Outcome[T]],
+) -> T:
+    """Run one write and record exactly one audit event for it.
+
+    On success the event commits in the same transaction as the change. A refused or
+    failed write is rolled back first, then audited on its own with the reason.
+    """
+
+    def log(result: str, logged_id: str | None, extra: dict[str, Any]) -> None:
+        record(
+            session,
+            owner_id=actor.owner_id,
+            actor=actor.name,
+            action=f"{entity_type}.{action}",
+            entity_type=entity_type,
+            entity_id=logged_id,
+            result=result,
+            detail={**detail, **extra},
+        )
+
+    def log_alone(result: str, error: str) -> None:
+        # The change is already rolled back; if this audit write also fails, the caller
+        # still sees the original error rather than this one.
+        session.rollback()
+        try:
+            log(result, entity_id, {"error": error})
+            session.commit()
+        except Exception:
+            session.rollback()
+
+    try:
+        outcome = op()
+        log(outcome.result, outcome.entity_id, outcome.detail)
+        session.commit()
+    except DomainError as exc:
+        log_alone(exc.result, str(exc))
+        raise
+    except (OperationalError, StaleDataError) as exc:
+        # WAL: a transaction whose snapshot went stale gets SQLITE_BUSY_SNAPSHOT on write.
+        log_alone(Conflict.result, type(exc).__name__)
+        raise Conflict(f"{entity_type} was changed concurrently; retry") from exc
+    except Exception as exc:
+        log_alone("error", type(exc).__name__)
+        raise
+    return outcome.value
