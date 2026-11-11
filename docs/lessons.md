@@ -17,16 +17,16 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   more places leaked connections — `with sqlite3.connect(...)` only commits, it never
   closes — `tests/test_no_unclosed_sqlite.py` fails the gate on any such line; use
   `with closing(sqlite3.connect(...))` (ADR 0010).
-- 2026-11-10 — Evidence logs were captured before the last code edit, so the reviewer
+- 2026-11-10 (open) — Evidence logs were captured before the last code edit, so the reviewer
   found them stale (T-0001, T-0003) — evidence was generated while work for the next card
   sat in the tree, and fixes came after the logs — park other cards' files outside the
   repo, regenerate every log as the last step, and state that in `summary.md`. Not
   automated yet: candidate check that each evidence log is newer than the newest
   tracked source file.
-- 2026-11-10 — A test that "proved" concurrent writes could pass without any write
+- 2026-11-10 (open) — A test that "proved" concurrent writes could pass without any write
   overlapping the export, and could hang forever if the writer died (T-0003 review) —
   the test asserted a value it had just read back — tests that rely on timing must assert
   the overlap happened and must have a deadline.
 - 2026-11-10 — Chromium requested `/favicon.ico` and logged a 404 that unit tests never
-  see (T-0004) — browsers fetch resources the page does not ask for — `scripts/verify/
-  web.py` fails on any console error; the page declares an inline icon.
+  see (T-0004) — browsers fetch resources the page does not ask for —
+  `scripts/verify/web.py` fails on any console error; the page declares an inline icon.

@@ -2,7 +2,7 @@
 
 - Status: **proposed — waiting for the user's decisions below. Nothing here is adopted.**
 - Date: 2026-11-10
-- Inputs: `docs/VISION.md` (the user's eight directions), `docs/HANDOFF.md` §3, §8
+- Inputs: `docs/VISION.md` (the user's eight directions), `docs/HANDOFF.md` §3, §4.3, §5, §8
 
 ## Context
 
@@ -23,8 +23,8 @@ These are the base for directions 1, 2, 3 and 8. Nothing needs to be rebuilt.
 
 | # | Direction (VISION.md) | Current plan (HANDOFF §8) | Gap |
 |---|---|---|---|
-| 1 | 个人第二大脑 | Memory "简版" in S7, late | Underweighted. In the vision it is the foundation the other directions read and write |
-| 2 | 主动规划与人生管理 | Task CRUD only; no daily plan, no "back to the main line" | Missing |
+| 1 | 个人第二大脑 | S7 ("可从 S1 后开始", but ordered last); Memory "简版" per §4.3 | Underweighted. In the vision it is the foundation the other directions read and write |
+| 2 | 主动规划与人生管理 | S4 PWA "今日" list; S3 next step and resume after a break | Partial: no daily plan generation, no drift detection or replanning |
 | 3 | 数字世界的执行者 | V0.1 opens URLs and folders; GUI operation is P1 | Deliberately deferred (highest technical risk); the vision calls it one of the most important, so it needs a dated place on the roadmap |
 | 4 | 个人能力增强器 | S6: Human-led C++ tutoring | Narrow: research, writing and analysis are absent |
 | 5 | 手机、电脑、耳机统一联动 | iOS Shortcut dictation → one POST | Large gap: no continuous voice conversation while commuting |
@@ -39,18 +39,21 @@ These are the base for directions 1, 2, 3 and 8. Nothing needs to be rebuilt.
 
 1. **V0.1 becomes "one connected day".** Each direction gets its smallest useful piece,
    so the whole chain (记忆 → 规划 → 启动 → 执行 → 成长) works end to end once:
-   - **Morning:** today's brief from tasks, due dates and the calendar (2).
+   - **Morning:** today's brief from tasks and due dates, plus whichever sources the user
+     approves in decision 5 (2).
    - **"开始学习":** the PC prepares the environment and shows the last next step (1, 3).
    - **Studying:** Human-led help (4).
    - **Commute:** talk to it from the phone; ideas become tasks or notes (minimal 5).
    - **Evening:** what got done with evidence, and tomorrow's first step (minimal 8).
-2. **Memory moves to the second slice**, right after the existing Hub core, because every
-   other direction reads and writes it.
+2. **Memory becomes the committed second slice** (HANDOFF already allows it after S1, but
+   orders it last), because every other direction reads and writes it.
 3. **Planned later with a stated slot, instead of unmentioned:**
    - full GUI execution on arbitrary apps (3, after the S2 desktop agent is proven);
    - location and body-state sensing (6);
    - the life domains (7).
-4. **Engineering rules are unchanged:** evidence before done, reviewer, owner_id, audit,
+4. **Each product task card names the direction (1-8) it serves** and which link of
+   记忆 → 规划 → 启动 → 执行 → 成长 it improves (a proposed rule, not yet in force).
+5. **Engineering rules are unchanged:** evidence before done, reviewer, owner_id, audit,
    export, and Human-led for coursework.
 
 ## Decisions only the user can make
@@ -74,7 +77,9 @@ These are the base for directions 1, 2, 3 and 8. Nothing needs to be rebuilt.
 
 ## Consequences
 
-- Until the user decides, work continues only on items that fit both plans: merging the
-  open PRs and housekeeping. No new product slice starts.
+- Until the user decides, Claude proposes to work only on items that fit both the current
+  plan and this proposal: merging the open PRs, housekeeping, and slices that both plans
+  contain (for example memory, direction 1, and the desktop agent, direction 3).
 - After the decisions, HANDOFF §8 is rewritten and this ADR becomes `accepted` (or
-  `rejected`), with the user's answers recorded here.
+  `rejected`), with the user's answers recorded here, and the "awaits the user" line in
+  `CLAUDE.md` is updated.
