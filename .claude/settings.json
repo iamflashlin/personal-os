@@ -37,7 +37,10 @@
       "PowerShell(git push -u origin t/*)",
       "PowerShell(git push -u origin d0/*)",
       "PowerShell(gh pr create *)",
-      "PowerShell(gh pr merge * --squash)"
+      "PowerShell(gh pr merge * --squash)",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\run\\update-hub.ps1)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\run\\update-hub.ps1)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run/update-hub.ps1)"
     ],
     "ask": [
       "Bash(uv add *)",
@@ -51,7 +54,6 @@
       "Edit(**/.env)",
       "Edit(**/.env.*)",
       "PowerShell(Get-Content *.env*)",
-
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git push * --force*)",
@@ -84,7 +86,6 @@
       "Bash(rm -R*)",
       "Bash(rm -f*)",
       "Bash(rm --recursive*)",
-
       "PowerShell(git push --force*)",
       "PowerShell(git push -f*)",
       "PowerShell(git push * --force*)",

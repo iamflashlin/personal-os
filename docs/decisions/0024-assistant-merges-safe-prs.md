@@ -1,6 +1,6 @@
 # 0024 - The assistant merges safe PRs; the user tries features instead of reading code
 
-- Status: proposed (the user merges this PR by hand)
+- Status: accepted; superseded in part by ADR 0030 (category exceptions removed)
 - Date: 2026-11-11
 - Supersedes: the "never merge PRs" rule in CLAUDE.md and the `gh pr merge` deny in
   ADR 0001's permission set

@@ -35,3 +35,6 @@
 
 A real logoff/logon or reboot. Spike: after installing, sign out and in again, then open
 http://127.0.0.1:8765 (≤ 5 min).
+
+Update (2026-11-11, ADR 0030): code updates after a merge go through
+`scripts/run/update-hub.ps1`, which never touches the scheduled task.
