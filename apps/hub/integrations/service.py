@@ -149,6 +149,31 @@ def items(
     return [SyncedItem.model_validate(r, from_attributes=True) for r in rows]
 
 
+def items_between(
+    session: Session,
+    actor: Actor,
+    start: datetime,
+    end: datetime,
+    item_type: str | None = None,
+) -> list[SyncedItem]:
+    """Every source's items that start in [start, end), for views across sources. Not
+    capped: callers bound it by time, and a silent cut would drop real deadlines."""
+    query = (
+        select(SyncedItemRow)
+        .join(IntegrationRow, IntegrationRow.id == SyncedItemRow.integration_id)
+        .where(
+            IntegrationRow.owner_id == actor.owner_id,
+            SyncedItemRow.owner_id == actor.owner_id,
+            SyncedItemRow.starts_at >= start,
+            SyncedItemRow.starts_at < end,
+        )
+    )
+    if item_type is not None:
+        query = query.where(SyncedItemRow.item_type == item_type)
+    rows = session.scalars(query.order_by(SyncedItemRow.starts_at, SyncedItemRow.id))
+    return [SyncedItem.model_validate(r, from_attributes=True) for r in rows]
+
+
 def ensure_schedules(session: Session, actor: Actor, now: datetime) -> None:
     """Give every integration its schedule. Run at startup: if creating one failed after
     the integration was saved, this repairs it; a matching schedule writes nothing."""

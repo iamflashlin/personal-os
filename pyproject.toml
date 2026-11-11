@@ -57,7 +57,7 @@ name = "hub layering: entry points > modules > core"
 type = "layers"
 layers = [
     "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
-    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.integrations : apps.hub.jobs : apps.hub.memory : apps.hub.system : apps.hub.tasks",
+    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.briefing : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.integrations : apps.hub.jobs : apps.hub.memory : apps.hub.system : apps.hub.tasks",
     "apps.hub.core",
 ]
 
@@ -68,6 +68,7 @@ modules = [
     "apps.hub.actions",
     "apps.hub.audit",
     "apps.hub.backup",
+    "apps.hub.briefing",
     "apps.hub.credentials",
     "apps.hub.devices",
     "apps.hub.evidence",

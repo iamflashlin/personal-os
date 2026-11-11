@@ -408,6 +408,17 @@ def verify_email_view(
         check(mail.get_by_text("未读").count() == 1, "unread mail is marked 未读")
         check(code not in page.content(), "the code is nowhere in the page")
         shot(page, out, "13-email")
+        open_view(page, "今日")
+        today_mail = page.get_by_test_id("today-mail")
+        today_mail.get_by_text("作业提醒 Lab 3 明天截止").wait_for()
+        check(True, "今日 lists the unread mail")
+        check(
+            "1 封未读邮件" in page.get_by_test_id("today-headline").inner_text(),
+            "今日 headline counts the unread mail",
+        )
+        shot(page, out, "14-today")
+        open_view(page, "连接")
+        page.get_by_test_id("integrations").get_by_text("163 邮箱").wait_for()
         (row,) = [
             r
             for r in page.get_by_test_id("integrations").get_by_role("listitem").all()
@@ -427,6 +438,25 @@ def verify_email_view(
         if key is not None:
             with contextlib.suppress(Exception):
                 keyring.delete_password(service, key)
+
+
+def open_view(page: Page, name: str) -> None:
+    page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
+
+
+def verify_today_empty(page: Page, out: Path) -> None:
+    nav = page.get_by_role("navigation", name="切换页面")
+    check(
+        nav.get_by_role("button", name="今日").get_attribute("aria-current") == "page",
+        "今日 is the page that opens first",
+    )
+    page.get_by_test_id("today-headline").wait_for()
+    check(
+        "今天没有截止、日程或未读邮件" in page.get_by_test_id("today-headline").inner_text(),
+        "an empty day says so plainly",
+    )
+    check(page.get_by_text("还没有连接任何来源").count() == 1, "it says nothing is connected yet")
+    shot(page, out, "00-today-empty")
 
 
 def run(out: Path, headed: bool) -> None:
@@ -456,6 +486,8 @@ def run(out: Path, headed: bool) -> None:
             )
 
             page.goto(str(api.base_url))
+            verify_today_empty(page, out)
+            open_view(page, "任务")
             page.get_by_text("通过 CIS 课程").first.wait_for()
             check(
                 page.get_by_test_id("goals").get_by_text("通过 CIS 课程").count() == 1,
@@ -494,6 +526,7 @@ def run(out: Path, headed: bool) -> None:
             )
             shot(page, out, "04-done")
             page.reload()
+            open_view(page, "任务")
             row.locator(".badge.done").wait_for()
             check(
                 row.get_by_test_id("task-status").inner_text() == "已完成",

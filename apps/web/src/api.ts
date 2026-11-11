@@ -95,6 +95,37 @@ export interface SyncedItem extends Stored {
   data: Record<string, unknown>;
 }
 
+export type EntryKind = "assignment" | "task" | "event" | "mail" | "announcement";
+
+export interface TodayEntry {
+  kind: EntryKind;
+  title: string;
+  at: string | null;
+  all_day: boolean;
+  source: string;
+  note: string;
+  url: string;
+  badge: string;
+  ref: string;
+}
+
+export interface TodayView {
+  date: string;
+  timezone: string;
+  generated_at: string;
+  headline: string;
+  due_today: TodayEntry[];
+  due_soon: TodayEntry[];
+  missing: TodayEntry[];
+  events: TodayEntry[];
+  unread_mail: number;
+  mail: TodayEntry[];
+  announcements: TodayEntry[];
+  in_progress: TodayEntry[];
+  problems: { name: string; error: string }[];
+  sources: number;
+}
+
 export interface Job {
   id: string;
   status: "queued" | "running" | "succeeded" | "dead";
@@ -288,6 +319,8 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
           limit: String(limit),
         })}`,
       ),
+    today: (timeZone: string) =>
+      call<TodayView>(timeZone ? `/today?${new URLSearchParams({ tz: timeZone })}` : "/today"),
   };
 }
 

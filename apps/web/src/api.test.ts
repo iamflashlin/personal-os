@@ -213,3 +213,13 @@ describe("memory client", () => {
     expect(calls[0].url).toBe("/memories/01MEM");
   });
 });
+
+describe("today client", () => {
+  it("sends the browser's time zone when there is one", async () => {
+    const calls: Call[] = [];
+    const api = createApi(fakeFetch(200, {}, calls));
+    await api.today("America/Los_Angeles");
+    await api.today("");
+    expect(calls.map((c) => c.url)).toEqual(["/today?tz=America%2FLos_Angeles", "/today"]);
+  });
+});

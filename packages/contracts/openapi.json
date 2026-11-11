@@ -352,6 +352,17 @@
         "title": "Device",
         "type": "object"
       },
+      "EntryKind": {
+        "enum": [
+          "assignment",
+          "task",
+          "event",
+          "mail",
+          "announcement"
+        ],
+        "title": "EntryKind",
+        "type": "string"
+      },
       "Evidence": {
         "properties": {
           "created_at": {
@@ -1569,6 +1580,24 @@
         "title": "Sensitivity",
         "type": "string"
       },
+      "SourceProblem": {
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "error"
+        ],
+        "title": "SourceProblem",
+        "type": "object"
+      },
       "SyncedItem": {
         "properties": {
           "all_day": {
@@ -2011,6 +2040,170 @@
           "version"
         ],
         "title": "TaskUpdate",
+        "type": "object"
+      },
+      "TodayEntry": {
+        "properties": {
+          "all_day": {
+            "default": false,
+            "title": "All Day",
+            "type": "boolean"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "badge": {
+            "default": "",
+            "title": "Badge",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EntryKind"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "ref": {
+            "default": "",
+            "title": "Ref",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "at",
+          "source"
+        ],
+        "title": "TodayEntry",
+        "type": "object"
+      },
+      "TodayView": {
+        "properties": {
+          "announcements": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Announcements",
+            "type": "array"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "due_soon": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Due Soon",
+            "type": "array"
+          },
+          "due_today": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Due Today",
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "in_progress": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "In Progress",
+            "type": "array"
+          },
+          "mail": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Mail",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/TodayEntry"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SourceProblem"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "unread_mail": {
+            "title": "Unread Mail",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "timezone",
+          "generated_at",
+          "headline",
+          "due_today",
+          "due_soon",
+          "missing",
+          "events",
+          "unread_mail",
+          "mail",
+          "announcements",
+          "in_progress",
+          "problems",
+          "sources"
+        ],
+        "title": "TodayView",
         "type": "object"
       },
       "ValidationError": {
@@ -4321,6 +4514,52 @@
         "summary": "List Task Evidence",
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/today": {
+      "get": {
+        "operationId": "get_today_today_get",
+        "parameters": [
+          {
+            "description": "IANA zone; default: this PC's",
+            "in": "query",
+            "name": "tz",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "IANA zone; default: this PC's",
+              "maxLength": 64,
+              "title": "Tz",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Today",
+        "tags": [
+          "today"
         ]
       }
     },
