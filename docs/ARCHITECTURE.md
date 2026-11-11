@@ -24,7 +24,7 @@ Phone or PC browser: PWA apps/web (planned)
                 | the agent [Hub side built, T-0006]  |
                 | ActionRequest down, ActionResult up v
 +---------------+------------+               model vendors (swappable)
-| Desktop agent (T-0007/8)   |
+| Desktop agent [core built] |
 | apps/desktop_agent         | -- open, then verify --> Windows apps
 | action whitelist + verify  |                         (VS Code, browser)
 +----------------------------+
@@ -52,7 +52,7 @@ the Hub never reads `.env` (ADR 0008).
 | Settings, engine, `Entity` mixin (no tables) | `apps/hub/core` | built |
 | Data dir `POS_DATA_DIR` (default `<repo>/data`); holds only the SQLite files so far | Hub process | built |
 | Session, Run/Step, Job, Grant, ModelCall, Decision | the matching HANDOFF §4.1 module (Decision: undecided) | planned |
-| Nothing durable (the agent keeps only its token, in keyring) | desktop agent, PWA | planned (T-0007) |
+| Nothing durable (the agent keeps only its token, in keyring) | desktop agent (built, T-0007), PWA | built / planned |
 
 `core` and `migrations` are infrastructure, not modules. Every other subpackage of
 `apps/hub` is a module with a `service.py`. A module may also have `models.py` (ORM
@@ -68,7 +68,7 @@ rows, private to the module) and `api.py` (a FastAPI router built on its own ser
 | B4 | `service.py` functions take a `Session`/`Engine` plus plain or Pydantic values and return Pydantic types, never ORM rows. `tasks.service.Kind.row` is module-internal. | Reviewer (known gap, ADR 0008) |
 | B5 | Every Hub module is listed in both import-linter contracts. | `test_every_hub_module_is_covered_by_both_boundary_contracts` |
 | B6 | Every cross-process type lives in `packages/contracts`. Change contracts first, then both sides. | Reviewer; `test_committed_openapi_schema_is_current` only guards that the exported schema is current |
-| B7 | The desktop agent executes only whitelisted actions, verifies each one, never plans, and opens the connection to the Hub. | Reviewer now; tests when the agent exists (planned) |
+| B7 | The desktop agent executes only whitelisted actions, verifies each one, never plans, and opens the connection to the Hub. It touches the desktop only through `DesktopController` (ADR 0015). | `test_the_registry_covers_exactly_the_contract_whitelist`; executor tests; `tests/desktop_agent/test_agent_loop.py`; `scripts/verify/agent_link.py` |
 | B8 | The PWA is only a client of the Hub HTTP API. | Reviewer (planned) |
 | B9 | Business code depends on `models.ModelProvider`, never on a vendor SDK. | Reviewer now; planned import-linter `forbidden` contract once `models` exists |
 | B10 | The Hub binds to loopback by default and reads no `.env` file. | `test_hub_defaults_to_loopback_and_ignores_dotenv` |
@@ -125,7 +125,8 @@ The rest of this section is the HANDOFF plan.
 
 ## 6. Planned, not built yet
 
-- `apps/desktop_agent` (`WindowsAdapter` behind `DesktopController`, T-0007/T-0008);
+- `apps/desktop_agent/windows_adapter.py` (`WindowsAdapter` behind `DesktopController`, T-0008;
+  the agent core is built in T-0007, ADR 0015);
   "PC offline" shown in the PWA (ADR 0007). The Hub side of the link is built.
 - `apps/web` as a phone PWA (S4); TypeScript types generated from `openapi.json`. A desktop
   web page exists (T-0004, ADR 0011) and is served by the Hub at `/` once built.
