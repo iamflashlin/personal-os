@@ -11,7 +11,9 @@
 param(
     [string]$CopyDir = "D:\dev\personal-os-run",
     [string]$DataDir = "D:\dev\personal-os-data",
-    [string]$Ref = "HEAD"
+    [string]$Ref = "HEAD",
+    # Prepare the copy and the data folder only: no scheduled task, nothing started.
+    [switch]$PrepareOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,11 +26,13 @@ $uv = (Get-Command uv -ErrorAction Stop).Source
 $pnpm = (Get-Command pnpm -ErrorAction Stop).Source
 $commit = (git -C $repo rev-parse $Ref).Trim()
 
-Step "stop the running Hub, if any"
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-    Stop-ScheduledTask -TaskName $taskName
+if (-not $PrepareOnly) {
+    Step "stop the running Hub, if any"
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $taskName
+    }
+    & (Join-Path $PSScriptRoot "stop-hub.ps1") -DataDir $DataDir
 }
-& (Join-Path $PSScriptRoot "stop-hub.ps1") -DataDir $DataDir
 
 Step "runtime copy at $CopyDir (commit $($commit.Substring(0, 10)))"
 if (Test-Path (Join-Path $CopyDir ".git")) {
@@ -54,6 +58,10 @@ try {
 
 Step "data folder $DataDir"
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
+if ($PrepareOnly) {
+    Write-Output "prepared $CopyDir and $DataDir; no scheduled task was registered"
+    exit 0
+}
 
 Step "register the scheduled task '$taskName' (starts at your logon, hidden)"
 $runner = Join-Path $CopyDir "scripts\run\run-hub.ps1"
