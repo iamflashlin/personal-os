@@ -26,6 +26,7 @@ dev = [
 desktop = [
     "keyring>=25.6",
     "pillow>=13.0.0 ; sys_platform == 'win32'",
+    "pywin32>=312 ; sys_platform == 'win32'",
     "pywinauto>=0.6.9 ; sys_platform == 'win32'",
 ]
 

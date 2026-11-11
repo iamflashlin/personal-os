@@ -437,6 +437,7 @@ dependencies = [
 desktop = [
     { name = "keyring" },
     { name = "pillow", marker = "sys_platform == 'win32'" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "pywinauto", marker = "sys_platform == 'win32'" },
 ]
 dev = [
@@ -462,6 +463,7 @@ requires-dist = [
 desktop = [
     { name = "keyring", specifier = ">=25.6" },
     { name = "pillow", marker = "sys_platform == 'win32'", specifier = ">=13.0.0" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=312" },
     { name = "pywinauto", marker = "sys_platform == 'win32'", specifier = ">=0.6.9" },
 ]
 dev = [
