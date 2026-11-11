@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.hub.core.base import Base, Entity, UTCDateTime
@@ -20,7 +20,9 @@ class EmailSummaryRow(Entity, Base):
     )
     item_hash: Mapped[str] = mapped_column(String(64))  # sender + subject + body
     status: Mapped[str] = mapped_column(String(24), index=True)
-    gist: Mapped[str] = mapped_column(Text, default="")
+    gist: Mapped[str] = mapped_column(Text, default="")  # the AI title (prompt v2)
+    points: Mapped[list[str]] = mapped_column(JSON, default=list)  # distilled facts
+    low_value: Mapped[bool] = mapped_column(Boolean, default=False)
     action_needed: Mapped[bool] = mapped_column(Boolean, default=False)
     action: Mapped[str] = mapped_column(Text, default="")
     deadline_text: Mapped[str] = mapped_column(String(100), default="")

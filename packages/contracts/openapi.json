@@ -402,9 +402,22 @@
             "title": "Item Id",
             "type": "string"
           },
+          "low_value": {
+            "default": false,
+            "title": "Low Value",
+            "type": "boolean"
+          },
           "model": {
             "title": "Model",
             "type": "string"
+          },
+          "points": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Points",
+            "type": "array"
           },
           "prompt_version": {
             "title": "Prompt Version",
@@ -476,6 +489,15 @@
             "default": "",
             "title": "Gist",
             "type": "string"
+          },
+          "importance": {
+            "$ref": "#/components/schemas/Importance",
+            "default": "normal"
+          },
+          "low_value": {
+            "default": false,
+            "title": "Low Value",
+            "type": "boolean"
           },
           "status": {
             "$ref": "#/components/schemas/SummaryStatus"
@@ -2416,6 +2438,11 @@
             },
             "title": "In Progress",
             "type": "array"
+          },
+          "low_value_mail": {
+            "default": 0,
+            "title": "Low Value Mail",
+            "type": "integer"
           },
           "mail": {
             "items": {

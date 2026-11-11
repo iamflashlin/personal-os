@@ -322,3 +322,37 @@ input.masked {
 .badge.ai {
   color: var(--accent);
 }
+
+/* 邮件 page (T-0025) */
+.mail-head {
+  all: unset;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  cursor: pointer;
+}
+
+.mail-head:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.mail-detail {
+  flex-basis: 100%;
+  margin-top: 0.5rem;
+}
+
+.mail-detail .points {
+  margin: 0 0 0.5rem 1.2rem;
+  padding: 0;
+}
+
+.mail-detail .original {
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+}
+
+.collapsed-toggle {
+  margin-top: 0.5rem;
+}

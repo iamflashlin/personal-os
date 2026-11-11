@@ -58,12 +58,16 @@ function Entry({ entry, withDay }: { entry: TodayEntry; withDay: boolean }) {
             entry.title
           )}
         </span>
+        {entry.summary?.importance === "high" && (
+          <span className="badge submission-缺交">重要</span>
+        )}
         {entry.badge && (
           <span className={`badge ${BADGE_CLASS[entry.badge] ?? ""}`}>{entry.badge}</span>
         )}
       </div>
       <div className="muted">{[entry.note, entry.source].filter(Boolean).join(" · ")}</div>
-      <SummaryLine summary={entry.summary} />
+      {/* The line above already is the AI title; show only what to do and when. */}
+      <SummaryLine summary={entry.summary} hideGist />
     </li>
   );
 }
@@ -196,6 +200,11 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
         entries={today.mail}
         testId="today-mail"
       />
+      {(today.low_value_mail ?? 0) > 0 && (
+        <p className="muted" data-testid="today-low-value">
+          另有 {today.low_value_mail} 封没有价值的未读邮件已收起（在“邮件”页查看）
+        </p>
+      )}
       <Section title="接下来三天" entries={today.due_soon} testId="today-soon" withDay />
       <Section title="新公告" entries={today.announcements} testId="today-news" withDay />
       <Section title="进行中" entries={today.in_progress} testId="today-progress" />

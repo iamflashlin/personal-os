@@ -56,9 +56,15 @@ class FakeProvider:
         subject = match.group(1).strip() if match else request.user.strip()[:40]
         lowered = request.user.lower()
         action_needed = "截止" in request.user or "due" in lowered
+        low_value = any(w in lowered for w in ("digest", "newsletter", "weekly", "促销"))
+        body = request.user.split("\n\n", 1)[-1].replace("</email>", "").strip()
         text = json.dumps(
             {
+                # Both shapes: prompt v1 read "gist", prompt v2 reads "title" and "points".
                 "gist": f"（测试摘要）{subject}",
+                "title": f"（测试摘要）{subject}",
+                "low_value": low_value,
+                "points": [] if low_value else [f"要点：{body[:24]}"],
                 "action_needed": action_needed,
                 "action": "按时提交" if action_needed else "",
                 "deadline_text": "",

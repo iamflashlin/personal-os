@@ -267,6 +267,7 @@ def summarise(
     action: str = "",
     deadline: date | None = None,
     owner: str = "local",
+    low_value: bool = False,
 ) -> None:
     from sqlalchemy import select
 
@@ -290,7 +291,8 @@ def summarise(
             attempts=0,
             error="",
             model="fake",
-            prompt_version=1,
+            prompt_version=2,
+            low_value=low_value,
         )
     )
     session.flush()
@@ -305,9 +307,9 @@ def test_mail_entries_carry_their_summary(session: Session) -> None:
     summarise(session, "验证码", "skipped_sensitive")
     summarise(session, "Waiting", "pending")
     by_title = {e.title: e.summary for e in view(session).mail}
-    lab = by_title["Lab 5"]
+    lab = by_title["摘要：Lab 5"]  # a summarised mail shows its AI title
     assert lab is not None and lab.gist == "摘要：Lab 5" and lab.action == "周五前提交"
-    otp = by_title["验证码"]
+    otp = by_title["验证码"]  # skipped: keeps its subject
     assert otp is not None and otp.status == "skipped_sensitive"
     assert by_title["Waiting"] is None  # pending shows nothing yet
 
@@ -330,8 +332,9 @@ def test_mail_actions_list_a_weeks_actionable_mail_deadline_first(session: Sessi
         item(session, box, "email_message", f"Extra {n}", NOW - timedelta(hours=5, minutes=n))
         summarise(session, f"Extra {n}", action="回复")
     actions = view(session).mail_actions
-    assert titles(actions)[:2] == ["Read and due soon", "Due later"]
-    assert "Too old" not in titles(actions) and "Just news" not in titles(actions)
+    shown = [t.removeprefix("摘要：") for t in titles(actions)]
+    assert shown[:2] == ["Read and due soon", "Due later"]
+    assert "Too old" not in shown and "Just news" not in shown
     assert len(actions) == 10
     assert all(a.summary is not None and a.summary.action_needed for a in actions)
 
@@ -404,4 +407,31 @@ def test_mail_actions_without_a_deadline_are_newest_first(session: Session) -> N
     for title, hours in [("Older", 30), ("Newest", 1), ("Middle", 10)]:
         item(session, box, "email_message", title, NOW - timedelta(hours=hours))
         summarise(session, title, action="回复")
-    assert titles(view(session).mail_actions) == ["Newest", "Middle", "Older"]
+    shown = [t.removeprefix("摘要：") for t in titles(view(session).mail_actions)]
+    assert shown == ["Newest", "Middle", "Older"]
+
+
+def test_low_value_mail_is_collapsed_on_today(session: Session) -> None:
+    box = source(session, "email", "163")
+    item(session, box, "email_message", "Lab 7", NOW - timedelta(hours=1))
+    item(session, box, "email_message", "Sale 50% off", NOW - timedelta(hours=2))
+    summarise(session, "Lab 7", action="提交")
+    summarise(session, "Sale 50% off", action="买", low_value=True)
+    today = view(session)
+    assert titles(today.mail) == ["摘要：Lab 7"]
+    assert today.low_value_mail == 1
+    assert today.unread_mail == 1
+    assert "Sale" not in " ".join(titles(today.mail_actions))
+
+
+def test_an_old_prompt_gist_is_not_used_as_the_title(session: Session) -> None:
+    from sqlalchemy import update
+
+    from apps.hub.summaries.models import EmailSummaryRow
+
+    box = source(session, "email", "163")
+    item(session, box, "email_message", "Lab 8", NOW - timedelta(hours=1))
+    summarise(session, "Lab 8")
+    session.execute(update(EmailSummaryRow).values(prompt_version=1))
+    session.flush()
+    assert titles(view(session).mail) == ["Lab 8"]  # the v1 gist was a long sentence

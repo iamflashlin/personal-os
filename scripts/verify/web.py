@@ -402,9 +402,12 @@ def verify_email_view(
         check(
             form.get_by_label("邮箱服务").input_value() == "imap.163.com", "163 is the first preset"
         )
-        mail = page.get_by_test_id("mail")
+        page.get_by_test_id("mail-moved").wait_for(timeout=40_000)
+        check(True, "连接 says the mail was synced and points to the 邮件 page")
+        open_view(page, "邮件")
+        mail = page.get_by_test_id("mail-view")
         mail.get_by_text("作业提醒 Lab 3 明天截止").wait_for(timeout=40_000)
-        check(True, "the mail shows in 最近邮件")
+        check(True, "the mail shows on the 邮件 page")
         check(mail.get_by_text("未读").count() == 1, "unread mail is marked 未读")
         check(code not in page.content(), "the code is nowhere in the page")
         shot(page, out, "13-email")
@@ -475,37 +478,66 @@ def verify_summaries_view(
             },
         )
         check(created.status_code == 201, "an email connection for summaries was added")
-        open_view(page, "连接")
-        mail = page.get_by_test_id("mail")
+        open_view(page, "邮件")
+        mail = page.get_by_test_id("mail-view")
         mail.get_by_text("CIS 22A Lab 5 截止提醒").wait_for(timeout=40_000)
-        card = page.get_by_test_id("ai-card")
-        card.get_by_text("还没有设置 key").wait_for()
-        check(True, "the AI card says no key is set")
+        check(True, "before any key the subject is shown")
         mail.get_by_text("未发送给 AI（可能含验证码或重置密码）").wait_for(timeout=20_000)
         check(True, "the OTP mail shows 未发送给 AI before any key exists")
         shot(page, out, "15-ai-no-key")
+        open_view(page, "连接")
+        card = page.get_by_test_id("ai-card")
+        card.get_by_text("还没有设置 key").wait_for()
+        check(True, "the AI card says no key is set")
 
         key_field = card.get_by_test_id("ai-key")
         key_field.fill(model_key)
         card.get_by_role("button", name="保存 key").click()
         check(key_field.input_value() == "", "the key field is cleared at once")
-        mail.get_by_text("（测试摘要）CIS 22A Lab 5 截止提醒").wait_for(timeout=40_000)
-        check(True, "entering a key fills the summaries on 最近邮件")
-        check(mail.get_by_text("需处理").count() >= 1, "the Lab mail is marked 需处理")
-        card.get_by_text("已设置 key").wait_for(timeout=20_000)
+        card.get_by_text("已设置 key").wait_for(timeout=40_000)
+        card.get_by_text("（2 次）").wait_for(timeout=40_000)  # both valuable mails summarised
         check("本月已用 $" in card.inner_text(), "the card shows this month's spend")
         # page.content() omits live input values; the cleared field above is the real proof.
         check(model_key not in page.content(), "the key is not in the page markup")
+        open_view(page, "邮件")
+        mail = page.get_by_test_id("mail-view")
+        lab = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）CIS 22A Lab 5")
+        lab.wait_for(timeout=40_000)
+        check(True, "the list shows the AI title")
+        check(
+            "截止提醒" not in lab.get_by_test_id("mail-title").inner_text(),
+            "the AI title is cut to 20 characters and replaces the subject",
+        )
+        check(
+            lab.get_by_text("重要").count() == 1 and lab.get_by_text("需处理").count() == 1,
+            "the Lab mail is marked 重要 and 需处理",
+        )
+        collapsed = mail.get_by_test_id("mail-collapsed")
+        check(
+            collapsed.inner_text() == "已收起 1 封没有价值的邮件",
+            f"the newsletter is collapsed: {collapsed.inner_text()}",
+        )
+        check(mail.get_by_text("The Weekly Digest").count() == 0, "until expanded it is hidden")
+        lab.locator(".mail-head").click()
+        detail = lab.get_by_test_id("mail-detail")
+        text = detail.inner_text()
+        check(
+            "要点：" in text and "原文" in text and text.index("要点：") < text.index("原文"),
+            "opening a mail shows the points first, then the original",
+        )
         shot(page, out, "16-ai-summaries")
+        collapsed.click()
+        mail.get_by_text("（测试摘要）The Weekly").wait_for()  # title cut to 20 chars
+        check(True, "expanding shows the collapsed newsletter")
 
         open_view(page, "今日")
         actions = page.get_by_test_id("today-mail-actions")
-        actions.get_by_text("CIS 22A Lab 5 截止提醒", exact=True).wait_for()
-        check(True, "需要处理的邮件 lists the Canvas mail")
+        actions.get_by_text("（测试摘要）CIS 22A Lab 5").first.wait_for()
+        check(True, "需要处理的邮件 lists the Canvas mail by its AI title")
         check(
-            page.get_by_test_id("today-mail").get_by_text("（测试摘要）The Weekly Digest").count()
-            == 1,
-            "今日 mail entries carry their summary",
+            "另有 1 封没有价值的未读邮件已收起"
+            in page.get_by_test_id("today-low-value").inner_text(),
+            "今日 collapses the newsletter",
         )
         check(model_key not in page.content(), "the key is nowhere on 今日 either")
         shot(page, out, "17-today-ai")

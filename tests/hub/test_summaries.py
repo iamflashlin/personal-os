@@ -135,7 +135,7 @@ def test_each_mail_is_summarised_once(engine, store) -> None:
     rows = summaries(engine)
     assert {rows[a].status, rows[b].status} == {"ok"}
     assert rows[a].action_needed and "CIS 22A Lab 5" in rows[a].gist
-    assert rows[a].model_call_id and rows[a].prompt_version == 1
+    assert rows[a].model_call_id and rows[a].prompt_version == 2
     assert len(fake.calls) == 2
     assert run(engine, store, fake) is False
     assert len(fake.calls) == 2  # nothing new
@@ -437,3 +437,64 @@ def test_a_mail_cannot_close_the_email_block(engine, store) -> None:
     assert request.user.count("<email>") == 1
     assert request.user.count("</email>") == 1
     assert "[email-tag]" in request.user
+
+
+def test_v2_output_is_stored_and_trimmed(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "Lab 5", "周五截止，请提交。")
+
+    class Wordy(FakeProvider):
+        def complete_json(self, request: JsonRequest, api_key: str) -> JsonReply:
+            reply = super().complete_json(request, api_key)
+            import json
+
+            data = json.loads(reply.text)
+            data["title"] = "一" * 30
+            data["points"] = ["很长的一行" * 20] + [f"第{n}条" for n in range(7)]
+            data["importance"] = "high"
+            return JsonReply(json.dumps(data, ensure_ascii=False), reply.usage, "stop", "x")
+
+    run(engine, store, Wordy())
+    row = summaries(engine)[a]
+    assert row.gist == "一" * 20
+    assert len(row.points) == 5 and len(row.points[0]) == 40
+    assert row.importance == "high" and row.low_value is False
+
+
+def test_newsletters_are_marked_low_value(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "The Weekly Digest", "Campus news this week.")
+    run(engine, store, FakeProvider())
+    row = summaries(engine)[a]
+    assert row.low_value is True and row.points == []
+
+
+def test_a_v1_summary_is_redone_once_with_v2(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "Lab 5", "周五截止。")
+    fake = FakeProvider()
+    run(engine, store, fake)
+    with Session(engine) as session:  # pretend it was made by prompt v1
+        row = session.scalars(select(EmailSummaryRow).where(EmailSummaryRow.item_id == a)).one()
+        row.prompt_version = 1
+        row.points = []
+        session.commit()
+    run(engine, store, fake)
+    assert len(fake.calls) == 2
+    assert summaries(engine)[a].prompt_version == 2
+    run(engine, store, fake)
+    assert len(fake.calls) == 2  # never again
+
+
+def test_without_a_key_old_summaries_stay_visible(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "Lab 5", "周五截止。")
+    run(engine, store, FakeProvider())
+    with Session(engine) as session:
+        row = session.scalars(select(EmailSummaryRow).where(EmailSummaryRow.item_id == a)).one()
+        row.prompt_version = 1
+        session.commit()
+    no_key = credentials.MemorySecretStore()
+    run(engine, no_key, FakeProvider())
+    row = summaries(engine)[a]
+    assert (row.status, row.prompt_version) == ("ok", 1)  # kept until a model can redo it

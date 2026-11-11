@@ -54,7 +54,7 @@ RUN_DEADLINE_S = 150.0
 MAX_ATTEMPTS = 3
 RETRY_BASE = timedelta(minutes=5)
 MAX_OUTPUT_TOKENS = 600
-PROMPT_NAME, PROMPT_VERSION = "email_summary", 1
+PROMPT_NAME, PROMPT_VERSION = "email_summary", 2
 EMAIL = "email_message"
 UNREADABLE_TITLE = "（无法解析的邮件）"
 MAX_ITEM_IDS = 200
@@ -109,6 +109,8 @@ def _read(row: EmailSummaryRow) -> EmailSummary:
         item_id=row.item_id,
         status=SummaryStatus(row.status),
         gist=row.gist,
+        points=list(row.points or []),
+        low_value=row.low_value,
         action_needed=row.action_needed,
         action=row.action,
         deadline_text=row.deadline_text,
@@ -140,6 +142,8 @@ def _reset(row: EmailSummaryRow, digest: str) -> None:
     row.item_hash = digest
     row.status = SummaryStatus.pending.value
     row.gist = row.action = row.deadline_text = row.error = row.model = ""
+    row.points = []
+    row.low_value = False
     row.action_needed = False
     row.deadline_date = None
     row.importance = Importance.normal.value
@@ -196,6 +200,37 @@ def prepare(session: Session, actor: Actor, now: datetime) -> dict[str, SyncedIt
     return items
 
 
+def _redo_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) -> int:
+    """Reset summaries from an older prompt so they are redone. Only called once a model
+    client is open: without a key or budget, the old summary stays visible."""
+    rows = session.scalars(
+        select(EmailSummaryRow).where(
+            EmailSummaryRow.owner_id == actor.owner_id,
+            EmailSummaryRow.item_id.in_(list(items)),
+            EmailSummaryRow.status == SummaryStatus.ok.value,
+            EmailSummaryRow.prompt_version < PROMPT_VERSION,
+        )
+    ).all()
+    for row in rows:
+        _reset(row, row.item_hash)
+    session.commit()
+    return len(rows)
+
+
+def _has_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) -> bool:
+    return (
+        session.scalar(
+            select(func.count(EmailSummaryRow.id)).where(
+                EmailSummaryRow.owner_id == actor.owner_id,
+                EmailSummaryRow.item_id.in_(list(items)),
+                EmailSummaryRow.status == SummaryStatus.ok.value,
+                EmailSummaryRow.prompt_version < PROMPT_VERSION,
+            )
+        )
+        or 0
+    ) > 0
+
+
 def _due(session: Session, actor: Actor, items: dict[str, SyncedItem], now: datetime) -> list[str]:
     rows = session.scalars(
         select(EmailSummaryRow).where(
@@ -227,7 +262,8 @@ def run(
     with Session(engine) as session:
         items = prepare(session, actor, now)
         due = _due(session, actor, items, now)
-    if not due:
+        outdated = _has_outdated(session, actor, items)
+    if not due and not outdated:
         return False
     try:
         client = models.open_client(engine, actor, store, provider, model, budget, tick)
@@ -235,6 +271,10 @@ def run(
         if exc.reason != "no_key":  # e.g. an unpriced model: a configuration mistake
             logger.warning("email summaries cannot run: %s", exc.reason)
         return False  # mail stays pending, nothing burnt
+    if outdated:
+        with Session(engine) as session:
+            _redo_outdated(session, actor, items)
+            due = _due(session, actor, items, now)
     started = time.monotonic()
     handled = 0
     for summary_id in due[:PER_RUN]:
@@ -269,7 +309,9 @@ def run(
             if row is None:  # the mail was deleted during the call
                 continue
             row.status = SummaryStatus.ok.value
-            row.gist = out.gist
+            row.gist = out.title
+            row.points = out.points
+            row.low_value = out.low_value
             row.action_needed = out.action_needed
             row.action = out.action if out.action_needed else ""
             row.deadline_text = out.deadline_text
