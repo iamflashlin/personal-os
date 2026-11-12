@@ -3,7 +3,7 @@ import { ChatBox } from "./ChatBox";
 import { type Api, ApiError, type EmailSummary, type SyncedItem } from "./api";
 import { SUMMARY_LABEL } from "./Summary";
 
-const MAIL_LIMIT = 100;
+const MAIL_LIMIT = 1000; // every mail (the Hub's max per request); was 100 before history
 const MAX_SUMMARY_IDS = 200; // the Hub's cap per request (summaries/api.py)
 /** Summaries from older prompts hold long sentences, not short titles. */
 export const TITLE_PROMPT_VERSION = 2;
@@ -20,6 +20,45 @@ const IMPORTANCE: Record<EmailSummary["importance"], { text: string; className: 
   normal: { text: "", className: "" },
   low: { text: "次要", className: "badge" },
 };
+
+export type MailFilter = "all" | "unread" | "action";
+
+export const FILTERS: { key: MailFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "unread", label: "未读" },
+  { key: "action", label: "需处理" },
+];
+
+function isUnread(row: MailRow): boolean {
+  return !(row.item.data as { seen?: boolean }).seen;
+}
+
+function needsAction(row: MailRow): boolean {
+  const s = row.summary;
+  return !!s && s.status === "ok" && s.action_needed && !s.low_value;
+}
+
+/** The rows a filter shows, still newest first. */
+export function filterMail(rows: MailRow[], filter: MailFilter): MailRow[] {
+  if (filter === "unread") return rows.filter(isUnread);
+  if (filter === "action") return rows.filter(needsAction);
+  return rows;
+}
+
+export function countMail(rows: MailRow[]): Record<MailFilter, number> {
+  return {
+    all: rows.length,
+    unread: rows.filter(isUnread).length,
+    action: rows.filter(needsAction).length,
+  };
+}
+
+/** Summaries for every row, asked for in chunks of the Hub's per-request cap. */
+async function summariesFor(api: Api, ids: string[]): Promise<EmailSummary[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += MAX_SUMMARY_IDS) chunks.push(ids.slice(i, i + MAX_SUMMARY_IDS));
+  return (await Promise.all(chunks.map((c) => api.emailSummaries(c)))).flat();
+}
 
 /** What the list shows as the line: the AI title when there is one, else the subject. */
 export function mailTitle(row: MailRow): string {
@@ -110,6 +149,7 @@ export function MailLine({ row, initiallyOpen = false }: { row: MailRow; initial
 
 export function MailView({ api }: { api: Api }) {
   const [rows, setRows] = useState<MailRow[] | null>(null);
+  const [filter, setFilter] = useState<MailFilter>("all");
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
 
@@ -126,9 +166,10 @@ export function MailView({ api }: { api: Api }) {
       ).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
       found.sort((a, b) => (b.item.starts_at ?? "").localeCompare(a.item.starts_at ?? ""));
       // Newest first, so the cap keeps the mail on top of the list.
-      const summaries = await api
-        .emailSummaries(found.slice(0, MAX_SUMMARY_IDS).map((r) => r.item.id))
-        .catch(() => null);
+      const summaries = await summariesFor(
+        api,
+        found.map((r) => r.item.id),
+      ).catch(() => null);
       if (ticket !== latest.current) return;
       setRows((previous) => {
         const known = summaries
@@ -157,16 +198,36 @@ export function MailView({ api }: { api: Api }) {
   if (rows === null) return alert || <p>加载中…</p>;
   if (rows.length === 0) return <p className="muted">还没有邮件。在“连接”页接入邮箱后，这里会列出整理好的邮件。</p>;
 
+  const counts = countMail(rows);
+  const shown = filterMail(rows, filter);
   // All mail in time order, newest first; low-value mail is only marked 次要 (the user,
   // 2026-11-11: "不要把那些无用的折叠起来，就跟正常的邮件按时间顺序放好").
   return (
     <section data-testid="mail-view">
       {alert}
       <ChatBox api={api} />
-      <h2>邮件（最新 {MAIL_LIMIT} 封）</h2>
+      <h2>
+        邮件（共 {counts.all} 封，未读 {counts.unread} 封）
+      </h2>
+      <div className="mail-filters" role="tablist">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            role="tab"
+            aria-selected={filter === f.key}
+            className={filter === f.key ? "active" : ""}
+            data-testid={`mail-filter-${f.key}`}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label} {counts[f.key]}
+          </button>
+        ))}
+      </div>
       <p className="muted">每行是 AI 写的一句话：什么事、什么时候截止。点开先看要点，再看原文。</p>
+      {shown.length === 0 && <p className="muted">这里没有邮件。</p>}
       <ul className="memories">
-        {rows.map((r) => (
+        {shown.map((r) => (
           <MailLine key={r.item.id} row={r} />
         ))}
       </ul>

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EmailSummary, SyncedItem } from "./api";
-import { MailDetail, MailLine, type MailRow, mailTitle } from "./MailView";
+import { countMail, filterMail, MailDetail, MailLine, type MailRow, mailTitle } from "./MailView";
 
 function item(id: string, title: string, body = "原文内容"): SyncedItem {
   return {
@@ -106,5 +106,19 @@ describe("邮件 page", () => {
   it("never shows an older prompt's long sentence as the title", () => {
     const old = summary({ gist: "这是一封很长很长的旧版本摘要句子，超过二十个字的那种", prompt_version: 1 });
     expect(mailTitle({ item: item("a", "Lab 5"), source: "163", summary: old })).toBe("Lab 5");
+  });
+
+  it("filters all, unread and needs-action, newest first kept", () => {
+    const read = (id: string) => ({ ...item(id, id), data: { seen: true } });
+    const rows: MailRow[] = [
+      { item: item("a", "A"), source: "163", summary: summary({ action_needed: true }) },
+      { item: read("b"), source: "163", summary: summary({ action_needed: true }) },
+      { item: item("c", "C"), source: "163", summary: summary({ action_needed: true, low_value: true }) },
+      { item: read("d"), source: "163" },
+    ];
+    expect(filterMail(rows, "all").map((r) => r.item.id)).toEqual(["a", "b", "c", "d"]);
+    expect(filterMail(rows, "unread").map((r) => r.item.id)).toEqual(["a", "c"]);
+    expect(filterMail(rows, "action").map((r) => r.item.id)).toEqual(["a", "b"]);
+    expect(countMail(rows)).toEqual({ all: 4, unread: 2, action: 2 });
   });
 });

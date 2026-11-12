@@ -408,7 +408,7 @@ def verify_email_view(
         mail = page.get_by_test_id("mail-view")
         mail.get_by_text("作业提醒 Lab 3 明天截止").wait_for(timeout=40_000)
         check(True, "the mail shows on the 邮件 page")
-        check(mail.get_by_text("未读").count() == 1, "unread mail is marked 未读")
+        check(mail.locator(".badge.unread").count() == 1, "unread mail is marked 未读")
         check(code not in page.content(), "the code is nowhere in the page")
         shot(page, out, "13-email")
         open_view(page, "今日")
@@ -522,6 +522,19 @@ def verify_summaries_view(
             news is not None and lab_at is not None and news < lab_at,
             f"mail is in time order, newest first ({lines})",
         )
+        check(
+            "共 3 封，未读 3 封" in mail.locator("h2").first.inner_text(),
+            "the heading counts every mail and the unread ones",
+        )
+        mail.get_by_test_id("mail-filter-action").click()
+        acting = mail.get_by_test_id("mail-title").all_inner_texts()
+        check(
+            len(acting) == 1 and "CIS 22A" in acting[0],
+            f"需处理 shows only the mail that needs action ({acting})",
+        )
+        mail.get_by_test_id("mail-filter-unread").click()
+        check(mail.get_by_test_id("mail-line").count() == 3, "未读 shows the three unread mails")
+        mail.get_by_test_id("mail-filter-all").click()
         lab.locator(".mail-head").click()
         detail = lab.get_by_test_id("mail-detail")
         text = detail.inner_text()
