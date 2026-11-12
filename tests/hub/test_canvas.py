@@ -504,6 +504,7 @@ def test_courses_groups_scores_and_materials_are_read(canvas: FakeCanvas) -> Non
     canvas.mode = "hidden-modules"
     batch = CanvasConnector().fetch(TOKEN, {}, {"base_url": canvas.base})
     by_type: dict[str, list[Any]] = {}
+    assert batch.items is not None
     for item in batch.items:
         by_type.setdefault(item.item_type, []).append(item)
     course = next(c for c in by_type["canvas_course"] if c.external_id == "101")

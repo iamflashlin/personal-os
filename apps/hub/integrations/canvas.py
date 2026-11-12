@@ -302,7 +302,7 @@ class CanvasConnector:
         for course in courses:
             course["_base"] = base
             try:
-                groups = [
+                groups: list[Mapping[str, Any]] = [
                     g
                     for g in client.pages(
                         f"/api/v1/courses/{course['id']}/assignment_groups", {"per_page": 100}
