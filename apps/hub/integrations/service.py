@@ -204,6 +204,9 @@ class ItemHead:
     changed: datetime
     subject: str
     sender: str  # "Name <address>"
+    seen: bool = False
+    from_name: str = ""
+    from_address: str = ""
 
 
 def item_heads(session: Session, actor: Actor, item_type: str) -> list[ItemHead]:
@@ -227,8 +230,24 @@ def item_heads(session: Session, actor: Actor, item_type: str) -> list[ItemHead]
         data = data or {}
         name, address = str(data.get("from_name") or ""), str(data.get("from_address") or "")
         sender = f"{name} <{address}>" if name and address else (name or address)
-        heads.append(ItemHead(id_, starts_at, updated_at, title or "", sender))
+        seen = bool(data.get("seen"))
+        heads.append(ItemHead(id_, starts_at, updated_at, title or "", sender, seen, name, address))
     return heads
+
+
+def course_codes(session: Session, actor: Actor) -> list[str]:
+    """The distinct Canvas course codes of this owner's synced items."""
+    query = (
+        select(SyncedItemRow.data)
+        .join(IntegrationRow, IntegrationRow.id == SyncedItemRow.integration_id)
+        .where(
+            IntegrationRow.owner_id == actor.owner_id,
+            SyncedItemRow.owner_id == actor.owner_id,
+            IntegrationRow.kind == "canvas",
+        )
+    )
+    codes = {str((d or {}).get("course_code") or "") for d in session.scalars(query)}
+    return sorted(c for c in codes if c)
 
 
 def items_by_id(session: Session, actor: Actor, ids: list[str]) -> dict[str, SyncedItem]:

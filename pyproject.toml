@@ -59,7 +59,7 @@ name = "hub layering: entry points > modules > core"
 type = "layers"
 layers = [
     "apps.hub.__main__ : apps.hub.main : apps.hub.migrations",
-    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.briefing : apps.hub.chat : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.integrations : apps.hub.jobs : apps.hub.memory : apps.hub.models : apps.hub.summaries : apps.hub.system : apps.hub.tasks",
+    "apps.hub.actions : apps.hub.audit : apps.hub.backup : apps.hub.briefing : apps.hub.chat : apps.hub.credentials : apps.hub.devices : apps.hub.evidence : apps.hub.integrations : apps.hub.jobs : apps.hub.memory : apps.hub.models : apps.hub.summaries : apps.hub.system : apps.hub.tasks : apps.hub.triage",
     "apps.hub.core",
 ]
 
@@ -82,6 +82,7 @@ modules = [
     "apps.hub.summaries",
     "apps.hub.system",
     "apps.hub.tasks",
+    "apps.hub.triage",
 ]
 ignore_imports = ["apps.hub.** -> apps.hub.*.service"]
 unmatched_ignore_imports_alerting = "none"

@@ -34,6 +34,7 @@ from apps.hub.summaries import api as summaries_api
 from apps.hub.summaries import service as summaries
 from apps.hub.system import service as system
 from apps.hub.tasks import api as tasks_api
+from apps.hub.triage import api as triage_api
 from packages.contracts.health import HealthResponse
 from packages.contracts.jobs import Job
 
@@ -181,6 +182,7 @@ def create_app(
     app.include_router(models_api.build_router())
     app.include_router(summaries_api.build_router())
     app.include_router(chat_api.build_router())
+    app.include_router(triage_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
         # method on an API path therefore falls through to here and gets 404, not 405.
