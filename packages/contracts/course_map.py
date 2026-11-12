@@ -73,7 +73,7 @@ class ExamIn(BaseModel):
     @field_validator("match")
     @classmethod
     def _pattern(cls, v: str) -> str:
-        return check_pattern(v)
+        return check_pattern(" ".join(v.split()))  # matched with single spaces, like titles
 
 
 class MapIn(BaseModel):

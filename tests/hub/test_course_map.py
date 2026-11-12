@@ -393,3 +393,18 @@ def test_title_patterns_are_checked(hub) -> None:
             "/academic/maps/ECON C2002", json={"course_code": "ECON C2002", "concepts": [bad]}
         )
         assert r.status_code == 422, bad
+
+
+def test_a_map_holds_at_most_200_title_patterns(hub) -> None:
+    client, _ = hub
+
+    def put(sections: int) -> int:
+        concepts = [
+            {"key": f"s{i}", "kind": "section", "title": "x", "match": ["a"] * 8}
+            for i in range(sections)
+        ]
+        body = {"course_code": "ECON C2002", "concepts": concepts}
+        return client.put("/academic/maps/ECON C2002", json=body).status_code
+
+    assert put(25) == 200  # 200 patterns
+    assert put(26) == 422  # 208
