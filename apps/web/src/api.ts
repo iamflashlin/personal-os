@@ -213,6 +213,30 @@ export interface NewEmail {
 /** The credential name the Hub's model layer reads (apps/hub/models/service.py). */
 export const MODEL_KEY = "deepseek";
 
+/** Questions about mail (POST /chat/ask, ADR 0033). The browser keeps the conversation. */
+export interface ChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface ChatAsk {
+  question: string;
+  history: ChatTurn[];
+  time_zone: string;
+}
+
+export interface CitedMail {
+  item: SyncedItem;
+  summary: EmailSummary;
+}
+
+export interface ChatAnswer {
+  answer: string;
+  cited: CitedMail[];
+  considered: number;
+  unsummarised: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -384,6 +408,8 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
             `/summaries/email?${new URLSearchParams({ item_ids: itemIds.slice(0, 200).join(",") })}`,
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
+    askMail: (ask: ChatAsk) =>
+      call<ChatAnswer>("/chat/ask", { method: "POST", body: JSON.stringify(ask) }),
     /** Sent once to the credential store (ADR 0025); the Hub never returns it. */
     setModelKey: (secret: string) =>
       call<unknown>(`/credentials/${MODEL_KEY}`, {
