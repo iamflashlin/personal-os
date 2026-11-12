@@ -286,6 +286,7 @@ def ask(
     messages.append({"role": "user", "content": request.question})
     client = models.open_client(engine, actor, store, provider, model, budget, lambda: now)
     answer = ""
+    nudged = False
     for step in range(MAX_STEPS):
         last = step == MAX_STEPS - 1
         reply = client.call_tools(
@@ -298,6 +299,13 @@ def ask(
         )
         if not reply.tool_calls:
             answer = reply.content.strip()
+            if _promised_a_proposal(answer) and run.proposal is None and not nudged and not last:
+                # It told the user to confirm but made no proposal, so there is no button:
+                # ask it once to make the proposal (live on 2026-11-12).
+                nudged = True
+                messages.append({"role": "assistant", "content": reply.content})
+                messages.append({"role": "user", "content": NUDGE})
+                continue
             break
         messages.append(
             {
@@ -350,6 +358,17 @@ def _answer(run: _Run, text: str, unsummarised: int) -> ChatAnswer:
         unsummarised=unsummarised,
         proposal=proposal,
     )
+
+
+NUDGE = (
+    "（系统提示）你说了“点确认后执行”，但没有调用 propose_mark_handled，所以用户看不到确认按钮。"
+    "请现在调用 propose_mark_handled，refs 用你刚才找到的那些邮件。"
+)
+_PROMISE = re.compile(r"确认后执行|点确认|点击确认|请确认")
+
+
+def _promised_a_proposal(text: str) -> bool:
+    return bool(_PROMISE.search(text))
 
 
 _REF = re.compile(r"(?<![A-Za-z0-9])m\d+(?![0-9])")
