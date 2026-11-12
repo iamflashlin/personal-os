@@ -9,6 +9,7 @@ import {
   type NewFeed,
   type SyncedItem,
 } from "./api";
+import { DataKindsOverview } from "./DataKinds";
 import { AiCard } from "./Summary";
 
 const STATUS: Record<IntegrationStatus, string> = {
@@ -262,6 +263,7 @@ export function ConnectionsView({ api }: { api: Api }) {
           {actionError}
         </p>
       )}
+      {integrations && <DataKindsOverview integrations={integrations} />}
       <NewFeedForm
         onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
       />
