@@ -5,6 +5,7 @@ Alembic autogenerate and the model/migration drift test only see tables imported
 
 from typing import Any
 
+import apps.hub.academic.models
 import apps.hub.actions.models
 import apps.hub.audit.models
 import apps.hub.credentials.models

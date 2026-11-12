@@ -548,8 +548,171 @@
         "title": "Completion",
         "type": "object"
       },
+      "CourseProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/GradeCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "code": {
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Code",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "open_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/CourseRule"
+            },
+            "maxItems": 40,
+            "title": "Rules",
+            "type": "array"
+          },
+          "scale": {
+            "items": {
+              "$ref": "#/components/schemas/GradeBand"
+            },
+            "title": "Scale",
+            "type": "array"
+          },
+          "scale_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Scale Source",
+            "type": "string"
+          },
+          "syllabus_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Syllabus Source",
+            "type": "string"
+          },
+          "term": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Term",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          },
+          "units_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Units Source",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "id",
+          "confirmed_at",
+          "origin",
+          "updated_at",
+          "version"
+        ],
+        "title": "CourseProfile",
+        "type": "object"
+      },
+      "CourseRule": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "late",
+              "makeup",
+              "exam",
+              "gate",
+              "integrity",
+              "grading",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "CourseRule",
+        "type": "object"
+      },
       "CourseView": {
         "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
@@ -594,6 +757,14 @@
             "title": "Integration Item Id",
             "type": "string"
           },
+          "letter": {
+            "title": "Letter",
+            "type": "string"
+          },
+          "letter_source": {
+            "title": "Letter Source",
+            "type": "string"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/GradeLine"
@@ -619,12 +790,52 @@
             "title": "Name",
             "type": "string"
           },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "profile_confirmed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Confirmed"
+          },
           "recent": {
             "items": {
               "$ref": "#/components/schemas/WorkItem"
             },
             "title": "Recent",
             "type": "array"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
           },
           "upcoming": {
             "items": {
@@ -649,6 +860,13 @@
           "url",
           "current_score",
           "current_grade",
+          "percent",
+          "basis",
+          "letter",
+          "letter_source",
+          "units",
+          "profile_confirmed",
+          "notes",
           "grade_points",
           "weighted",
           "groups",
@@ -1585,15 +1803,83 @@
           "gpa_note": {
             "title": "Gpa Note",
             "type": "string"
+          },
+          "gpa_weighted": {
+            "title": "Gpa Weighted",
+            "type": "boolean"
+          },
+          "units_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units Total"
           }
         },
         "required": [
           "courses",
           "gpa",
+          "gpa_weighted",
+          "units_total",
           "gpa_note",
           "generated_at"
         ],
         "title": "GpaView",
+        "type": "object"
+      },
+      "GradeBand": {
+        "additionalProperties": false,
+        "properties": {
+          "letter": {
+            "title": "Letter",
+            "type": "string"
+          },
+          "min": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Min",
+            "type": "number"
+          }
+        },
+        "required": [
+          "letter",
+          "min"
+        ],
+        "title": "GradeBand",
+        "type": "object"
+      },
+      "GradeCategory": {
+        "additionalProperties": false,
+        "description": "One graded category of the syllabus. `match` picks its Canvas assignments by title\n(a case-insensitive regular expression); empty means the Canvas group of the same name.",
+        "properties": {
+          "match": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Match",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "weight": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight"
+        ],
+        "title": "GradeCategory",
         "type": "object"
       },
       "GradeLine": {
@@ -2713,6 +2999,133 @@
           "expires_at"
         ],
         "title": "PairingCode",
+        "type": "object"
+      },
+      "ProfileConfirm": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ProfileConfirm",
+        "type": "object"
+      },
+      "ProfileFields": {
+        "additionalProperties": false,
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/GradeCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "code": {
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Code",
+            "type": "string"
+          },
+          "open_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/CourseRule"
+            },
+            "maxItems": 40,
+            "title": "Rules",
+            "type": "array"
+          },
+          "scale": {
+            "items": {
+              "$ref": "#/components/schemas/GradeBand"
+            },
+            "title": "Scale",
+            "type": "array"
+          },
+          "scale_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Scale Source",
+            "type": "string"
+          },
+          "syllabus_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Syllabus Source",
+            "type": "string"
+          },
+          "term": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Term",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          },
+          "units_source": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Units Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ProfileFields",
+        "type": "object"
+      },
+      "ProfileWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "$ref": "#/components/schemas/ProfileFields"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "ProfileWrite",
         "type": "object"
       },
       "Project": {
@@ -4597,6 +5010,175 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/academic/profiles": {
+      "get": {
+        "operationId": "list_course_profiles_academic_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CourseProfile"
+                  },
+                  "title": "Response List Course Profiles Academic Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Course Profiles",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
+    "/academic/profiles/{code}": {
+      "get": {
+        "operationId": "get_course_profile_academic_profiles__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Course Profile",
+        "tags": [
+          "academic"
+        ]
+      },
+      "put": {
+        "operationId": "put_course_profile_academic_profiles__code__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Course Profile",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
+    "/academic/profiles/{code}/confirm": {
+      "post": {
+        "operationId": "confirm_course_profile_academic_profiles__code__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Course Profile",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
     "/actions": {
       "get": {
         "operationId": "list_actions_actions_get",

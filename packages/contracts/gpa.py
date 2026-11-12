@@ -55,7 +55,15 @@ class CourseView(BaseModel):
     name: str
     url: str
     current_score: float | None  # Canvas's: graded work only
-    current_grade: str
+    current_grade: str  # Canvas's letter, which may use a different scale
+    # The engine's own (ADR 0040): from the course profile when there is one.
+    percent: float | None  # course percent so far (graded work, missing work counted as 0)
+    basis: str  # syllabus (own weights) | canvas (Canvas's score) | none
+    letter: str  # on the syllabus scale; Canvas's letter when there is no profile
+    letter_source: str  # syllabus | canvas | ""
+    units: float | None
+    profile_confirmed: bool | None  # None: no profile for this course yet
+    notes: list[str]  # disagreements and gaps, e.g. Canvas's letter differs
     grade_points: float | None
     weighted: bool
     groups: list[GroupStatus]
@@ -69,6 +77,8 @@ class CourseView(BaseModel):
 
 class GpaView(BaseModel):
     courses: list[CourseView]
-    gpa: float | None  # average grade points, every course counted equally
+    gpa: float | None  # weighted by units when every course has them, else equal weights
+    gpa_weighted: bool
+    units_total: float | None
     gpa_note: str
     generated_at: datetime

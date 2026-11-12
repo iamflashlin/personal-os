@@ -11,6 +11,13 @@ const course: CourseGpa = {
   url: "",
   current_score: 96.1,
   current_grade: "A",
+  percent: 96.1,
+  basis: "canvas",
+  letter: "A",
+  letter_source: "canvas",
+  units: null,
+  profile_confirmed: null,
+  notes: [],
   grade_points: 4,
   weighted: true,
   groups: [],
@@ -43,5 +50,23 @@ describe("GpaView", () => {
     await api.gpa();
     expect(paths).toEqual(["/gpa"]);
     expect(renderToStaticMarkup(createElement(GpaView, { api }))).toContain("加载中");
+  });
+});
+
+describe("course profiles", () => {
+  it("lists profiles and confirms one by code and version", async () => {
+    const calls: { path: string; method?: string; body?: unknown }[] = [];
+    const api = createApi(async (path, init) => {
+      calls.push({ path, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    await api.profiles();
+    await api.confirmProfile("CIS D022A", 3);
+    expect(calls[0].path).toBe("/academic/profiles");
+    expect(calls[1]).toEqual({
+      path: "/academic/profiles/CIS%20D022A/confirm",
+      method: "POST",
+      body: { version: 3 },
+    });
   });
 });

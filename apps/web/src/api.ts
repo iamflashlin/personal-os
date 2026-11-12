@@ -332,6 +332,13 @@ export interface CourseGpa {
   url: string;
   current_score: number | null;
   current_grade: string;
+  percent: number | null;
+  basis: "syllabus" | "canvas" | "none";
+  letter: string;
+  letter_source: "syllabus" | "canvas" | "";
+  units: number | null;
+  profile_confirmed: boolean | null;
+  notes: string[];
   grade_points: number | null;
   weighted: boolean;
   groups: GroupStatus[];
@@ -346,8 +353,36 @@ export interface CourseGpa {
 export interface GpaView {
   courses: CourseGpa[];
   gpa: number | null;
+  gpa_weighted: boolean;
+  units_total: number | null;
   gpa_note: string;
   generated_at: string;
+}
+
+/** A course's syllabus rules (ADR 0040). */
+export interface CourseRule {
+  kind: "late" | "makeup" | "exam" | "gate" | "integrity" | "grading" | "other";
+  text: string;
+  source: string;
+}
+
+export interface CourseProfile {
+  id: string;
+  code: string;
+  title: string;
+  term: string;
+  units: number | null;
+  units_source: string;
+  scale: { letter: string; min: number }[];
+  scale_source: string;
+  categories: { name: string; weight: number; match: string }[];
+  rules: CourseRule[];
+  open_questions: string[];
+  syllabus_source: string;
+  confirmed_at: string | null;
+  origin: string;
+  updated_at: string;
+  version: number;
 }
 
 /** The schedule (ADR 0038). */
@@ -603,6 +638,12 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
     gpa: () => call<GpaView>("/gpa"),
+    profiles: () => call<CourseProfile[]>("/academic/profiles"),
+    confirmProfile: (code: string, version: number) =>
+      call<CourseProfile>(`/academic/profiles/${encodeURIComponent(code)}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
     digest: (view: "today" | "history", timeZone: string, unreadOnly = false, channel = "") =>
       call<DigestView>(
         `/digest?${new URLSearchParams({

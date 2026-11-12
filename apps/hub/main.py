@@ -11,6 +11,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from apps.hub.academic import api as academic_api
 from apps.hub.actions import api as actions_api
 from apps.hub.actions import service as actions
 from apps.hub.briefing import api as briefing_api
@@ -186,6 +187,7 @@ def create_app(
     app.include_router(summaries_api.build_router())
     app.include_router(chat_api.build_router())
     app.include_router(digest_api.build_router())
+    app.include_router(academic_api.build_router())
     app.include_router(gpa_api.build_router())
     app.include_router(schedule_api.build_router())
     app.include_router(triage_api.build_router())
