@@ -9,7 +9,9 @@ the assistant added (such as a prerequisite it inferred) says so (`origin`).
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from packages.contracts.academic import check_pattern
 
 ConceptKind = Literal["chapter", "section", "concept"]
 Origin = Literal["teacher", "ai"]  # ai: added by the assistant, never the teacher's words
@@ -44,8 +46,15 @@ class ExamIn(BaseModel):
     at: AwareDatetime | None = None
     scope: list[str] = Field(min_length=1, max_length=80)  # chapter or section keys
     scope_source: str = Field(default="", max_length=400)
-    match: str = Field(default="", max_length=120)  # the Canvas title (title_pattern)
+    # The exam's own Canvas title (title_pattern). Required: without it the exam would be
+    # counted as practice for the sections its title names.
+    match: str = Field(min_length=1, max_length=120)
     review: str = Field(default="", max_length=200)  # the review sheet's file name
+
+    @field_validator("match")
+    @classmethod
+    def _pattern(cls, v: str) -> str:
+        return check_pattern(v)
 
 
 class MapIn(BaseModel):
@@ -72,14 +81,18 @@ class MapIn(BaseModel):
             for p in c.prereq:
                 if p not in known:
                     raise ValueError(f"{c.key}: unknown prerequisite {p}")
+        kinds = {c.key: c.kind for c in self.concepts}
+        names = [e.name for e in self.exams]
+        if len(set(names)) != len(names):
+            raise ValueError("an exam name appears twice")
         for e in self.exams:
             for s in e.scope:
-                if s not in known:
-                    raise ValueError(f"{e.name}: unknown scope key {s}")
+                if kinds.get(s) not in ("chapter", "section"):
+                    raise ValueError(f"{e.name}: scope {s} is not a chapter or section")
         return self
 
 
-class Evidence(BaseModel):
+class AssessmentEvidence(BaseModel):
     """A graded Canvas assessment that covers a section."""
 
     title: str
@@ -116,7 +129,7 @@ class ConceptView(BaseModel):
     prereq: list[str]
     prereq_origin: Origin
     origin: Origin
-    assessments: list[Evidence]  # only for sections
+    assessments: list[AssessmentEvidence]  # only for sections
     resources: list[Resource]  # the teacher's per-section items (e.g. "Math1A-Sec3.4")
     mastery: MasteryView | None  # only for sections and concepts
 
@@ -130,7 +143,7 @@ class ExamView(BaseModel):
     review: str
     review_url: str
     resources: list[Resource]  # module items named after the exam (review, solution)
-    grade: Evidence | None  # the exam's own Canvas assignment, once graded
+    grade: AssessmentEvidence | None  # the exam's own Canvas assignment, once it has a score
 
 
 class CourseMap(BaseModel):

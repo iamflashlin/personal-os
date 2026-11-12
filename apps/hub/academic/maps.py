@@ -16,15 +16,15 @@ from sqlalchemy.orm import Session
 
 from apps.hub.academic.models import ConceptMasteryRow, CourseMapRow
 from apps.hub.audit import service as audit
-from apps.hub.core.domain import Actor, Conflict, NotFound
+from apps.hub.core.domain import Actor, Conflict, Invalid, NotFound
 from apps.hub.integrations import service as integrations
 from packages.contracts.academic import TITLE_MAX, canvas_course_code, normal_code, title_pattern
 from packages.contracts.course_map import (
+    AssessmentEvidence,
     CheckItem,
     ConceptIn,
     ConceptView,
     CourseMap,
-    Evidence,
     ExamIn,
     ExamMap,
     ExamView,
@@ -38,7 +38,15 @@ from packages.contracts.integrations import SyncedItem
 _SECTION = re.compile(r"\b(\d{1,2}\.\d{1,2})\b")
 _RANGE = re.compile(r"\b(\d{1,2}\.\d{1,2})\s*(?:to|-|–|through)\s*(\d{1,2}\.\d{1,2})\b", re.I)
 VERIFIED, PRACTICING = 90.0, 70.0  # average percent on linked graded work
+VERIFIED_MIN_ITEMS = 2  # one good quiz is a good sign, not proof
 _ORDER = {"needs_review": 0, "not_tested": 1, "seen": 2, "practicing": 3, "verified": 4}
+MASTERY_ZH = {
+    "not_tested": "未测试",
+    "seen": "已接触",
+    "practicing": "还不稳",
+    "verified": "已掌握",
+    "needs_review": "要复习",
+}
 
 
 def _row(session: Session, actor: Actor, code: str) -> CourseMapRow | None:
@@ -99,20 +107,33 @@ def _num(v: object) -> float | None:
     return float(v) if isinstance(v, int | float) and not isinstance(v, bool) else None
 
 
-def _evidence(a: SyncedItem) -> Evidence:
+def _evidence(a: SyncedItem) -> AssessmentEvidence:
     score, points = _num(a.data.get("score")), _num(a.data.get("points_possible"))
     percent = round(score / points * 100, 1) if score is not None and points else None
-    return Evidence(
+    return AssessmentEvidence(
         title=a.title, score=score, points=points, percent=percent, due=a.starts_at, url=a.url
     )
 
 
+def _num_key(key: str) -> tuple[int, int] | None:
+    parts = key.split(".")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1])
+
+
 def sections_in(title: str, order: list[str]) -> list[str]:
-    """The section keys a title names, ranges expanded in teaching order."""
+    """The section keys a title names. A range takes every section of the map that falls
+    inside it by number, so "3.8 to 3.10" still covers 3.9 and 3.10 when 3.8 is not taught;
+    a reversed range is read the right way round."""
+    title = _spaced(title)
     found: list[str] = []
     for lo, hi in _RANGE.findall(title):
-        if lo in order and hi in order and order.index(lo) <= order.index(hi):
-            found.extend(order[order.index(lo) : order.index(hi) + 1])
+        a, b = _num_key(lo), _num_key(hi)
+        if a is None or b is None:
+            continue
+        a, b = min(a, b), max(a, b)
+        found.extend(k for k in order if (n := _num_key(k)) is not None and a <= n <= b)
     rest = _RANGE.sub(" ", title)  # the single numbers left once the ranges are out
     found.extend(k for k in _SECTION.findall(rest) if k in order)
     return list(dict.fromkeys(found))
@@ -124,7 +145,9 @@ def _user_view(row: ConceptMasteryRow) -> MasteryView:
     )
 
 
-def _mastery(key: str, rows: dict[str, ConceptMasteryRow], evidence: list[Evidence]) -> MasteryView:
+def _mastery(
+    key: str, rows: dict[str, ConceptMasteryRow], evidence: list[AssessmentEvidence]
+) -> MasteryView:
     row = rows.get(key)
     if row is not None:
         return _user_view(row)
@@ -134,8 +157,15 @@ def _mastery(key: str, rows: dict[str, ConceptMasteryRow], evidence: list[Eviden
             state="not_tested", source="none", note="还没有评分的练习", updated_at=None
         )
     avg = sum(scored) / len(scored)
-    state = "verified" if avg >= VERIFIED else "practicing" if avg >= PRACTICING else "needs_review"
+    if avg >= VERIFIED and len(scored) >= VERIFIED_MIN_ITEMS:
+        state = "verified"
+    elif avg >= PRACTICING:
+        state = "practicing"
+    else:
+        state = "needs_review"
     note = f"根据 {len(scored)} 项已评分的练习推断，平均 {avg:.0f}%"
+    if avg >= VERIFIED and len(scored) < VERIFIED_MIN_ITEMS:
+        note += "（只有 1 项，再做一次练习才算已掌握）"
     return MasteryView(state=state, source="quiz", note=note, updated_at=None)
 
 
@@ -170,11 +200,11 @@ def _build(
     assignments = _canvas(session, actor, "canvas_assignment", row.code)
     materials = _canvas(session, actor, "canvas_material", row.code)
     exam_titles = [title_pattern(e.match) for e in exams if e.match]
-    linked: dict[str, list[Evidence]] = {k: [] for k in order}
+    linked: dict[str, list[AssessmentEvidence]] = {k: [] for k in order}
     resources: dict[str, list[Resource]] = {k: [] for k in order}
     for m in materials:
         res = Resource(title=m.title, kind=str(m.data.get("kind") or ""), url=m.url)
-        for key in sections_in(_spaced(m.title), order):
+        for key in sections_in(m.title, order):
             resources[key].append(res)
     for a in assignments:
         title = a.title.strip()[:TITLE_MAX]
@@ -214,17 +244,18 @@ def _build(
     children = {c.parent: [] for c in concepts}
     for c in concepts:
         children.setdefault(c.parent, []).append(c.key)
+    kinds = {c.key: c.kind for c in concepts}
     exam_views = []
     for e in exams:
         scope: list[str] = []
         for k in e.scope:
-            scope.extend(children.get(k, []) if k.startswith("ch") or k not in order else [k])
+            scope.extend(children.get(k, []) if kinds.get(k) == "chapter" else [k])
         scope = [k for k in dict.fromkeys(scope) if k in order]
         grade = None
         if e.match:
             p = title_pattern(e.match)
             graded = [_evidence(a) for a in assignments if p.fullmatch(a.title.strip()[:TITLE_MAX])]
-            grade = next((g for g in graded if g.score is not None), graded[0] if graded else None)
+            grade = next((g for g in graded if g.score is not None), None)
         days = None
         if e.at is not None:
             days = math.ceil((e.at - now).total_seconds() / 86400)
@@ -240,7 +271,9 @@ def _build(
                 resources=[
                     Resource(title=m.title, kind=str(m.data.get("kind") or ""), url=m.url)
                     for m in materials
-                    if _title_key(e.name) in _title_key(m.title)
+                    if re.search(
+                        rf"(?<!\w){re.escape(_title_key(e.name))}(?!\w)", _title_key(m.title)
+                    )
                 ],
                 grade=grade,
             )
@@ -295,12 +328,18 @@ def exam_map(
         m = v.mastery
         if m is None:
             continue
-        if m.state == "needs_review":
+        if m.source == "user":
+            if m.state != "verified":
+                mark = MASTERY_ZH.get(m.state, m.state)
+                why[v.key] = f"你自己标记为“{mark}”" + (f"：{m.note}" if m.note else "")
+        elif m.state == "needs_review":
             why[v.key] = f"练习成绩偏低：{m.note}"
         elif m.state == "not_tested":
             why[v.key] = "还没有评分的练习，不知道掌握得怎样"
         elif m.state == "practicing":
             why[v.key] = f"还不稳：{m.note}"
+        elif m.state == "seen":
+            why[v.key] = "只接触过，还没有练习"
     suggested = [v.key for v in ordered if v.key in why]
     return ExamMap(
         course_code=row.code,
@@ -319,8 +358,11 @@ def set_mastery(
     row = _row(session, actor, code)
     if row is None:
         raise NotFound("这门课还没有知识地图")
-    if key not in {c["key"] for c in row.concepts}:
+    kinds = {c["key"]: c["kind"] for c in row.concepts}
+    if key not in kinds:
         raise NotFound("知识地图里没有这一项")
+    if kinds[key] == "chapter":
+        raise Invalid("掌握情况按节或知识点记，不按章")
     current = session.scalar(
         select(ConceptMasteryRow).where(
             ConceptMasteryRow.owner_id == actor.owner_id,
@@ -338,11 +380,15 @@ def set_mastery(
             session.add(current)
         current.state = new.state
         current.note = new.note
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError:
+            raise Conflict("这一项刚被改过，请再试一次") from None
         view = _user_view(current)
         return audit.Outcome(current.id, view, {"code": row.code, "key": key, "state": new.state})
 
-    return audit.audited(session, actor, "concept_mastery", "set", None, {}, op)
+    entity = current.id if current is not None else None
+    return audit.audited(session, actor, "concept_mastery", "set", entity, {}, op)
 
 
 def clear_mastery(session: Session, actor: Actor, code: str, key: str) -> None:

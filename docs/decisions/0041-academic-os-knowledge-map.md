@@ -21,12 +21,16 @@ reviews are all on Canvas.
 - **Assessments are linked by what their Canvas titles say.**
   - "Quiz #4 (3.2 to 3.4)" and "Sections 3.5 to 3.11, and 4.1" are expanded in teaching
     order. Nothing is guessed from content.
-  - Exams are matched by their own title pattern (as in ADR 0040). They are shown on the
-    exam, not counted as practice.
+  - Exams are matched by their own title pattern (as in ADR 0040, at most three wildcards).
+    The pattern is required, so an exam is shown on the exam and never counted as practice.
+  - A range covers every section of the map that falls inside it by number ("3.8 to 3.10"
+    covers 3.9 and 3.10 when 3.8 is not taught). Exam resources match the exam's name as a
+    whole word ("Exam 1" never matches "Exam 10").
 - **Mastery is evidence-based and honest.**
   - The user's own setting wins.
-  - Otherwise it is inferred from linked graded work: an average of 90% or more is
-    verified, 70% or more is practicing, lower needs review. The basis is shown ("根据 2 项
+  - Otherwise it is inferred from linked graded work: an average of 90% or more over at
+    least two items is verified (one good quiz is a good sign, not proof), 70% or more is
+    practicing, lower needs review. The basis is shown ("根据 2 项
     已评分的练习推断，平均 84%").
   - With no graded work it is "not tested". There is no false precision.
 - **Exam maps.**
@@ -36,9 +40,12 @@ reviews are all on Canvas.
     practicing), each with its reason.
   - The exam's own grade is shown once it is posted, with the course's exam checklist
     ("show your work", "box the answer", "no calculator").
-- **No outside AI.** The assistant built the MATH 1A map on this PC from the teacher's notes
-  and exam reviews, and imported it with `scripts/academic/import_map.py`. The file is kept
-  in `D:\dev-cache`, outside the repo.
+- **The Hub calls no AI API.** The assistant (Claude, a cloud model working on this PC at the
+  user's request) read the teacher's notes and exam reviews and wrote the MATH 1A map. It was
+  imported with `scripts/academic/import_map.py`. The file is kept in `D:\dev-cache`, outside
+  the repo. Nothing was sent to DeepSeek.
+- **Imports replace the map, and the last write wins** (there is no version check). That is
+  fine for an import; the user's mastery is never part of it.
 
 ## Not yet
 - The web pages: 课程 (the map), 考试中心 (exam maps).

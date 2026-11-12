@@ -6,7 +6,6 @@ Canvas's "current" score counts graded work only and is the grade so far. Its "f
 counts every ungraded assignment as 0, so it is not shown as a grade.
 """
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -20,6 +19,7 @@ from packages.contracts.academic import (
     GRADE_POINTS,
     TITLE_MAX,
     CourseProfile,
+    canvas_course_code,
     letter_for,
     title_pattern,
 )
@@ -53,7 +53,6 @@ POINTS = {
 }
 # Estimated grade lines (the course syllabus is the authority).
 LINES = [("A", 90.0), ("B", 80.0), ("C", 70.0)]
-_CODE = re.compile(r"\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b")
 GPA_NOTE = "按每门课同样学分、常见字母分换算估算；学分和各课的分数线以学校和教学大纲为准。"
 GPA_NOTE_UNITS = (  # shown when every graded course has units
     "按各课学分加权；有规则卡的课用大纲的分数线，"
@@ -103,8 +102,7 @@ class _Assignment:
 
 
 def course_code(raw: str) -> str:
-    m = _CODE.search(raw or "")
-    return f"{m.group(1)} {m.group(2)}" if m else ""
+    return canvas_course_code(raw)
 
 
 def _work(a: _Assignment, groups: dict[int, str], now: datetime) -> WorkItem:

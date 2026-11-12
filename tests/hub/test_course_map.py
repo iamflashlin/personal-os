@@ -25,8 +25,8 @@ def hub(tmp_path: Path) -> Iterator[tuple[TestClient, Engine]]:
         yield client, client.app.state.engine  # type: ignore[attr-defined]
 
 
-def course_map(**over: Any) -> dict[str, Any]:
-    sec = lambda key, parent, title, page, prereq=(): {  # noqa: E731
+def sec(key: str, parent: str, title: str, page: int, prereq: tuple[str, ...] = ()) -> dict:
+    return {
         "key": key,
         "kind": "section",
         "parent": parent,
@@ -34,6 +34,9 @@ def course_map(**over: Any) -> dict[str, Any]:
         "page": page,
         "prereq": list(prereq),
     }
+
+
+def course_map(**over: Any) -> dict[str, Any]:
     return {
         "course_code": "MATH D001A",
         "material": "Notes.pdf",
@@ -42,11 +45,11 @@ def course_map(**over: Any) -> dict[str, Any]:
             sec("2.3", "ch2", "Limit laws", 6),
             {"key": "ch3", "kind": "chapter", "title": "Rules"},
             sec("3.1", "ch3", "Power rule", 23),
-            sec("3.3", "ch3", "Trig", 28, ["3.1"]),
-            sec("3.4", "ch3", "Chain rule", 31, ["3.1", "3.3"]),
+            sec("3.3", "ch3", "Trig", 28, ("3.1",)),
+            sec("3.4", "ch3", "Chain rule", 31, ("3.1", "3.3")),
             {"key": "3.4-chain", "kind": "concept", "parent": "3.4", "title": "Chain", "page": 31},
-            sec("3.5", "ch3", "Implicit", 33, ["3.4-chain"]),
-            sec("3.11", "ch3", "Hyperbolic", 47, ["2.3"]),
+            sec("3.5", "ch3", "Implicit", 33, ("3.4-chain",)),
+            sec("3.11", "ch3", "Hyperbolic", 47, ("2.3",)),
         ],
         "exams": [
             {
@@ -54,10 +57,10 @@ def course_map(**over: Any) -> dict[str, Any]:
                 "at": (NOW + timedelta(days=3)).isoformat(),
                 "scope": ["3.3", "3.4", "3.5", "3.11"],
                 "scope_source": "Exam 2 Review: 3.3 to 3.5, 3.11",
-                "match": "[In-person] Exam 2",
+                "match": "[In-person] Exam 2*",
                 "review": "Exam 2 Review.pdf",
             },
-            {"name": "Final", "scope": ["ch2", "ch3"]},
+            {"name": "Final", "scope": ["ch2", "ch3"], "match": "Final*"},
         ],
         "exam_checklist": [{"text": "写出过程", "source": "SHOW YOUR WORK"}],
         **over,
@@ -67,25 +70,21 @@ def course_map(**over: Any) -> dict[str, Any]:
 def seed(engine: Engine) -> None:
     iid = canvas(engine)
     item(engine, iid, "canvas_course", "c", CODE, course_code=CODE, weighted=True, groups=[])
-    item(engine, iid, "canvas_material", "m1", "Notes.pdf", course_code=CODE, kind="File")
-    item(
-        engine, iid, "canvas_material", "m2", "Math1A-Sec3.4", course_code=CODE, kind="ExternalUrl"
-    )
-    item(
-        engine,
-        iid,
-        "canvas_material",
-        "m3",
-        "Math 1A Exam 2 Review Solution",
-        course_code=CODE,
-        kind="ExternalUrl",
-    )
+    for ext, title, kind in [
+        ("m1", "Notes.pdf", "File"),
+        ("m2", "Math1A-Sec3.4", "ExternalUrl"),  # the teacher's per-section link
+        ("m3", "Math 1A Exam 2 Review Solution", "ExternalUrl"),
+        ("m4", "Exam 20 Review", "File"),  # not Exam 2's
+    ]:
+        item(engine, iid, "canvas_material", ext, title, course_code=CODE, kind=kind)
     past = NOW - timedelta(days=5)
     for ext, title, pts, score in [
         ("q1", "[Canvas] Quiz #2 (3.1 to 3.3)", 10, 9.5),  # 95%: 3.1 and 3.3
+        ("q0", "[Canvas] Quiz #3 (3.3)", 10, 10),  # a second item for 3.3: verified
         ("q2", "[Canvas] Quiz #4 (3.4)", 10, 5),  # 50%: 3.4 needs review
-        ("q3", "Homework 3.11", 10, 8),  # 80%: practicing
-        ("e2", "[In-person] Exam 2", 100, None),  # the exam itself, not practice
+        ("q3", "Homework3.11", 10, 8),  # 80%: practicing (number glued to the word)
+        # the exam names 3.3 to 3.5 in its title: it must not count as practice for them
+        ("e2", "[In-person] Exam 2 (3.3 to 3.5)", 100, 40),
     ]:
         item(
             engine,
@@ -97,15 +96,18 @@ def seed(engine: Engine) -> None:
             course_code=CODE,
             points_possible=pts,
             score=score,
-            submission_state="graded" if score else "",
+            submission_state="graded",
         )
 
 
 def test_sections_in_titles() -> None:
-    order = ["2.1", "2.2", "3.1", "3.10", "3.11", "4.1"]
+    order = ["2.1", "2.2", "3.1", "3.9", "3.10", "3.11", "4.1"]
     assert sections_in("Quiz (2.1 to 2.2)", order) == ["2.1", "2.2"]
-    assert sections_in("Sections 3.1 to 3.10, and 4.1", order) == ["3.1", "3.10", "4.1"]
-    assert sections_in("(3.1 to 3.10) and 3.11", order) == ["3.1", "3.10", "3.11"]  # 3.11 intact
+    assert sections_in("Sections 3.1 to 3.10, and 4.1", order) == ["3.1", "3.9", "3.10", "4.1"]
+    assert sections_in("(3.1 to 3.9) and 3.11", order) == ["3.1", "3.9", "3.11"]  # 3.11 intact
+    assert sections_in("Sections 3.8 to 3.10", order) == ["3.9", "3.10"]  # 3.8 is not taught
+    assert sections_in("3.10 to 3.9", order) == ["3.9", "3.10"]  # reversed
+    assert sections_in("Math1A-Sec3.9(part1)", order) == ["3.9"]
     assert sections_in("Exam 2 Review", order) == []
     assert sections_in("Lab 9.9", order) == []
 
@@ -119,30 +121,27 @@ def test_put_and_read_a_map_with_links_and_inferred_mastery(hub) -> None:
     m = client.get("/academic/maps/MATH D001A").json()
     by = {c["key"]: c for c in m["concepts"]}
     assert by["3.4"]["material_url"] == "https://c/m1" and by["3.4"]["page"] == 31
-    assert [a["title"] for a in by["3.3"]["assessments"]] == ["[Canvas] Quiz #2 (3.1 to 3.3)"]
-    assert [r["title"] for r in by["3.4"]["resources"]] == ["Math1A-Sec3.4"]  # the teacher's link
+    assert [r["title"] for r in by["3.4"]["resources"]] == ["Math1A-Sec3.4"]
     assert by["3.3"]["resources"] == []
     assert by["3.3"]["mastery"] == {
         "state": "verified",
         "source": "quiz",
-        "note": "根据 1 项已评分的练习推断，平均 95%",
+        "note": "根据 2 项已评分的练习推断，平均 98%",  # the exam (40%) is not one of them
         "updated_at": None,
     }
+    one = by["3.1"]["mastery"]  # one quiz at 95%: a good sign, not proof
+    assert one["state"] == "practicing" and "只有 1 项" in one["note"]
     assert by["3.4"]["mastery"]["state"] == "needs_review"
+    assert by["3.4"]["mastery"]["note"].startswith("根据 1 项")  # the exam is not counted
+    assert by["3.5"]["mastery"]["state"] == "not_tested"  # only the exam names it
     assert by["3.11"]["mastery"]["state"] == "practicing"
-    assert by["2.3"]["mastery"] == {
-        "state": "not_tested",
-        "source": "none",
-        "note": "还没有评分的练习",
-        "updated_at": None,
-    }
     assert by["ch3"]["mastery"] is None and by["3.5"]["prereq_origin"] == "ai"
     exam = next(e for e in m["exams"] if e["name"] == "Exam 2")
-    assert exam["days_left"] == 3 and exam["grade"]["title"] == "[In-person] Exam 2"
+    assert exam["days_left"] == 3 and exam["grade"]["percent"] == 40.0
     assert [r["title"] for r in exam["resources"]] == ["Math 1A Exam 2 Review Solution"]
-    assert all("Exam 2" not in a["title"] for c in m["concepts"] for a in c["assessments"])
     final = next(e for e in m["exams"] if e["name"] == "Final")
     assert final["scope"] == ["2.3", "3.1", "3.3", "3.4", "3.5", "3.11"]  # chapters expanded
+    assert final["grade"] is None  # no Final assignment with a score yet
 
 
 def test_the_exam_map_orders_weakest_first_and_adds_prerequisites(hub) -> None:
@@ -168,18 +167,36 @@ def test_the_user_sets_mastery_and_a_new_map_keeps_it(hub) -> None:
         "/academic/maps/MATH D001A/mastery/3.4", json={"state": "verified", "note": "重做了错题"}
     )
     assert r.status_code == 200 and r.json()["source"] == "user"
+    client.put(
+        "/academic/maps/MATH D001A/mastery/3.3", json={"state": "needs_review", "note": "忘了公式"}
+    )
+    client.put("/academic/maps/MATH D001A/mastery/3.11", json={"state": "seen"})
+    e = client.get("/academic/maps/MATH D001A/exams/Exam 2").json()
+    assert e["why"]["3.3"] == "你自己标记为“要复习”：忘了公式"  # the user's words, not a score
+    assert e["why"]["3.11"] == "你自己标记为“已接触”"
+    assert "3.4" not in e["why"]  # the user says verified
     client.put("/academic/maps/MATH D001A", json=course_map(material="Notes v2.pdf"))
     m = client.get("/academic/maps/MATH D001A").json()
     by = {c["key"]: c for c in m["concepts"]}
-    assert (
-        by["3.4"]["mastery"]["state"] == "verified" and by["3.4"]["mastery"]["note"] == "重做了错题"
-    )
+    assert by["3.4"]["mastery"]["state"] == "verified"
+    assert by["3.4"]["mastery"]["note"] == "重做了错题"
     assert by["3.4"]["material_url"] == ""  # Notes v2.pdf is not synced
     assert client.delete("/academic/maps/MATH D001A/mastery/3.4").status_code == 204
     m = client.get("/academic/maps/MATH D001A").json()
     assert {c["key"]: c for c in m["concepts"]}["3.4"]["mastery"]["source"] == "quiz"
     bad = client.put("/academic/maps/MATH D001A/mastery/9.9", json={"state": "seen"})
     assert bad.status_code == 404
+    chapter = client.put("/academic/maps/MATH D001A/mastery/ch3", json={"state": "seen"})
+    assert chapter.status_code == 422
+
+
+def test_a_seen_section_is_suggested_with_a_reason(hub) -> None:
+    client, engine = hub
+    seed(engine)
+    client.put("/academic/maps/MATH D001A", json=course_map())
+    client.put("/academic/maps/MATH D001A/mastery/3.3", json={"state": "seen"})
+    e = client.get("/academic/maps/MATH D001A/exams/Exam 2").json()
+    assert "3.3" in e["suggested"] and "已接触" in e["why"]["3.3"]
 
 
 @pytest.mark.parametrize(
@@ -193,7 +210,18 @@ def test_the_user_sets_mastery_and_a_new_map_keeps_it(hub) -> None:
                 {"key": "a", "kind": "section", "title": "y"},
             ]
         },
-        {"exams": [{"name": "E", "scope": ["9.9"]}]},
+        {"exams": [{"name": "E", "scope": ["9.9"], "match": "E"}]},
+        {
+            "exams": [{"name": "E", "scope": ["3.4-chain"], "match": "E"}]
+        },  # a concept, not a section
+        {"exams": [{"name": "E", "scope": ["3.4"]}]},  # no title pattern
+        {"exams": [{"name": "E", "scope": ["3.4"], "match": "*a*b*c*"}]},  # too many wildcards
+        {
+            "exams": [
+                {"name": "E", "scope": ["3.4"], "match": "E"},
+                {"name": "E", "scope": ["3.5"], "match": "F"},
+            ]
+        },
     ],
 )
 def test_bad_maps_are_refused(hub, over: dict[str, Any]) -> None:
@@ -218,3 +246,52 @@ def test_profile_paths_are_normalised_and_wildcards_are_capped(hub) -> None:
     too_many = fields(categories=[{"name": "a", "weight": 100, "match": "*a*b*c*"}])
     r = client.put("/academic/profiles/CIS D022A", json={"fields": too_many, "version": 1})
     assert r.status_code == 422
+
+
+def test_undated_repeats_in_one_group_are_not_copies(hub) -> None:
+    """GPA: two same-title items without due dates in one group stay two items."""
+    client, engine = hub
+    iid = canvas(engine)
+    code = "F26 ENGL C1000 35Y"
+    item(
+        engine,
+        iid,
+        "canvas_course",
+        "e",
+        code,
+        course_code=code,
+        current_score=None,
+        current_grade="",
+        weighted=False,
+        groups=[{"id": 1, "name": "Discussions"}],
+    )
+    item(
+        engine,
+        iid,
+        "canvas_assignment",
+        "d1",
+        "Discussion",
+        None,
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        score=2,
+        submission_state="graded",
+    )
+    item(
+        engine,
+        iid,
+        "canvas_assignment",
+        "d2",
+        "Discussion",
+        None,
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        score=None,
+        missing=True,
+        submission_state="unsubmitted",
+    )
+    course = client.get("/gpa").json()["courses"][0]
+    assert [w["title"] for w in course["missing"]] == ["Discussion"]
+    assert not any("同名" in n for n in course["notes"])

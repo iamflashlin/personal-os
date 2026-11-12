@@ -3,9 +3,10 @@
 Usage: uv run python scripts/academic/import_map.py <map.json> [--hub URL]
 
 The file lists chapters and sections; a section may nest its concepts as
-[key, title, title_zh, page]. Prerequisites are the assistant's (origin ai) unless a
-concept says otherwise. The map replaces the course's previous one; the user's mastery
-is kept. The file stays outside the repo.
+[key, title, title_zh, page] or [key, title, title_zh, page, [prerequisites]].
+Prerequisites are the assistant's (prereq_origin ai) and items are the teacher's (origin
+teacher) unless an entry says otherwise. The map replaces the course's previous one; the
+user's mastery is kept. The file stays outside the repo.
 """
 
 import argparse
@@ -34,9 +35,12 @@ def flatten(raw: dict[str, Any]) -> MapIn:
                 "title_zh": c.get("title_zh", ""),
                 "page": c.get("page"),
                 "prereq": c.get("prereq", []),
+                "prereq_origin": c.get("prereq_origin", "ai"),
+                "origin": c.get("origin", "teacher"),
             }
         )
-        for key, title, zh, page in nested:
+        for entry in nested:
+            key, title, zh, page = entry[:4]
             concepts.append(
                 {
                     "key": key,
@@ -45,6 +49,7 @@ def flatten(raw: dict[str, Any]) -> MapIn:
                     "title": title,
                     "title_zh": zh,
                     "page": page,
+                    "prereq": entry[4] if len(entry) > 4 else [],
                 }
             )
     return MapIn.model_validate(

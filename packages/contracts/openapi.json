@@ -352,6 +352,74 @@
         "title": "AgentStatus",
         "type": "object"
       },
+      "AssessmentEvidence": {
+        "description": "A graded Canvas assessment that covers a section.",
+        "properties": {
+          "due": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "score",
+          "points",
+          "percent",
+          "due",
+          "url"
+        ],
+        "title": "AssessmentEvidence",
+        "type": "object"
+      },
       "BatchStatus": {
         "enum": [
           "applied",
@@ -658,7 +726,7 @@
         "properties": {
           "assessments": {
             "items": {
-              "$ref": "#/components/schemas/packages__contracts__course_map__Evidence"
+              "$ref": "#/components/schemas/AssessmentEvidence"
             },
             "title": "Assessments",
             "type": "array"
@@ -1713,6 +1781,44 @@
         "title": "EventPatch",
         "type": "object"
       },
+      "Evidence": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvidenceKind"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "kind",
+          "note",
+          "created_at",
+          "source"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
       "EvidenceItem": {
         "additionalProperties": false,
         "properties": {
@@ -1778,8 +1884,8 @@
             "title": "At"
           },
           "match": {
-            "default": "",
             "maxLength": 120,
+            "minLength": 1,
             "title": "Match",
             "type": "string"
           },
@@ -1813,7 +1919,8 @@
         },
         "required": [
           "name",
-          "scope"
+          "scope",
+          "match"
         ],
         "title": "ExamIn",
         "type": "object"
@@ -1904,7 +2011,7 @@
           "grade": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/packages__contracts__course_map__Evidence"
+                "$ref": "#/components/schemas/AssessmentEvidence"
               },
               {
                 "type": "null"
@@ -5572,112 +5679,6 @@
         ],
         "title": "WorkspaceUpdate",
         "type": "object"
-      },
-      "packages__contracts__course_map__Evidence": {
-        "description": "A graded Canvas assessment that covers a section.",
-        "properties": {
-          "due": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Due"
-          },
-          "percent": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Percent"
-          },
-          "points": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Points"
-          },
-          "score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Score"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "score",
-          "points",
-          "percent",
-          "due",
-          "url"
-        ],
-        "title": "Evidence",
-        "type": "object"
-      },
-      "packages__contracts__evidence__Evidence": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/EvidenceKind"
-          },
-          "note": {
-            "title": "Note",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "task_id": {
-            "title": "Task Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "task_id",
-          "kind",
-          "note",
-          "created_at",
-          "source"
-        ],
-        "title": "Evidence",
-        "type": "object"
       }
     }
   },
@@ -8743,7 +8744,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/packages__contracts__evidence__Evidence"
+                    "$ref": "#/components/schemas/Evidence"
                   },
                   "title": "Response List Task Evidence Tasks  Task Id  Evidence Get",
                   "type": "array"
