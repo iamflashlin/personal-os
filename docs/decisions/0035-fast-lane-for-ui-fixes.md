@@ -10,8 +10,10 @@ wording, tests or style, while the user waited. The biggest delay, however, was 
 the panel shipped untried, and the user found that its groups could not be opened.
 
 ## Decision
-- **Fast lane.** A PR whose diff touches only `apps/web/src/**`, `scripts/verify/web.py`
-  and its own task card gets one review. The assistant fixes every blocking and should-fix
+- **Fast lane.** A PR gets one review when every changed file is under `apps/web/src/`,
+  is `scripts/verify/web.py`, or is its own task card. The full rule applies if it also
+  changes `apps/web/src/api.ts`, adds or changes a Hub endpoint call, renders HTML, or adds
+  browser storage or third-party requests: those are privacy and security changes. The assistant fixes every blocking and should-fix
   finding, re-runs the gate and the web verification, and merges without a second round.
   Nits go to the next card.
 - Everything else in ADR 0030 still holds for these PRs: CI green on both OSes, the PR
