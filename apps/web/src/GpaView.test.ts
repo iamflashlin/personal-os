@@ -70,3 +70,24 @@ describe("course profiles", () => {
     });
   });
 });
+
+describe("course maps", () => {
+  it("asks for maps, exam maps and mastery by encoded code and key", async () => {
+    const calls: { path: string; method?: string; body?: unknown }[] = [];
+    const api = createApi(async (path, init) => {
+      calls.push({ path, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    await api.courseMaps();
+    await api.courseMap("MATH D001A");
+    await api.examMap("MATH D001A", "Exam 2");
+    await api.setMastery("MATH D001A", "3.4", "verified");
+    expect(calls.map((c) => c.path)).toEqual([
+      "/academic/maps",
+      "/academic/maps/MATH%20D001A",
+      "/academic/maps/MATH%20D001A/exams/Exam%202",
+      "/academic/maps/MATH%20D001A/mastery/3.4",
+    ]);
+    expect(calls[3]).toMatchObject({ method: "PUT", body: { state: "verified", note: "" } });
+  });
+});

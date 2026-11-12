@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from apps.hub.core.domain import Actor
+from apps.hub.gpa import service as gpa
 from apps.hub.integrations import service as integrations
 from apps.hub.summaries import service as summaries
 from apps.hub.tasks import service as tasks
@@ -200,11 +201,14 @@ def today(
         recent_start,
         item_type="canvas_assignment",
     )
+    copies = gpa.missing_copies(session, actor, now)
     for item in older + found:
         source = names.get(item.integration_id, "")
         day = _local_date(item.starts_at, item.all_day, tz)
         entry = _entry(item, source)
         if entry.kind is EntryKind.assignment:
+            if item.id in copies:
+                continue  # a copy of handed-in work (combined classes), as 成绩 says
             if item.data.get("missing"):
                 missing.append(entry)
             elif day == local_today:

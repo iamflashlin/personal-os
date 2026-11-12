@@ -186,6 +186,20 @@ def _drop_duplicates(
     return keep, dupes
 
 
+def missing_copies(session: Session, actor: Actor, now: datetime | None = None) -> set[str]:
+    """Ids of Canvas assignments marked missing that are copies of handed-in work (see
+    `_drop_duplicates`), so other pages agree with 成绩 that they are not missing."""
+    now = now or datetime.now(UTC)
+    by_course: dict[str, list[_Assignment]] = {}
+    for a in _items(session, actor, "canvas_assignment"):
+        by_course.setdefault(str(a.data.get("course_code") or ""), []).append(_Assignment(a))
+    ids: set[str] = set()
+    for group in by_course.values():
+        kept = {a.item.id for a in _drop_duplicates(group, now)[0]}
+        ids.update(a.item.id for a in group if a.item.id not in kept)
+    return ids
+
+
 def _syllabus_totals(
     profile: CourseProfile, assignments: list[_Assignment], groups: dict[int, str]
 ) -> tuple[float, float, float, float, float | None, list[str]]:
@@ -506,4 +520,4 @@ def view(session: Session, actor: Actor, now: datetime | None = None) -> GpaView
     )
 
 
-__all__ = ["course_code", "view"]
+__all__ = ["course_code", "missing_copies", "view"]

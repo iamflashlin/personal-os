@@ -359,6 +359,78 @@ export interface GpaView {
   generated_at: string;
 }
 
+/** The course knowledge map (ADR 0041). */
+export type MasteryState = "not_tested" | "seen" | "practicing" | "verified" | "needs_review";
+
+export interface MapEvidence {
+  title: string;
+  score: number | null;
+  points: number | null;
+  percent: number | null;
+  due: string | null;
+  url: string;
+}
+
+export interface MapResource {
+  title: string;
+  kind: string;
+  url: string;
+}
+
+export interface MapMastery {
+  state: MasteryState;
+  source: "user" | "quiz" | "none";
+  note: string;
+  updated_at: string | null;
+}
+
+export interface MapConcept {
+  key: string;
+  kind: "chapter" | "section" | "concept";
+  parent: string;
+  title: string;
+  title_zh: string;
+  page: number | null;
+  material_url: string;
+  prereq: string[];
+  prereq_origin: "teacher" | "ai";
+  origin: "teacher" | "ai";
+  assessments: MapEvidence[];
+  resources: MapResource[];
+  mastery: MapMastery | null;
+}
+
+export interface MapExam {
+  name: string;
+  at: string | null;
+  days_left: number | null;
+  scope: string[];
+  scope_source: string;
+  review: string;
+  review_url: string;
+  resources: MapResource[];
+  grade: MapEvidence | null;
+}
+
+export interface CourseMap {
+  course_code: string;
+  material: string;
+  note: string;
+  concepts: MapConcept[];
+  exams: MapExam[];
+  checklist: { text: string; source: string }[];
+}
+
+export interface ExamMap {
+  course_code: string;
+  exam: MapExam;
+  sections: MapConcept[];
+  prerequisites: MapConcept[];
+  suggested: string[];
+  why: Record<string, string>;
+  checklist: { text: string; source: string }[];
+}
+
 /** A course's syllabus rules (ADR 0040). */
 export interface CourseRule {
   kind: "late" | "makeup" | "exam" | "gate" | "integrity" | "grading" | "other";
@@ -639,6 +711,21 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
     gpa: () => call<GpaView>("/gpa"),
     profiles: () => call<CourseProfile[]>("/academic/profiles"),
+    courseMaps: () => call<string[]>("/academic/maps"),
+    courseMap: (code: string) => call<CourseMap>(`/academic/maps/${encodeURIComponent(code)}`),
+    examMap: (code: string, exam: string) =>
+      call<ExamMap>(
+        `/academic/maps/${encodeURIComponent(code)}/exams/${encodeURIComponent(exam)}`,
+      ),
+    setMastery: (code: string, key: string, state: MasteryState, note = "") =>
+      call<MapMastery>(
+        `/academic/maps/${encodeURIComponent(code)}/mastery/${encodeURIComponent(key)}`,
+        { method: "PUT", body: JSON.stringify({ state, note }) },
+      ),
+    clearMastery: (code: string, key: string) =>
+      call<void>(`/academic/maps/${encodeURIComponent(code)}/mastery/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+      }),
     confirmProfile: (code: string, version: number) =>
       call<CourseProfile>(`/academic/profiles/${encodeURIComponent(code)}/confirm`, {
         method: "POST",

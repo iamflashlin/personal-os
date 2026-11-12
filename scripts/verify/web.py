@@ -429,6 +429,66 @@ def verify_canvas_view(
             "a syllabus-computed course hides 按总分计算 and Canvas's group table",
         )
         shot(page, out, "21c-gpa-syllabus")
+        # T-0052: the course knowledge map and an exam's review map.
+        course_map = {
+            "course_code": "CIS D022A",
+            "material": "Syllabus.pdf",
+            "concepts": [
+                {"key": "ch1", "kind": "chapter", "title": "Basics", "title_zh": "基础"},
+                {
+                    "key": "1.1",
+                    "kind": "section",
+                    "parent": "ch1",
+                    "title": "Variables",
+                    "title_zh": "变量",
+                    "page": 3,
+                },
+                {
+                    "key": "1.2",
+                    "kind": "section",
+                    "parent": "ch1",
+                    "title": "Branches",
+                    "title_zh": "分支",
+                    "page": 7,
+                    "prereq": ["1.1"],
+                },
+            ],
+            "exams": [
+                {
+                    "name": "Midterm",
+                    "scope": ["1.2"],
+                    "match": "Midterm*",
+                    "scope_source": "syllabus",
+                }
+            ],
+            "exam_checklist": [{"text": "写出过程", "source": "Show your work."}],
+        }
+        put = api.put("/academic/maps/CIS D022A", json=course_map)
+        check(put.status_code == 200, f"PUT /academic/maps -> 200 ({put.status_code})")
+        open_view(page, "课程")
+        course = page.get_by_test_id("course")
+        course.get_by_test_id("km-chapter").first.wait_for(timeout=20_000)
+        first = course.get_by_test_id("km-section").filter(has_text="变量")
+        check(
+            first.get_by_role("link", name="讲义 第 3 页").count() == 1,
+            "a section links the teacher's notes at its page",
+        )
+        check(first.get_by_text("未测试").count() == 1, "with no graded work it says 未测试")
+        first.locator(".km-head").click()
+        first.get_by_label("我的掌握情况").select_option("verified")
+        first.get_by_text("已掌握").first.wait_for(timeout=10_000)
+        check(True, "the user can set a section to 已掌握")
+        shot(page, out, "26-course")
+        course.get_by_test_id("exam-card").get_by_role("button", name="打开复习地图").click()
+        exam = page.get_by_test_id("exam-map")
+        exam.wait_for(timeout=10_000)
+        check("写出过程" in exam.inner_text(), "the exam map shows the checklist")
+        check("变量" in exam.inner_text(), "and the prerequisite outside its scope")
+        check("还没有评分的练习" in exam.inner_text(), "and why 1.2 comes first")
+        shot(page, out, "27-exam-map")
+        open_view(page, "成绩")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card.wait_for(timeout=20_000)
         card.get_by_text("课件").click()
         check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
         shot(page, out, "21-gpa")

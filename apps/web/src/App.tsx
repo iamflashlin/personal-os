@@ -14,6 +14,7 @@ import { ConnectionsView } from "./ConnectionsView";
 import { MailView } from "./MailView";
 import { DigestView } from "./DigestView";
 import { GpaView } from "./GpaView";
+import { CourseView } from "./CourseView";
 import { ScheduleView } from "./ScheduleView";
 import { MemoryView } from "./MemoryView";
 import { TodayView } from "./TodayView";
@@ -38,6 +39,7 @@ const VIEW = {
   mail: "邮件",
   digest: "简报",
   gpa: "成绩",
+  course: "课程",
   schedule: "日程",
   tasks: "任务",
   memories: "记忆",
@@ -48,7 +50,7 @@ type View = keyof typeof VIEW;
 /** The sidebar, in groups: what the user does daily comes first. */
 const GROUPS: { label: string; views: View[] }[] = [
   { label: "今天", views: ["today", "schedule"] },
-  { label: "学业", views: ["gpa"] },
+  { label: "学业", views: ["gpa", "course"] },
   { label: "信息", views: ["mail", "digest"] },
   { label: "系统", views: ["tasks", "memories", "connections"] },
 ];
@@ -58,6 +60,7 @@ const SUBTITLE: Record<View, string> = {
   mail: "每封邮件的要点，以及要你处理的事",
   digest: "时事、社团活动和群聊精华",
   gpa: "按课程大纲计算的成绩和 GPA",
+  course: "每门课的章节、知识点、掌握情况和考试复习地图",
   schedule: "这一周的课、活动、截止和空闲时间",
   tasks: "目标、项目和任务",
   memories: "系统记住的关于你的事",
@@ -170,6 +173,7 @@ export function App({ api }: { api: Api }) {
         {view === "mail" && <MailView api={api} />}
         {view === "digest" && <DigestView api={api} />}
         {view === "gpa" && <GpaView api={api} />}
+      {view === "course" && <CourseView api={api} />}
         {view === "schedule" && <ScheduleView api={api} />}
         {view === "memories" && <MemoryView api={api} />}
         {view === "connections" && <ConnectionsView api={api} />}
