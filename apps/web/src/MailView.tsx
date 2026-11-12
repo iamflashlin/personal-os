@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ChatBox } from "./ChatBox";
 import { type Api, ApiError, type EmailSummary, type SyncedItem } from "./api";
 import { SUMMARY_LABEL } from "./Summary";
@@ -54,7 +54,7 @@ export function countMail(rows: MailRow[]): Record<MailFilter, number> {
 }
 
 /** Summaries for every row, asked for in chunks of the Hub's per-request cap. */
-async function summariesFor(api: Api, ids: string[]): Promise<EmailSummary[]> {
+export async function summariesFor(api: Pick<Api, "emailSummaries">, ids: string[]): Promise<EmailSummary[]> {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += MAX_SUMMARY_IDS) chunks.push(ids.slice(i, i + MAX_SUMMARY_IDS));
   return (await Promise.all(chunks.map((c) => api.emailSummaries(c)))).flat();
@@ -115,7 +115,7 @@ export function MailDetail({ row }: { row: MailRow }) {
   );
 }
 
-export function MailLine({ row, initiallyOpen = false }: { row: MailRow; initiallyOpen?: boolean }) {
+function MailLineView({ row, initiallyOpen = false }: { row: MailRow; initiallyOpen?: boolean }) {
   const [open, setOpen] = useState(initiallyOpen);
   const { item, summary } = row;
   const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
@@ -152,20 +152,25 @@ export function MailView({ api }: { api: Api }) {
   const [filter, setFilter] = useState<MailFilter>("all");
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
+  const busy = useRef(false); // a slow refresh is not stacked on by the next tick
+  const rowsCapped = useRef(false);
 
   const reload = useCallback(async () => {
+    if (busy.current || document.hidden) return; // no polling in a hidden tab
+    busy.current = true;
     const ticket = ++latest.current;
     try {
       const boxes = (await api.integrations()).filter((i) => i.kind === "email");
-      const found = (
-        await Promise.allSettled(
-          boxes.map(async (i) =>
-            (await api.recentMail(i, MAIL_LIMIT)).map((item) => ({ item, source: i.name })),
-          ),
-        )
-      ).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+      const fetched = await Promise.allSettled(
+        boxes.map(async (i) =>
+          (await api.recentMail(i, MAIL_LIMIT)).map((item) => ({ item, source: i.name })),
+        ),
+      );
+      const found = fetched.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+      rowsCapped.current = fetched.some(
+        (r) => r.status === "fulfilled" && r.value.length >= MAIL_LIMIT,
+      );
       found.sort((a, b) => (b.item.starts_at ?? "").localeCompare(a.item.starts_at ?? ""));
-      // Newest first, so the cap keeps the mail on top of the list.
       const summaries = await summariesFor(
         api,
         found.map((r) => r.item.id),
@@ -175,19 +180,40 @@ export function MailView({ api }: { api: Api }) {
         const known = summaries
           ? new Map(summaries.map((s) => [s.item_id, s]))
           : new Map((previous ?? []).flatMap((r) => (r.summary ? [[r.item.id, r.summary]] : [])));
-        return found.map((r) => ({ ...r, summary: known.get(r.item.id) }));
+        // Keep a row's object when its item and summary are unchanged, so memo(MailLine)
+        // skips it: a refresh of ~1000 mails re-renders only what changed.
+        const old = new Map((previous ?? []).map((r) => [r.item.id, r]));
+        return found.map((r) => {
+          const summary = known.get(r.item.id);
+          const was = old.get(r.item.id);
+          const same =
+            was &&
+            was.item.updated_at === r.item.updated_at &&
+            was.item.version === r.item.version &&
+            was.summary?.updated_at === summary?.updated_at;
+          return same ? was : { ...r, summary };
+        });
       });
       setError(null);
     } catch (err) {
       // Keep what is shown (and which mails are open); just say the refresh failed.
       if (ticket === latest.current) setError(`连不上 Hub：${errorText(err)}`);
+    } finally {
+      busy.current = false;
     }
   }, [api]);
 
   useEffect(() => {
     void reload();
     const timer = window.setInterval(() => void reload(), REFRESH_MS);
-    return () => window.clearInterval(timer);
+    const onShow = () => {
+      if (!document.hidden) void reload();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [reload]);
 
   const alert = error && (
@@ -199,6 +225,7 @@ export function MailView({ api }: { api: Api }) {
   if (rows.length === 0) return <p className="muted">还没有邮件。在“连接”页接入邮箱后，这里会列出整理好的邮件。</p>;
 
   const counts = countMail(rows);
+  const capped = rowsCapped.current;
   const shown = filterMail(rows, filter);
   // All mail in time order, newest first; low-value mail is only marked 次要 (the user,
   // 2026-11-11: "不要把那些无用的折叠起来，就跟正常的邮件按时间顺序放好").
@@ -207,15 +234,15 @@ export function MailView({ api }: { api: Api }) {
       {alert}
       <ChatBox api={api} />
       <h2>
-        邮件（共 {counts.all} 封，未读 {counts.unread} 封）
+        邮件（共 {capped ? "至少 " : ""}
+        {counts.all} 封，未读 {counts.unread} 封）
       </h2>
-      <div className="mail-filters" role="tablist">
+      <div className="mail-filters" role="group" aria-label="筛选邮件">
         {FILTERS.map((f) => (
           <button
             key={f.key}
             type="button"
-            role="tab"
-            aria-selected={filter === f.key}
+            aria-pressed={filter === f.key}
             className={filter === f.key ? "active" : ""}
             data-testid={`mail-filter-${f.key}`}
             onClick={() => setFilter(f.key)}
@@ -234,3 +261,6 @@ export function MailView({ api }: { api: Api }) {
     </section>
   );
 }
+
+/** Rows keep their identity across refreshes when nothing changed, so lines do not re-render. */
+export const MailLine = memo(MailLineView);

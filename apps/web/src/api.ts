@@ -137,6 +137,8 @@ export interface EmailSummary extends EntrySummary {
   deadline_date: string | null;
   importance: "high" | "normal" | "low";
   error: string;
+  updated_at: string;
+  version: number;
 }
 
 export interface ModelUsage {
