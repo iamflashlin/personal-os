@@ -83,6 +83,10 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
 
 - 2026-11-11: `install-always-on.ps1` defaults to `-Ref HEAD`. The user ran it while the
   assistant's working copy was on an unmerged feature branch, so the Hub ran unreviewed
-  code for ~10 minutes until update-hub.ps1 moved it back to origin/main. Fix (next card):
-  default `-Ref` to `origin/main`. Until then, the assistant stays on `main` whenever it asks
-  the user to run the installer.
+  code for ~10 minutes until update-hub.ps1 moved it back to origin/main. Fixed in T-0032:
+  `-Ref` defaults to `origin/main`, fetched first.
+
+- 2026-11-11: a repetition on an AtLogOn trigger only starts at the next logon, so the T-0029
+  watchdog never fired after its install (NextRunTime was empty), and only the live kill test
+  showed it. Rule: a scheduled-task change is verified live by checking `NextRunTime` and by
+  doing the thing it promises, not by reading the trigger's settings.

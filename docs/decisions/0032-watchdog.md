@@ -40,3 +40,10 @@ down until the assistant started the task by hand. The cause of the signal was n
   back (unlike update-hub.ps1). With the watchdog, a half-built copy from a failed install is
   retried every 5 minutes until the install is run again. The install prints FAILED, and the
   user runs it by hand, so this is accepted for now.
+
+## Amendment (T-0032, 2026-11-11)
+The live check failed. A repetition set on the logon trigger only begins at the next logon,
+so after the install `NextRunTime` was empty and a killed supervisor stayed down. The
+watchdog is now its own time trigger (`-Once -At <install time + 1 min>`, repeating every
+5 minutes with no end) beside the plain logon trigger.
+
