@@ -1,6 +1,7 @@
 # Makes the Personal OS Hub always available on this PC (ADR 0021).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\run\install-always-on.ps1 [-Ref <commit or branch>]
+#   (-Ref defaults to origin/main, fetched first)
 #
 # - Puts a separate copy of the code at -CopyDir (a git worktree, detached at -Ref), so
 #   development never disturbs the running Hub. Running this again updates that copy.
@@ -11,7 +12,8 @@
 param(
     [string]$CopyDir = "D:\dev\personal-os-run",
     [string]$DataDir = "D:\dev\personal-os-data",
-    [string]$Ref = "HEAD",
+    # The merged code by default, never whatever branch the working copy is on (T-0032).
+    [string]$Ref = "origin/main",
     # Prepare the copy and the data folder only: no scheduled task, nothing started.
     [switch]$PrepareOnly
 )
@@ -59,6 +61,10 @@ function Hub-From-Copy {
 $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
 $pnpm = (Get-Command pnpm -ErrorAction SilentlyContinue).Source
 if (-not $uv -or -not $pnpm) { Fail "uv and pnpm must be on PATH" }
+if ($Ref -like "origin/*") {
+    git -C $repo fetch --quiet origin  # a merge on GitHub does not move the local refs
+    if ($LASTEXITCODE -ne 0) { Fail "git fetch failed; check the network, or pass -Ref <commit>" }
+}
 $commit = (git -C $repo rev-parse $Ref 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not $commit) { Fail "unknown -Ref '$Ref'" }
 $commit = $commit.Trim()
@@ -131,13 +137,15 @@ Step "register the scheduled task '$taskName' (starts at your logon, hidden)"
 $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`" " +
     "-CopyDir `"$CopyDir`" -DataDir `"$DataDir`" -Uv `"$uv`""
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments -WorkingDirectory $CopyDir
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
-# Watchdog (T-0029): the logon trigger repeats every 5 minutes, forever (no duration). With
-# -MultipleInstances IgnoreNew a running supervisor is left alone; one that was killed
-# (2026-11-11: it stopped with 0xC000013A and nothing started it again) is back within
-# 5 minutes. The supervisor itself restarts the Hub within 10 s.
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Minutes 5)).Repetition
+$atLogon = New-ScheduledTaskTrigger -AtLogOn -User $user
+# Watchdog (T-0029, T-0032): a second trigger fires every 5 minutes, forever (no duration),
+# starting one minute from now. A repetition on the logon trigger only begins at the next
+# logon, so after an install it never fired (2026-11-11: the live check failed). With
+# -MultipleInstances IgnoreNew a running supervisor is left alone; one that was killed is
+# back within 5 minutes. The supervisor itself restarts the Hub within 10 s.
+$watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+$trigger = @($atLogon, $watchdog)
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew `
     -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 5

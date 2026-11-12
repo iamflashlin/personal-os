@@ -136,13 +136,18 @@ def run(data_dir: Path, copy_dir: Path, expect_task: bool, watchdog: bool) -> No
             "ForEach-Object { $_.CimClass.CimClassName }"
         )
         check("MSFT_TaskLogonTrigger" in triggers, "the scheduled task starts it at logon")
-        repeat = powershell(
-            "$r = (Get-ScheduledTask -TaskName 'PersonalOS Hub').Triggers[0].Repetition; "
-            '"$($r.Interval)|$($r.Duration)"'
+        repeats = powershell(
+            "(Get-ScheduledTask -TaskName 'PersonalOS Hub').Triggers | ForEach-Object "
+            '{ "$($_.CimClass.CimClassName)|$($_.Repetition.Interval)|$($_.Repetition.Duration)" }'
+        ).splitlines()
+        watch = [r for r in repeats if r.startswith("MSFT_TaskTimeTrigger|PT5M|")]
+        check(bool(watch), f"a time trigger checks every 5 minutes that it runs ({repeats})")
+        check(watch[0].endswith("|"), f"forever: the repetition has no end ({watch[0]!r})")
+        next_run = powershell("(Get-ScheduledTaskInfo -TaskName 'PersonalOS Hub').NextRunTime")
+        check(
+            bool(next_run),
+            f"and its next check is scheduled now, not at the next logon ({next_run})",
         )
-        interval, _, duration = repeat.partition("|")
-        check(interval == "PT5M", f"and checks every 5 minutes that it runs ({interval!r})")
-        check(duration == "", f"forever: the repetition has no end ({duration!r})")
 
     if watchdog:
         before = supervisors(copy_dir)
