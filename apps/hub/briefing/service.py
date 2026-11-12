@@ -249,23 +249,17 @@ def today(
         s.item_id: s
         for s in summaries.summaries_for(session, actor, [e.ref for e in mail], limit=None)
     }
-    low_value_mail = 0
-    kept: list[TodayEntry] = []
+    # Low-value mail is listed like any other, in time order (the user, 2026-11-11); it is
+    # only marked 次要 by its summary.
     for entry in mail:
-        found = mail_found.get(entry.ref)
-        if found is not None and found.status is SummaryStatus.ok and found.low_value:
-            low_value_mail += 1  # unread, but nothing in it for the user
-            continue
-        _apply(entry, found)
-        kept.append(entry)
-    mail = kept
+        _apply(entry, mail_found.get(entry.ref))
 
     view: dict[str, Any] = {
         "due_today": sorted(due_today, key=by_day),
         "due_soon": sorted(due_soon, key=by_day),
         "missing": sorted(missing, key=by_day),
         "events": sorted(events, key=by_day),
-        "unread_mail": unread - low_value_mail,  # mail worth reading; the rest is collapsed
+        "unread_mail": unread,
         "mail": sorted(mail, key=newest, reverse=True)[:MAX_MAIL],
         "announcements": sorted(news, key=newest, reverse=True),
         "in_progress": in_progress,
@@ -283,7 +277,7 @@ def today(
         problems=problems,
         sources=len(sources),
         mail_actions=_mail_actions(session, actor, now, names),
-        low_value_mail=low_value_mail,
+        low_value_mail=0,  # deprecated (T-0028), kept for older clients
         ai_notice=ai_notice,
         **view,
     )

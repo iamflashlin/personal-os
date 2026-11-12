@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Api, ApiError, type TodayEntry, type TodayView as Today } from "./api";
+import { type Api, ApiError, type EntrySummary, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
 import { SummaryLine } from "./Summary";
 
@@ -24,6 +24,13 @@ export function browserZone(): string {
   } catch {
     return "";
   }
+}
+
+/** 重要 / 次要 for a mail on 今日: the same rule as the 邮件 page. Low-value mail is never 重要. */
+export function summaryBadges(s: EntrySummary | null | undefined): string[] {
+  if (!s || s.status !== "ok") return [];
+  if (s.low_value || s.importance === "low") return ["次要"];
+  return s.importance === "high" ? ["重要"] : [];
 }
 
 function whenText(entry: TodayEntry, withDay: boolean): string {
@@ -58,9 +65,11 @@ function Entry({ entry, withDay }: { entry: TodayEntry; withDay: boolean }) {
             entry.title
           )}
         </span>
-        {entry.summary?.importance === "high" && (
-          <span className="badge submission-缺交">重要</span>
-        )}
+        {summaryBadges(entry.summary).map((b) => (
+          <span key={b} className={b === "重要" ? "badge submission-缺交" : "badge"}>
+            {b}
+          </span>
+        ))}
         {entry.badge && (
           <span className={`badge ${BADGE_CLASS[entry.badge] ?? ""}`}>{entry.badge}</span>
         )}
@@ -200,11 +209,6 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
         entries={today.mail}
         testId="today-mail"
       />
-      {(today.low_value_mail ?? 0) > 0 && (
-        <p className="muted" data-testid="today-low-value">
-          另有 {today.low_value_mail} 封没有价值的未读邮件已收起（在“邮件”页查看）
-        </p>
-      )}
       <Section title="接下来三天" entries={today.due_soon} testId="today-soon" withDay />
       <Section title="新公告" entries={today.announcements} testId="today-news" withDay />
       <Section title="进行中" entries={today.in_progress} testId="today-progress" />

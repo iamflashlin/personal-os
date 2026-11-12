@@ -73,3 +73,10 @@ Prompt v2 failed on 32 real mails: DeepSeek reasoned on its own and used up all
 - a newer prompt redoes v1 summaries and older failures once. A good v2 summary is kept,
   and any v2+ gist counts as a title;
 - a failure is stamped with its prompt version, so it never loops.
+
+## Amendment 2026-11-11 (later): no collapsing (T-0028)
+
+The user: "暂时不要把那些无用的折叠起来，就跟正常的邮件按时间顺序放好". Low-value mail is now
+listed with all other mail, newest first, and marked 次要, both on the 邮件 page and in
+今日's unread list. `low_value_mail` stays in the contract, always 0. 需要处理的邮件 still
+leaves low-value mail out.

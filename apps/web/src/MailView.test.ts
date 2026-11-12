@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EmailSummary, SyncedItem } from "./api";
-import { MailDetail, MailLine, type MailRow, mailTitle, splitMail } from "./MailView";
+import { MailDetail, MailLine, type MailRow, mailTitle } from "./MailView";
 
 function item(id: string, title: string, body = "原文内容"): SyncedItem {
   return {
@@ -65,16 +65,16 @@ describe("邮件 page", () => {
     expect(renderToStaticMarkup(createElement(MailLine, { row: skipped }))).toContain("未发送给 AI");
   });
 
-  it("collapses low-value mail behind one line", () => {
-    const rows: MailRow[] = [
-      { item: item("a", "Lab"), source: "163", summary: summary() },
-      { item: item("b", "Sale"), source: "163", summary: summary({ low_value: true, importance: "low" }) },
-      { item: item("c", "News"), source: "163", summary: summary({ low_value: true }) },
-      { item: item("d", "Waiting"), source: "163" },
-    ];
-    const { shown, collapsed } = splitMail(rows);
-    expect(shown.map((r) => r.item.id)).toEqual(["a", "d"]);
-    expect(collapsed.map((r) => r.item.id)).toEqual(["b", "c"]);
+  it("lists low-value mail like any other, only marked 次要", () => {
+    const row: MailRow = {
+      item: item("b", "Sale"),
+      source: "163",
+      summary: summary({ low_value: true, importance: "normal", gist: "商店促销 无需处理" }),
+    };
+    const html = renderToStaticMarkup(createElement(MailLine, { row }));
+    expect(html).toContain("商店促销 无需处理");
+    expect(html).toContain("次要");
+    expect(html).not.toContain("重要");
   });
 
   it("renders mail text as text, never as HTML", () => {
