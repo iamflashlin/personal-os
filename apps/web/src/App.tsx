@@ -173,7 +173,7 @@ export function App({ api }: { api: Api }) {
         {view === "mail" && <MailView api={api} />}
         {view === "digest" && <DigestView api={api} />}
         {view === "gpa" && <GpaView api={api} />}
-      {view === "course" && <CourseView api={api} />}
+          {view === "course" && <CourseView api={api} />}
         {view === "schedule" && <ScheduleView api={api} />}
         {view === "memories" && <MemoryView api={api} />}
         {view === "connections" && <ConnectionsView api={api} />}

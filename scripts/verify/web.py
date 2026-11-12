@@ -476,15 +476,41 @@ def verify_canvas_view(
         check(first.get_by_text("未测试").count() == 1, "with no graded work it says 未测试")
         first.locator(".km-head").click()
         first.get_by_label("我的掌握情况").select_option("verified")
-        first.get_by_text("已掌握").first.wait_for(timeout=10_000)
-        check(True, "the user can set a section to 已掌握")
+        first.locator(".badge.mastery-verified").wait_for(timeout=10_000)
+        saved = next(
+            c for c in api.get("/academic/maps/CIS D022A").json()["concepts"] if c["key"] == "1.1"
+        )["mastery"]
+        check(
+            saved["source"] == "user" and saved["state"] == "verified",
+            "the user sets 1.1 to 已掌握 and the Hub keeps it",
+        )
         shot(page, out, "26-course")
+        first.get_by_label("我的掌握情况").select_option("")
+        first.locator(".badge.mastery-not_tested").wait_for(timeout=10_000)
+        check(True, "back to 自动判断 shows 未测试 again")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "课程 fits a phone screen")
+        shot(page, out, "26b-course-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
         course.get_by_test_id("exam-card").get_by_role("button", name="打开复习地图").click()
         exam = page.get_by_test_id("exam-map")
         exam.wait_for(timeout=10_000)
         check("写出过程" in exam.inner_text(), "the exam map shows the checklist")
-        check("变量" in exam.inner_text(), "and the prerequisite outside its scope")
+        check(
+            "变量" in exam.get_by_test_id("exam-prereqs").inner_text(),
+            "and the prerequisite outside its scope",
+        )
         check("还没有评分的练习" in exam.inner_text(), "and why 1.2 comes first")
+        inside = exam.get_by_test_id("km-section").filter(has_text="分支").first
+        inside.locator(".km-head").click()
+        inside.get_by_label("我的掌握情况").select_option("needs_review")
+        inside.locator(".badge.mastery-needs_review").wait_for(timeout=10_000)
+        check("你自己标记为" in exam.inner_text(), "a change inside the exam map refreshes it")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "the exam map fits a phone screen")
+        page.set_viewport_size({"width": 1200, "height": 800})
         shot(page, out, "27-exam-map")
         open_view(page, "成绩")
         card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")

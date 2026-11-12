@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Api,
   ApiError,
@@ -17,6 +17,8 @@ export const MASTERY: Record<MasteryState, string> = {
   verified: "已掌握",
   needs_review: "要复习",
 };
+
+const SOURCE_ZH: Record<string, string> = { syllabus: "课程大纲" };
 
 const SUGGESTED_SHOWN = 8; // the rest behind 展开全部: a long list is not a plan
 
@@ -114,7 +116,9 @@ function SectionRow({
             <p className="muted">
               要先会：
               {s.prereq.map((p) => byKey.get(p)?.title_zh || byKey.get(p)?.title || p).join("、")}
-              {s.prereq_origin === "ai" && <span className="badge ai">AI 补充</span>}
+              <span className={`badge${s.prereq_origin === "ai" ? " ai" : ""}`}>
+                {s.prereq_origin === "ai" ? "AI 补充" : "老师"}
+              </span>
             </p>
           )}
           <label className="km-set">
@@ -143,9 +147,11 @@ function ExamCard({ e, onOpen }: { e: MapExam; onOpen: () => void }) {
     <div className={`exam-card${done ? " past" : ""}`} data-testid="exam-card">
       <div className="exam-top">
         <strong>{e.name}</strong>
-        <span className={`badge${!done && e.days_left !== null && e.days_left <= 7 ? " warn" : ""}`}>
-          {countdown(e.days_left)}
-        </span>
+        {e.days_left !== null && (
+          <span className={`badge${!done && e.days_left <= 7 ? " warn" : ""}`}>
+            {countdown(e.days_left)}
+          </span>
+        )}
       </div>
       <div className="muted">{when(e.at)}</div>
       <div className="muted">范围 {e.scope.length} 节</div>
@@ -184,7 +190,7 @@ function ExamView({
         <div>
           <h2>{e.name} 复习地图</h2>
           <p className="muted">
-            {[when(e.at), countdown(e.days_left), e.scope_source && `范围来源：${e.scope_source}`]
+            {[when(e.at), countdown(e.days_left), e.scope_source && `范围来源：${SOURCE_ZH[e.scope_source] ?? e.scope_source}`]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -250,8 +256,8 @@ function ExamView({
       {exam.prerequisites.length > 0 && (
         <section>
           <h2>范围外，但要先会的</h2>
-          <p className="muted">这些不在考试范围里，但考试范围内的内容用得上（前置关系是 AI 补充的）。</p>
-          <ul className="km-list">
+          <p className="muted">这些不在考试范围里，但考试范围内的内容用得上。</p>
+          <ul className="km-list" data-testid="exam-prereqs">
             {exam.prerequisites.map((s) => (
               <SectionRow key={s.key} s={s} concepts={[]} byKey={byKey} onMastery={onMastery} />
             ))}
@@ -280,10 +286,14 @@ export function CourseView({ api }: { api: Api }) {
       .catch(fail);
   }, [api]);
 
+  const latest = useRef("");
   const load = useCallback(async () => {
     if (!code) return;
+    latest.current = code;
     try {
-      setMap(await api.courseMap(code));
+      const m = await api.courseMap(code);
+      if (latest.current !== code) return; // the user switched course meanwhile
+      setMap(m);
       setError(null);
     } catch (err) {
       fail(err);
@@ -312,24 +322,47 @@ export function CourseView({ api }: { api: Api }) {
     }
   }
 
-  if (error)
-    return (
-      <p className="error" role="alert">
-        {error}
-      </p>
-    );
-  if (codes === null) return <p>加载中…</p>;
+  const banner = error && (
+    <p className="error" role="alert">
+      {error}{" "}
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          void load();
+        }}
+      >
+        重试
+      </button>
+    </p>
+  );
+  if (codes === null) return banner || <p>加载中…</p>;
   if (codes.length === 0)
     return <p className="muted">还没有课程知识地图。整理好一门课的讲义后，这里会显示它的章节、知识点和考试复习地图。</p>;
-  if (!map) return <p>加载中…</p>;
+  if (!map) return banner || <p>加载中…</p>;
   const byKey = new Map(map.concepts.map((c) => [c.key, c]));
-  if (exam) return <ExamView exam={exam} map={map} byKey={byKey} onBack={() => setExam(null)} onMastery={(k, s) => void mastery(k, s)} />;
+  if (exam)
+    return (
+      <>
+        {banner}
+        <ExamView
+          exam={exam}
+          map={map}
+          byKey={byKey}
+          onBack={() => setExam(null)}
+          onMastery={(k, s) => void mastery(k, s)}
+        />
+      </>
+    );
 
   const chapters = map.concepts.filter((c) => c.kind === "chapter");
   const sections = map.concepts.filter((c) => c.kind === "section");
+  const chapterKeys = new Set(chapters.map((c) => c.key));
+  const orphans = sections.filter((s) => !chapterKeys.has(s.parent));
   const counts = MASTERY_ORDER.map((st) => [st, sections.filter((s) => s.mastery?.state === st).length] as const);
   return (
     <div className="course" data-testid="course">
+      {banner}
       {codes.length > 1 && (
         <div className="mail-filters" role="group" aria-label="课程">
           {codes.map((c) => (
@@ -384,8 +417,25 @@ export function CourseView({ api }: { api: Api }) {
           </ul>
         </section>
       ))}
+      {orphans.length > 0 && (
+        <section data-testid="km-chapter">
+          <h2>其他</h2>
+          <ul className="km-list">
+            {orphans.map((s) => (
+              <SectionRow
+                key={s.key}
+                s={s}
+                concepts={map.concepts.filter((c) => c.parent === s.key && c.kind === "concept")}
+                byKey={byKey}
+                onMastery={(k, st) => void mastery(k, st)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+      {map.note && <p className="muted">{map.note}</p>}
       <p className="muted">
-        章节、知识点和页码来自老师的讲义；“要先会”的前置关系是 AI 补充的。掌握情况按你的小测和作业成绩推断，你可以自己改。
+        章节、知识点和页码来自老师的讲义；“要先会”标着来源（AI 补充或老师）。掌握情况按你的小测和作业成绩推断，你可以自己改。
       </p>
     </div>
   );

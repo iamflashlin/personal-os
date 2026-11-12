@@ -188,7 +188,9 @@ def _drop_duplicates(
 
 def missing_copies(session: Session, actor: Actor, now: datetime | None = None) -> set[str]:
     """Ids of Canvas assignments marked missing that are copies of handed-in work (see
-    `_drop_duplicates`), so other pages agree with 成绩 that they are not missing."""
+    `_drop_duplicates`), so other pages agree with 成绩 that they are not missing. Grouped by
+    the raw Canvas course code like `view`; non-credit courses are included (harmless). Loads
+    every assignment once: a few hundred rows a term."""
     now = now or datetime.now(UTC)
     by_course: dict[str, list[_Assignment]] = {}
     for a in _items(session, actor, "canvas_assignment"):

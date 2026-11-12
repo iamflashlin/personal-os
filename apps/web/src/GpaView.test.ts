@@ -82,12 +82,15 @@ describe("course maps", () => {
     await api.courseMap("MATH D001A");
     await api.examMap("MATH D001A", "Exam 2");
     await api.setMastery("MATH D001A", "3.4", "verified");
+    await api.clearMastery("MATH D001A", "3.4");
     expect(calls.map((c) => c.path)).toEqual([
       "/academic/maps",
       "/academic/maps/MATH%20D001A",
       "/academic/maps/MATH%20D001A/exams/Exam%202",
       "/academic/maps/MATH%20D001A/mastery/3.4",
+      "/academic/maps/MATH%20D001A/mastery/3.4",
     ]);
+    expect(calls[4].method).toBe("DELETE");
     expect(calls[3]).toMatchObject({ method: "PUT", body: { state: "verified", note: "" } });
   });
 });
