@@ -131,11 +131,12 @@ describe("邮件 page", () => {
     expect(filterMail(rows, "unread").map((r) => r.item.id)).toEqual(["a", "c"]);
     expect(filterMail(rows, "action").map((r) => r.item.id)).toEqual(["a", "b"]);
     expect(countMail(rows)).toEqual({ all: 5, open: 2, unread: 2, action: 2 });
-    // An in-app 已处理 mark: out of 未处理 and 需处理, still unread and in 全部.
+    // An in-app 已处理 mark: out of 未处理, 未读 and 需处理; still in 全部.
     const handled = rows.map((r) => (r.item.id === "a" ? { ...r, handled: "batch" as const } : r));
     expect(filterMail(handled, "open").map((r) => r.item.id)).toEqual(["c"]);
     expect(filterMail(handled, "action").map((r) => r.item.id)).toEqual(["b"]);
-    expect(countMail(handled)).toEqual({ all: 5, open: 1, unread: 2, action: 1 });
+    expect(countMail(handled)).toEqual({ all: 5, open: 1, unread: 1, action: 1 });
+    expect(filterMail(handled, "unread").map((r) => r.item.id)).toEqual(["c"]);
   });
 
   it("asks for summaries in chunks of 200 and fails as a whole", async () => {

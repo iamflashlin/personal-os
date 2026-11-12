@@ -37,7 +37,6 @@ export function TriagePanel({
     <section className="triage" data-testid="triage">
       <div className="triage-head">
         <strong data-testid="triage-open">未处理 {view.open_count} 封</strong>
-        <span className="muted">（未读 {view.unread_count} 封）</span>
         <button
           type="button"
           data-testid="triage-toggle"
