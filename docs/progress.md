@@ -3,28 +3,33 @@
 <!-- today:start -->
 ## 今天
 
-2026-11-11
+2026-11-12（通宵做的，早上看这里）
 
-- **做完了**：
-  - 邮件接上了 AI（DeepSeek）：每封邮件都有一句话标题、重要程度和要点，验证码这类邮件不会发给 AI。
-  - 全部历史邮件已补到 356 封（最早到 2 月），每封只总结一次，本月只花了约 0.20 美元，每月上限 10 美元。
-  - 没价值的邮件不再收起来，和其他邮件按时间一起排，只标“次要”。
-  - 后台加了“看门狗”：Hub 被意外关掉后，最多 5 分钟自己恢复。
-  - 今天一共合并了 #15、#28 到 #39。
-- **等你**：
-  - 运行一次 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run\install-always-on.ps1`，让看门狗生效。
-  - 回答一个问题：问邮件时，你的问题和邮件总结会发给 DeepSeek，可以吗？你同意后，问答功能（#40）才会合并。
+- **做完了**（都已合并并装到你电脑上的 Hub，打开 http://127.0.0.1:8765 就能用）：
+  - **邮件助手**：在“邮件”页顶部直接提问，比如“哪些邮件还没处理”。它会自己搜邮件、读邮件；要把邮件标为“已处理”时，会先给你一个方案，你点确认才会执行。
+  - **成绩**：新增“成绩”页，从 Canvas 读你 4 门课的分数、权重和缺交作业，估算 GPA，并算出想拿 A 还需要多少分。现在估算 GPA 3.92；英语 A-，有 2 份缺交。
+  - **日程**：新增“日程”页，按周显示你自己加的课和活动、日历订阅和 Canvas 截止，会提示时间冲突和空闲时段。每周重复的课程删除前会先问你。现在只是功能，没有替你排任何事。
+  - **简报**：新增“简报”页，分“今天”和“历史”两栏，有已读/未读。用来放时事、社团活动和微信群精华；来源还没接，现在可以手动添加。
+  - **数据连接中心**：“连接”页最上面按 6 类数据显示状态：学业和邮件都是“正常”，带着最近同步时间。出错时会写原因，太久没同步会标“可能过期”。
+  - 今天合并了 #50 到 #59，每一个都在 Windows 和 Ubuntu 两个系统的检查通过后才合并。
+- **等你拍板**（都不急，想好了告诉我就行）：
+  - **微信群精华要不要用 AI 提炼？** 推荐：先不用。群里是别人的发言，发给 DeepSeek 超出了你之前的同意范围。不用 AI 的话，我可以只按关键词（转学、选课、截止等）在本地筛选。
+  - **每门课几个学分？** 告诉我 4 门课的学分，GPA 就能按学分加权，现在是平均算的。
+  - **课程大纲里的分数线**（比如 93 分以上算 A）：如果和默认的不一样，把大纲发我，我按大纲算。
+  - **文件放哪里？** 推荐：Google Drive。你以后要接 Gmail 和 Google 日历，放在同一个账号里最省事；WPS 本地文件也能接，只是要多做一套读取。
+  - Gmail 接好以后，要不要删掉 Hub 里保存的 163 邮件数据？到时候我再问你。
+  - 有个临时文件夹 `D:\dev-cache\t0032-copy` 我删不掉（没有权限），你可以自己删：在资源管理器里打开 `D:\dev-cache`，删掉 `t0032-copy` 文件夹。
 - **下一步**：
-  - 问答功能上线：“邮件”页顶部会有提问框（T-0031），已经做好，正在审查。
-  - 然后做批量规则（要先请你确认），以及 Canvas 截止日期变动提醒。
+  - 按路线图做第 3 阶段：Canvas 作业变动提醒和 Google 日历（Google 日历要你登录授权，到时会先问你）。
+  - 小修：“连接”页里有个标签会折成两行。
 <!-- today:end -->
 
-> 由 `uv run python -m tools.report --today 2026-11-11` 生成，「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。
-> 统计依据：origin/main @ 4daf4f4（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
+> 由 `uv run python -m tools.report --today 2026-11-12` 生成，「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。
+> 统计依据：origin/main @ bf992b5（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
 
 ## 现在做到哪
 
-共 39 张任务卡：已完成 37，进行中 0，待审核 0，卡住 0，未开始 2。
+共 58 张任务卡：已完成 56，进行中 0，待审核 0，卡住 0，未开始 2。
 
 ### 已完成
 
@@ -36,6 +41,7 @@
 - **D0-08** Record the product vision, propose a realigned roadmap, and housekeeping
 - **D0-10** Assistant merges safe PRs; plain-language PR summary and daily progress
 - **D0-12** Assistant merges every PR; update-only script for the always-on Hub
+- **D0-13** Fast lane for UI-only fixes (one review round), try pages on the live Hub first
 - **T-0001** Hub skeleton - FastAPI app, settings, SQLite (WAL) + Alembic, base model, boundary check
 - **T-0002** Goal / Project / Task / Workspace CRUD API with audit log
 - **T-0003** pos export / pos import v0 with round-trip migration test
@@ -65,6 +71,24 @@
 - **T-0027** All mail history - IMAP backfill newest first, every mail summarised once
 - **T-0028** Low-value mail listed in time order, marked 次要, not collapsed
 - **T-0029** Watchdog - the Hub task checks every 5 minutes that the supervisor runs
+- **T-0030** Ask about my mail - POST /chat/ask answers from stored summaries
+- **T-0031** 邮件 page chat box - ask, see cited mails, open them
+- **T-0032** install-always-on.ps1 deploys origin/main by default; the watchdog fires without a new logon
+- **T-0033** 邮件 lists every mail with 全部 / 未读 / 需处理 filters
+- **T-0034** 邮件 list polish - honest filter checks, chunk test, no hidden-tab polling, memoized rows
+- **T-0035** Hub mail triage - in-app 已处理, code-made groups, batches with undo, rules
+- **T-0036** 邮件 page - 帮我整理 panel, 未处理 filter, per-mail 已处理, undo
+- **T-0037** Triage groups open their mails; mail text keeps paragraphs and short links
+- **T-0038** A mail marked 已处理 no longer shows or counts as 未读
+- **T-0039** Mail assistant - tool calling over all mail, full text, proposals confirmed in the UI
+- **T-0040** Canvas sync for GPA - course scores and group weights, assignment groups and grades, module materials
+- **T-0041** GPA management - 成绩 page per course from Canvas (score, groups, completion, missing, upcoming, grade lines, materials)
+- **T-0042** The assistant makes the proposal it promises (no "点确认" without a button)
+- **T-0043** Schedule - own events (weekly repeats), merged agenda with calendar and Canvas deadlines, conflicts, free time
+- **T-0044** 简报 - outside information in one place, today vs history, read/unread, manual add
+- **T-0045** Schedule follow-ups - overnight events, kept zone on edit, confirm deleting a weekly series, free time from now
+- **T-0046** Data connection center - the six data kinds and each one's status on 连接
+- **T-0047** Review leftovers - promise pattern, GPA contract comments, local-day digest dedup, test hardening, graded fake Canvas item
 
 ## 下一步
 
@@ -78,8 +102,28 @@
 
 ## 本周合并（2026-11-09 至 2026-11-15）
 
-本周合并了 37 张任务卡：D0-01, D0-03, D0-05, D0-06, D0-07, D0-08, D0-10, D0-12, T-0001, T-0002, T-0003, T-0004, T-0005, T-0006, T-0007, T-0008, T-0009, T-0010, T-0011, T-0012, T-0013, T-0014, T-0015, T-0016, T-0017, T-0018, T-0019, T-0020, T-0021, T-0022, T-0023, T-0024, T-0025, T-0026, T-0027, T-0028, T-0029。
+本周合并了 56 张任务卡：D0-01, D0-03, D0-05, D0-06, D0-07, D0-08, D0-10, D0-12, D0-13, T-0001, T-0002, T-0003, T-0004, T-0005, T-0006, T-0007, T-0008, T-0009, T-0010, T-0011, T-0012, T-0013, T-0014, T-0015, T-0016, T-0017, T-0018, T-0019, T-0020, T-0021, T-0022, T-0023, T-0024, T-0025, T-0026, T-0027, T-0028, T-0029, T-0030, T-0031, T-0032, T-0033, T-0034, T-0035, T-0036, T-0037, T-0038, T-0039, T-0040, T-0041, T-0042, T-0043, T-0044, T-0045, T-0046, T-0047。
 
+- 2026-11-12 feat(web): data connection center - six data kinds and their status (T-0046) (#58)
+- 2026-11-12 fix(hub,web): review leftovers - promise pattern, GPA comments, local-day digest dedup, tests (T-0047) (#59)
+- 2026-11-12 fix(hub,web): schedule follow-ups - overnight events, kept zone, confirm series delete, free time from now (T-0045) (#57)
+- 2026-11-12 feat(hub,web): 简报 - outside information, today vs history, read/unread (T-0044) (#56)
+- 2026-11-12 feat(hub,web): schedule - own events, agenda with calendar and Canvas, conflicts, free time (T-0043) (#55)
+- 2026-11-11 feat(hub,web): GPA management - 成绩 page per course from Canvas (T-0041) (#54)
+- 2026-11-11 feat(hub): Canvas sync for GPA - course scores and weights, assignment groups and grades, module materials (T-0040) (#53)
+- 2026-11-11 fix(hub): the assistant makes the proposal it promises (T-0042) (#52)
+- 2026-11-11 feat(hub,web): mail assistant - tool calling over all mail, full text, proposals confirmed in the UI (T-0039) (#51)
+- 2026-11-11 fix(web): a mail marked 已处理 no longer shows or counts as 未读 (T-0038) (#50)
+- 2026-11-11 chore(claude): fast lane for UI-only fixes - one review round, try pages live first (D0-13) (#49)
+- 2026-11-11 fix(web,hub): triage groups open their mails; mail text keeps paragraphs and short links (T-0037) (#48)
+- 2026-11-11 feat(web): 帮我整理 panel on 邮件 - groups, one-click 已处理, undo, rules, 未处理 filter (T-0036) (#47)
+- 2026-11-11 feat(hub): mail triage - in-app 已处理, code-made groups, batches with undo, rules (T-0035) (#46)
+- 2026-11-11 fix(web): 邮件 list polish - honest filter checks, chunk test, no hidden-tab polling, memoized rows (T-0034) (#45)
+- 2026-11-11 feat(web): 邮件 lists every mail with 全部 / 未读 / 需处理 filters (T-0033) (#44)
+- 2026-11-11 feat(web): chat box on 邮件 - ask, see cited mails, open them (T-0031) (#43)
+- 2026-11-11 feat(hub): ask about my mail - POST /chat/ask answers from stored summaries (T-0030) (#40)
+- 2026-11-11 fix(run): watchdog fires without a new logon; installer deploys origin/main by default (T-0032) (#42)
+- 2026-11-11 docs: progress for 2026-11-11 (#41)
 - 2026-11-11 feat(run): watchdog - the Hub task checks every 5 minutes that the supervisor runs (T-0029) (#39)
 - 2026-11-11 feat(web,hub): list low-value mail in time order, marked 次要, not collapsed (T-0028) (#38)
 - 2026-11-11 feat(hub): all mail history - IMAP backfill newest first, every mail summarised once (T-0027) (#37)
@@ -125,6 +169,7 @@
 ## 需要注意
 
 - `docs/tasks/D0-12.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/D0-13.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0008.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0020.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0021.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
@@ -136,3 +181,21 @@
 - `docs/tasks/T-0027.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0028.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0029.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0030.md`：已经合并进 main，但第 4 行还写着 status: in_progress（打开这个文件，改成 status: done）
+- `docs/tasks/T-0031.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0032.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0033.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0034.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0035.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0036.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0037.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0038.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0039.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0040.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0041.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0042.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0043.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0044.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0045.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0046.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0047.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
