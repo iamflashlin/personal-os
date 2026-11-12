@@ -27,14 +27,14 @@ export const DATA_KINDS: DataKind[] = [
     label: "电脑活动",
     examples: "Windows、浏览器、软件使用",
     sources: [],
-    later: "第 3 步再接",
+    later: "等课程和邮件稳定后再接",
   },
   {
     key: "files",
     label: "文件和资料",
     examples: "本地文件、PDF、笔记、云盘",
     sources: [],
-    later: "第 3 步再接（先定 WPS 本地还是 Google Drive）",
+    later: "先定用 WPS 本地还是 Google Drive",
   },
   {
     key: "goals",
@@ -61,18 +61,22 @@ const STALE_INTERVALS = 3;
 export function kindStatus(kind: DataKind, all: Integration[], now = Date.now()): KindStatus {
   const connected = all.filter((i) => kind.sources.includes(i.kind));
   const failing = connected.find((i) => i.status === "error");
-  const successes = connected
+  const times = connected
     .map((i) => i.last_success_at)
     .filter((t): t is string => t !== null)
-    .sort();
-  const lastSuccess = successes.at(-1) ?? null;
-  const base = { kind, connected, lastSuccess, error: failing?.last_error ?? "" };
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  const lastSuccess = times.at(-1) ?? null;
+  const reason = failing
+    ? `${connected.length > 1 ? `${failing.name}：` : ""}${failing.last_error || "未知"}`
+    : "";
+  const base = { kind, connected, lastSuccess, error: reason };
   if (connected.length === 0) {
     if (kind.local) return { ...base, state: "local" };
     return { ...base, state: kind.later ? "later" : "none" };
   }
   if (failing) return { ...base, state: "error" };
-  if (!lastSuccess) return { ...base, state: "never" };
+  // Any source that has never worked makes the kind incomplete, even if a sibling has.
+  if (connected.some((i) => i.last_success_at === null)) return { ...base, state: "never" };
   const stale = connected.some(
     (i) =>
       i.last_success_at !== null &&
@@ -121,10 +125,8 @@ export function DataKindsOverview({ integrations }: { integrations: Integration[
                   {s.connected.map((i) => i.name).join("、")} · 最近成功 {when(s.lastSuccess)}
                 </div>
               )}
-              {s.state === "error" && <div className="error">原因：{s.error || "未知"}</div>}
-              {s.connected.length === 0 && s.state === "local" && (
-                <div className="muted">{k.local}</div>
-              )}
+              {s.state === "error" && <div className="error">原因：{s.error}</div>}
+              {s.state === "local" && <div className="muted">{k.local}</div>}
               {s.state === "later" && <div className="muted">{k.later}</div>}
             </li>
           );

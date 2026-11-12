@@ -5,8 +5,11 @@ import { DATA_KINDS, type DataKind, kindStatus } from "./DataKinds";
 const NOW = Date.parse("2026-11-12T12:00:00Z");
 
 function source(over: Partial<Integration>): Integration {
-  return {
+  const base: Integration = {
     id: "i1",
+    version: 1,
+    created_at: "2026-11-01T00:00:00Z",
+    updated_at: "2026-11-01T00:00:00Z",
     kind: "canvas",
     config: {},
     name: "De Anza Canvas",
@@ -17,8 +20,8 @@ function source(over: Partial<Integration>): Integration {
     last_success_at: "2026-11-12T11:30:00Z",
     last_error: "",
     item_count: 10,
-    ...over,
-  } as Integration;
+  };
+  return { ...base, ...over };
 }
 
 function kind(key: string): DataKind {
@@ -60,7 +63,27 @@ describe("data kinds overview", () => {
     expect(kindStatus(kind("goals"), [], NOW).state).toBe("local");
     expect(kindStatus(kind("schedule"), [], NOW).state).toBe("local");
     expect(kindStatus(kind("pc"), [], NOW).state).toBe("later");
-    const fresh = source({ kind: "email", last_success_at: null });
+    const fresh = source({
+      kind: "email",
+      status: "never_synced",
+      last_sync_at: null,
+      last_success_at: null,
+    });
     expect(kindStatus(kind("mail"), [fresh], NOW).state).toBe("never");
+  });
+
+  it("is never-synced while any of its sources has not worked yet", () => {
+    const second = source({ id: "i2", status: "never_synced", last_sync_at: null, last_success_at: null });
+    expect(kindStatus(kind("academic"), [source({}), second], NOW).state).toBe("never");
+  });
+
+  it("names the failing source when there are several", () => {
+    const bad = source({ id: "i2", name: "旧 Canvas", status: "error", last_error: "HTTP 401" });
+    expect(kindStatus(kind("academic"), [source({}), bad], NOW).error).toBe("旧 Canvas：HTTP 401");
+  });
+
+  it("is still ok at exactly three intervals", () => {
+    const edge = source({ last_success_at: new Date(NOW - 3 * 3600 * 1000).toISOString() });
+    expect(kindStatus(kind("academic"), [edge], NOW).state).toBe("ok");
   });
 });
