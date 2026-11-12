@@ -1,6 +1,6 @@
 # 0033: Questions about mail, answered from stored summaries
 
-Status: proposed (2026-11-11). Waiting for the user's yes on D1 before merge.
+Status: accepted (2026-11-11). D1: the user agreed: "我同意把问题和总结发给deepseek".
 
 ## Context
 The user wants a chat window: ask questions about their mail, and later give batch rules
