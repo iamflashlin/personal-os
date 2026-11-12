@@ -184,9 +184,13 @@ function Course({
         作业完成 {done.done}/{done.due_so_far}
         {done.missing > 0 && `，缺交 ${done.missing}`}
         {done.late > 0 && `，迟交 ${done.late}`}
-        {c.weighted ? "　按类别加权" : "　按总分计算"}
+        {c.basis === "syllabus"
+          ? "　按大纲的类别加权"
+          : c.weighted
+            ? "　按类别加权"
+            : "　按总分计算"}
       </p>
-      {c.groups.length > 0 && (
+      {c.groups.length > 0 && c.basis !== "syllabus" && (
         <table className="gpa-groups">
           <tbody>
             {c.groups

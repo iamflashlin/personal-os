@@ -84,7 +84,15 @@ body {
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  align-items: start;
   min-height: 100vh;
+  /* the sidebar's surface and border run the full page height, also below the fold */
+  background: linear-gradient(
+    to right,
+    var(--surface) calc(var(--sidebar) - 1px),
+    var(--border) calc(var(--sidebar) - 1px) var(--sidebar),
+    transparent var(--sidebar)
+  );
 }
 
 .sidebar {
@@ -205,6 +213,7 @@ body {
 @media (max-width: 900px) {
   .shell {
     display: block;
+    background: none;
   }
 
   .sidebar {
@@ -920,44 +929,4 @@ ul.memories {
 
 .data-kind .badge {
   white-space: nowrap;
-}
-
-.gpa-notes {
-  margin: 6px 0;
-  padding-left: 18px;
-  color: #8a5300;
-}
-
-.rules-card {
-  margin: 8px 0;
-}
-
-.rules-body {
-  border-left: 3px solid #ddd;
-  padding: 4px 0 4px 12px;
-}
-
-.rules {
-  list-style: none;
-  padding: 0;
-}
-
-.rules li {
-  margin: 6px 0;
-}
-
-.rule-source {
-  color: #777;
-  font-size: 0.85em;
-  overflow-wrap: anywhere;
-}
-
-.badge.ok {
-  border-color: #2e7d32;
-  color: #2e7d32;
-}
-
-.badge.warn {
-  border-color: #b26a00;
-  color: #b26a00;
 }
