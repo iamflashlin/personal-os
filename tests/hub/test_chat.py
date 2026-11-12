@@ -307,3 +307,46 @@ def test_odd_arguments_are_tool_errors() -> None:
     run = run_with(("a", None, False))
     assert "error" in run.run("list_mail", '{"limit": 1e999}')
     assert "error" in run.run("search_mail", "[" * 5000 + "]" * 5000)
+
+
+def test_a_promise_without_a_proposal_is_nudged_once(hub) -> None:
+    client, fake, engine = hub
+    ids = seed(engine, 2)
+    summarise(client, fake, engine)
+
+    class Forgetful(FakeProvider):
+        """Finds the mails, says 点确认后执行, but forgets the proposal until reminded."""
+
+        def complete_tools(self, request: ToolRequest, api_key: str) -> ToolReply:
+            self.tool_calls.append(request)
+            last = request.messages[-1]
+            if last.get("role") == "user" and "系统提示" in str(last.get("content")):
+                call = ToolCall("p1", "propose_mark_handled", '{"refs": ["m1", "m2"]}')
+                return ToolReply("", [call], Usage(10, 0, 5), "tool_calls", "x")
+            if last.get("role") == "tool" and '"status"' in str(last.get("content")):
+                return ToolReply("已提出方案，点确认后执行。", [], Usage(10, 0, 5), "stop", "x")
+            if last.get("role") == "tool":
+                return ToolReply("找到 2 封，点确认后执行。", [], Usage(10, 0, 5), "stop", "x")
+            call = ToolCall("s1", "search_mail", '{"query": "Lab"}')
+            return ToolReply("", [call], Usage(10, 0, 5), "tool_calls", "x")
+
+    forgetful = Forgetful()
+    client.app.state.model_provider = forgetful  # type: ignore[attr-defined]
+    r = ask(client, "把 Lab 的都标为已处理")
+    proposal = r.json()["proposal"]
+    assert proposal is not None and sorted(proposal["item_ids"]) == sorted(ids)
+    nudges = [
+        m
+        for req in forgetful.tool_calls
+        for m in req.messages
+        if "系统提示" in str(m.get("content"))
+    ]
+    assert nudges  # it was reminded
+
+
+def test_a_plain_answer_is_not_nudged(hub) -> None:
+    client, fake, engine = hub
+    seed(engine, 1)
+    summarise(client, fake, engine)
+    assert ask(client, "Lab 什么时候交").json()["proposal"] is None
+    assert len(fake.tool_calls) == 3  # search, read, answer: no extra turn
