@@ -310,7 +310,13 @@ export function MailView({ api }: { api: Api }) {
   return (
     <section data-testid="mail-view">
       {alert}
-      <ChatBox api={api} />
+      <ChatBox
+        api={api}
+        onChanged={() => {
+          busy.current = false;
+          void reload();
+        }}
+      />
       {triage && (
         <TriagePanel
           view={triage}

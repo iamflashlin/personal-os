@@ -1,8 +1,8 @@
 """What a model vendor adapter must provide. Business code never sees a vendor."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class ProviderErrorKind(StrEnum):
@@ -41,6 +41,41 @@ class JsonReply:
     request_id: str
 
 
+@dataclass(frozen=True)
+class Tool:
+    """A function the model may call: a JSON-schema for its arguments (ADR 0036)."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str  # JSON text as the model wrote it; parsed by the caller
+
+
+@dataclass(frozen=True)
+class ToolRequest:
+    model: str
+    system: str
+    messages: list[dict[str, Any]]  # OpenAI-style user/assistant/tool turns after `system`
+    tools: list[Tool]
+    max_output_tokens: int
+    temperature: float = 0.2
+
+
+@dataclass(frozen=True)
+class ToolReply:
+    content: str
+    tool_calls: list[ToolCall] = field(default_factory=list[ToolCall])
+    usage: Usage | None = None
+    finish_reason: str = ""
+    request_id: str = ""
+
+
 class ProviderError(Exception):
     """A vendor call that did not return usable output.
 
@@ -68,3 +103,5 @@ class ModelProvider(Protocol):
     vendor: str
 
     def complete_json(self, request: JsonRequest, api_key: str) -> JsonReply: ...
+
+    def complete_tools(self, request: ToolRequest, api_key: str) -> ToolReply: ...

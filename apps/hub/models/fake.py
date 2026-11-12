@@ -2,9 +2,8 @@
 """A deterministic provider for tests and offline verification (HANDOFF §4.4).
 
 It answers with JSON built from the request, and markers in the user text make it fail:
-`[fake:bad-json]`, `[fake:500]`, `[fake:401]`, `[fake:402]`, `[fake:429]`. A mail question
-(a `<mails>` section) gets an echo answer citing its first three lines;
-`[fake:cite-unknown]` adds refs that were never given.
+`[fake:bad-json]`, `[fake:500]`, `[fake:401]`, `[fake:402]`, `[fake:429]`. `complete_tools`
+plays a scripted mail assistant (search, then read or propose; `[fake:clear]` proposes).
 If `POS_FAKE_MODEL_LOG` names a file, every user text it receives is appended there, so a
 verification script in another process can prove what was (not) sent.
 """
@@ -18,6 +17,9 @@ from apps.hub.models.provider import (
     JsonRequest,
     ProviderError,
     ProviderErrorKind,
+    ToolCall,
+    ToolReply,
+    ToolRequest,
     Usage,
 )
 
@@ -36,20 +38,12 @@ def _tokens(text: str) -> int:
     return max(1, len(text.encode("utf-8")) // 3)
 
 
-def _chat(user: str) -> str:
-    """A mail question (prompt mail_chat): echo the question, cite the first three lines."""
-    question = user.split("<question>", 1)[-1].split("</question>", 1)[0].strip()
-    cited: list[str] = re.findall(r"^\[(m\d+)\]", user, re.MULTILINE)[:3]
-    if "[fake:cite-unknown]" in user:
-        cited += ["m999", "01JZZZZZZZZZZZZZZZZZZZZZZZ"]
-    return json.dumps({"answer": f"（测试回答）{question}", "cited": cited}, ensure_ascii=False)
-
-
 class FakeProvider:
     vendor = "fake"
 
     def __init__(self) -> None:
         self.calls: list[JsonRequest] = []
+        self.tool_calls: list[ToolRequest] = []
 
     def complete_json(self, request: JsonRequest, api_key: str) -> JsonReply:
         self.calls.append(request)
@@ -63,10 +57,6 @@ class FakeProvider:
         usage = Usage(_tokens(request.system + request.user), 0, 40)
         if "[fake:bad-json]" in request.user:
             raise ProviderError(ProviderErrorKind.bad_output, "response is not JSON", usage=usage)
-        if "<mails>" in request.user:
-            return JsonReply(
-                text=_chat(request.user), usage=usage, finish_reason="stop", request_id="fake"
-            )
         match = _SUBJECT.search(request.user)
         subject = match.group(1).strip() if match else request.user.strip()[:40]
         lowered = request.user.lower()
@@ -89,3 +79,65 @@ class FakeProvider:
             ensure_ascii=False,
         )
         return JsonReply(text=text, usage=usage, finish_reason="stop", request_id="fake")
+
+    def complete_tools(self, request: ToolRequest, api_key: str) -> ToolReply:
+        """A scripted assistant (prompt mail_assistant): search with the question, then
+        read the first hit, or propose marking the hits handled when asked to clear them.
+        Failure markers in the question work as in `complete_json`."""
+        self.tool_calls.append(request)
+        sent = json.dumps(request.messages, ensure_ascii=False)
+        log = os.environ.get(LOG_ENV)
+        if log:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(request.system + "\n" + sent + "\n---\n")
+        question = next(
+            (
+                str(m.get("content") or "")
+                for m in reversed(request.messages)
+                if m.get("role") == "user"
+            ),
+            "",
+        )
+        for marker, (kind, status) in _FAILURES.items():
+            if marker in question:
+                raise ProviderError(kind, f"HTTP {status}", status=status)
+        usage = Usage(_tokens(request.system + sent), 0, 30)
+        last = request.messages[-1] if request.messages else {}
+
+        def call(name: str, args: dict[str, object]) -> ToolReply:
+            n = len(self.tool_calls)
+            return ToolReply(
+                "",
+                [ToolCall(f"call{n}", name, json.dumps(args, ensure_ascii=False))],
+                usage,
+                "tool_calls",
+                "fake",
+            )
+
+        if not request.tools:  # the last turn: answer with what it has
+            return ToolReply(f"（测试回答）{question}（查了很久）", [], usage, "stop", "fake")
+        if last.get("role") != "tool":
+            return call("search_mail", {"query": question.replace("[fake:clear]", "").strip()})
+        result = json.loads(str(last.get("content") or "null"))
+        tool = next(
+            (
+                c["function"]["name"]
+                for m in reversed(request.messages)
+                if m.get("role") == "assistant"
+                for c in (m.get("tool_calls") or [])
+            ),
+            "",
+        )
+        refs = (
+            [h["ref"] for h in result if isinstance(h, dict) and "ref" in h]
+            if isinstance(result, list)
+            else []
+        )
+        if tool == "search_mail" and refs and ("已处理" in question or "[fake:clear]" in question):
+            return call("propose_mark_handled", {"refs": refs, "reason": "test"})
+        if tool == "search_mail" and refs:
+            return call("read_mail", {"ref": refs[0]})
+        mentioned = ""
+        if tool == "read_mail" and isinstance(result, dict):
+            mentioned = f"（{result.get('ref', '')}）"
+        return ToolReply(f"（测试回答）{question}{mentioned}", [], usage, "stop", "fake")

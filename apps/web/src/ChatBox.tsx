@@ -11,6 +11,7 @@ interface Exchange {
   question: string;
   answer?: ChatAnswer;
   error?: string;
+  done?: { count: number; batchId: string; undone?: boolean }; // the confirmed proposal
 }
 
 /** The last turns as the Hub expects them: text only, newest last, each cut to its limit. */
@@ -29,11 +30,40 @@ function errorText(err: unknown): string {
   return `连不上 Hub：${String(err)}`;
 }
 
-export function ChatBox({ api }: { api: Api }) {
+export function ChatBox({ api, onChanged }: { api: Api; onChanged?: () => void }) {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false); // blocks Enter + click in the same tick
+  const [acting, setActing] = useState<number | null>(null); // exchange being confirmed
+
+  async function confirm(index: number, ids: string[]) {
+    setActing(index);
+    try {
+      const batch = await api.handleMail(ids);
+      setExchanges((xs) =>
+        xs.map((x, i) => (i === index ? { ...x, done: { count: batch.count, batchId: batch.id } } : x)),
+      );
+      onChanged?.();
+    } catch (err) {
+      setExchanges((xs) => xs.map((x, i) => (i === index ? { ...x, error: errorText(err) } : x)));
+    }
+    setActing(null);
+  }
+
+  async function undo(index: number, batchId: string) {
+    setActing(index);
+    try {
+      await api.undoBatch(batchId);
+      setExchanges((xs) =>
+        xs.map((x, i) => (i === index && x.done ? { ...x, done: { ...x.done, undone: true } } : x)),
+      );
+      onChanged?.();
+    } catch (err) {
+      setExchanges((xs) => xs.map((x, i) => (i === index ? { ...x, error: errorText(err) } : x)));
+    }
+    setActing(null);
+  }
 
   async function send() {
     const question = draft.trim().slice(0, MAX_QUESTION);
@@ -68,7 +98,7 @@ export function ChatBox({ api }: { api: Api }) {
           data-testid="chat-input"
           value={draft}
           maxLength={MAX_QUESTION}
-          placeholder="问问你的邮件，比如：这周有哪些作业要交？"
+          placeholder="问我或吩咐我：这周要交什么？过期的都标为已处理"
           onChange={(e) => setDraft(e.target.value)}
         />
         <button type="submit" data-testid="chat-send" disabled={busy || !draft.trim()}>
@@ -96,14 +126,56 @@ export function ChatBox({ api }: { api: Api }) {
                 {e.answer.answer}
               </p>
               {e.answer.unsummarised > 0 && (
-                <p className="muted">还有 {e.answer.unsummarised} 封邮件没整理完，暂时查不到。</p>
+                <p className="muted">还有 {e.answer.unsummarised} 封邮件 AI 还没整理完。</p>
               )}
-              {e.answer.cited.length > 0 && (
+              {e.answer.proposal && (
+                <div className="chat-proposal" data-testid="chat-proposal">
+                  <strong>{e.answer.proposal.description}</strong>
+                  <ul className="memories">
+                    {e.answer.proposal.sample.map((c) => (
+                      <MailLine
+                        key={c.item.id}
+                        row={{ item: c.item, source: "", summary: c.summary ?? undefined }}
+                      />
+                    ))}
+                  </ul>
+                  {e.answer.proposal.count > e.answer.proposal.sample.length && (
+                    <p className="muted">
+                      …还有 {e.answer.proposal.count - e.answer.proposal.sample.length} 封
+                    </p>
+                  )}
+                  {!e.done && (
+                    <button
+                      type="button"
+                      data-testid="chat-confirm"
+                      disabled={acting !== null}
+                      onClick={() => void confirm(i, e.answer?.proposal?.item_ids ?? [])}
+                    >
+                      确认
+                    </button>
+                  )}
+                  {e.done && !e.done.undone && (
+                    <p data-testid="chat-done">
+                      已处理 {e.done.count} 封{" "}
+                      <button
+                        type="button"
+                        data-testid="chat-undo"
+                        disabled={acting !== null}
+                        onClick={() => void undo(i, e.done?.batchId ?? "")}
+                      >
+                        撤销
+                      </button>
+                    </p>
+                  )}
+                  {e.done?.undone && <p className="muted">已撤销</p>}
+                </div>
+              )}
+              {!e.answer.proposal && e.answer.cited.length > 0 && (
                 <ul className="memories" data-testid="chat-cited">
                   {e.answer.cited.map((c) => (
                     <MailLine
                       key={c.item.id}
-                      row={{ item: c.item, source: "", summary: c.summary }}
+                      row={{ item: c.item, source: "", summary: c.summary ?? undefined }}
                     />
                   ))}
                 </ul>

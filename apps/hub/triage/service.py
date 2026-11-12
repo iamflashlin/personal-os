@@ -297,4 +297,10 @@ def set_rule_enabled(
     return audit.audited(session, actor, "triage_rule", "update", rule_id, {}, op)
 
 
-__all__ = ["handle", "set_item", "set_rule_enabled", "undo", "view"]
+def handled_ids(session: Session, actor: Actor, today: date) -> set[str]:
+    """Mails counted as 已处理 now (an explicit mark, or a matching enabled rule)."""
+    facts = _facts(session, actor)
+    return set(_handled(facts, _marks(session, actor), _rules(session, actor), today))
+
+
+__all__ = ["handle", "handled_ids", "set_item", "set_rule_enabled", "undo", "view"]
