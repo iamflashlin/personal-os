@@ -168,12 +168,6 @@ export function ScheduleView({ api }: { api: Api }) {
     return d;
   });
   const grouped = byDay(agenda?.entries ?? []);
-  // An event shown on more than one day this week repeats weekly.
-  const seen = new Map<string, number>();
-  for (const e of agenda?.entries ?? []) {
-    if (e.event_id) seen.set(e.event_id, (seen.get(e.event_id) ?? 0) + 1);
-  }
-  const repeating = new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
   const freeByDay = byDay(
     (agenda?.free ?? []).map((f) => ({
       key: f.starts_at,
@@ -188,6 +182,7 @@ export function ScheduleView({ api }: { api: Api }) {
       url: "",
       blocks: false,
       conflict: false,
+      repeats: false,
     })),
   );
   const defaultStart = new Date();
@@ -278,7 +273,7 @@ export function ScheduleView({ api }: { api: Api }) {
                     <Entry
                       key={e.key}
                       e={e}
-                      repeats={repeating.has(e.event_id ?? "")}
+                      repeats={e.repeats}
                       onDelete={(id) => void remove(id)}
                     />
                   ))}

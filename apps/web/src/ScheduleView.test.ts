@@ -15,6 +15,7 @@ const entry = (startsAt: string): AgendaEntry => ({
   url: "",
   blocks: true,
   conflict: false,
+  repeats: false,
 });
 
 describe("schedule", () => {

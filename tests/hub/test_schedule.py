@@ -1,6 +1,6 @@
 # ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation on purpose)
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -265,6 +265,13 @@ def test_an_overnight_calendar_event_shows_on_the_next_morning(hub) -> None:
         datetime(2026, 11, 10, 7, 0, tzinfo=UTC),
         datetime(2026, 11, 10, 17, 0, tzinfo=UTC),
     )  # 23:00 Nov 9 to 09:00 Nov 10 local
+    synced(
+        engine,
+        "calendar_event",
+        "前一天上午",
+        datetime(2026, 11, 9, 18, 0, tzinfo=UTC),
+        datetime(2026, 11, 9, 19, 0, tzinfo=UTC),
+    )  # Nov 9 10:00-11:00 local: over before
     a = agenda(client, local(2026, 11, 10, 0), local(2026, 11, 11, 0))
     assert [e["title"] for e in a["entries"]] == ["夜间活动"]
 
@@ -307,3 +314,61 @@ def test_free_time_is_listed_only_from_now_on(hub) -> None:
     client, _ = hub
     past = agenda(client, local(2026, 1, 5, 0), local(2026, 1, 6, 0))
     assert past["free"] == []  # a day that is over has no useful free time
+
+
+def test_an_evening_class_until_its_own_local_day_is_accepted(hub) -> None:
+    client, _ = hub
+    # 18:00 local on Nov 9 is Nov 10 in UTC; until Nov 9 (local) is still valid
+    r = client.post(
+        "/schedule/events",
+        params=TZ,
+        json={
+            "title": "晚课",
+            "kind": "class",
+            "starts_at": datetime(2026, 11, 9, 18, tzinfo=LA).astimezone(UTC).isoformat(),
+            "ends_at": datetime(2026, 11, 9, 20, tzinfo=LA).astimezone(UTC).isoformat(),
+            "repeat_days": ["MO"],
+            "repeat_until": "2026-11-09",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+
+def test_weekly_entries_say_they_repeat(hub) -> None:
+    client, _ = hub
+    event(
+        client, repeat_days=["MO"], starts_at=local(2026, 11, 2, 10), ends_at=local(2026, 11, 2, 11)
+    )
+    event(client, title="一次性", starts_at=local(2026, 11, 3, 10), ends_at=local(2026, 11, 3, 11))
+    a = agenda(client, local(2026, 11, 2, 0), local(2026, 11, 9, 0))
+    assert {e["title"]: e["repeats"] for e in a["entries"]} == {
+        "CIS 22A 上课": True,
+        "一次性": False,
+    }
+
+
+def test_free_time_starts_at_now_part_way_through_the_day(tmp_path) -> None:
+    from sqlalchemy.orm import Session as S
+
+    from apps.hub.core.db import make_engine, upgrade_to_head
+    from apps.hub.core.domain import Actor
+    from apps.hub.schedule import service
+
+    engine = make_engine(tmp_path)
+    upgrade_to_head(engine)
+    day = datetime(2026, 11, 12, 0, tzinfo=LA)
+    now = datetime(2026, 11, 12, 14, 30, tzinfo=LA)
+    with S(engine) as s:
+        a = service.agenda(
+            s,
+            Actor(owner_id="local", source="t"),
+            day,
+            day + timedelta(days=1),
+            LA,
+            "America/Los_Angeles",
+            now=now,
+        )
+    assert [
+        (f.starts_at.astimezone(LA).strftime("%H:%M"), f.ends_at.astimezone(LA).strftime("%H:%M"))
+        for f in a.free
+    ] == [("14:30", "22:00")]

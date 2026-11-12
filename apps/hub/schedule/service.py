@@ -60,7 +60,19 @@ def _apply(row: ScheduleEventRow, f: EventFields, zone_name: str) -> None:
         row.time_zone = zone_name
 
 
+def _check_until(f: EventFields, zone_name: str) -> None:
+    """repeat_until is a local date in the zone the event is entered in (an evening class
+    is already the next day in UTC), so it is checked here, not in the contract."""
+    if f.repeat_until is None:
+        return
+    first = f.starts_at.astimezone(_zone(zone_name, f.starts_at.tzinfo or UTC)).date()
+    if f.repeat_until < first:
+        raise Invalid("“直到”的日期早于第一次")
+
+
 def create(session: Session, actor: Actor, new: NewEvent, zone_name: str) -> ScheduleEvent:
+    _check_until(new, zone_name)
+
     def op() -> audit.Outcome[ScheduleEvent]:
         row = ScheduleEventRow(owner_id=actor.owner_id, source="manual", version=1)
         _apply(row, new, zone_name)
@@ -84,6 +96,7 @@ def update(
     session: Session, actor: Actor, event_id: str, patch: EventPatch, zone_name: str
 ) -> ScheduleEvent:
     row = _own(session, actor, event_id)
+    _check_until(patch.fields, zone_name or row.time_zone)
     if row.version != patch.version:
         raise Conflict("这个日程已经在别处改过了，刷新后再改")
 
@@ -213,6 +226,7 @@ def agenda(
                     location=row.location,
                     source="manual",
                     event_id=row.id,
+                    repeats=bool(row.repeat_days),
                     url="",
                     blocks=not row.all_day,
                 )
