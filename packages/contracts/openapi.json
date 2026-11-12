@@ -369,6 +369,148 @@
         "title": "CitedMail",
         "type": "object"
       },
+      "Completion": {
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "due_so_far": {
+            "title": "Due So Far",
+            "type": "integer"
+          },
+          "late": {
+            "title": "Late",
+            "type": "integer"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "due_so_far",
+          "done",
+          "missing",
+          "late"
+        ],
+        "title": "Completion",
+        "type": "object"
+      },
+      "CourseView": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/Completion"
+          },
+          "current_grade": {
+            "title": "Current Grade",
+            "type": "string"
+          },
+          "current_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Score"
+          },
+          "grade_points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade Points"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupStatus"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "integration_item_id": {
+            "title": "Integration Item Id",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/GradeLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "upcoming": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "title": "Upcoming",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "weighted": {
+            "title": "Weighted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "integration_item_id",
+          "code",
+          "name",
+          "url",
+          "current_score",
+          "current_grade",
+          "grade_points",
+          "weighted",
+          "groups",
+          "completion",
+          "missing",
+          "upcoming",
+          "recent",
+          "lines",
+          "materials"
+        ],
+        "title": "CourseView",
+        "type": "object"
+      },
       "Credential": {
         "description": "What the Hub tells about a credential: never the secret itself.",
         "properties": {
@@ -975,6 +1117,81 @@
         "title": "GoalUpdate",
         "type": "object"
       },
+      "GpaView": {
+        "properties": {
+          "courses": {
+            "items": {
+              "$ref": "#/components/schemas/CourseView"
+            },
+            "title": "Courses",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "gpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpa"
+          },
+          "gpa_note": {
+            "title": "Gpa Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "courses",
+          "gpa",
+          "gpa_note",
+          "generated_at"
+        ],
+        "title": "GpaView",
+        "type": "object"
+      },
+      "GradeLine": {
+        "description": "What the work not graded yet needs, on average, for the whole course to reach `target`.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "needed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needed"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "target",
+          "needed",
+          "status"
+        ],
+        "title": "GradeLine",
+        "type": "object"
+      },
       "GroupKind": {
         "enum": [
           "due_soon",
@@ -989,6 +1206,56 @@
         ],
         "title": "GroupKind",
         "type": "string"
+      },
+      "GroupStatus": {
+        "properties": {
+          "earned": {
+            "title": "Earned",
+            "type": "number"
+          },
+          "graded": {
+            "title": "Graded",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "possible": {
+            "title": "Possible",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight",
+          "earned",
+          "possible",
+          "percent",
+          "graded",
+          "total"
+        ],
+        "title": "GroupStatus",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1394,6 +1661,34 @@
         ],
         "title": "JobStatus",
         "type": "string"
+      },
+      "Material": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "module",
+          "kind",
+          "url"
+        ],
+        "title": "Material",
+        "type": "object"
       },
       "Memory": {
         "properties": {
@@ -3186,6 +3481,76 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WorkItem": {
+        "properties": {
+          "due": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "title",
+          "due",
+          "points",
+          "group",
+          "state",
+          "score",
+          "url"
+        ],
+        "title": "WorkItem",
+        "type": "object"
+      },
       "WorkStatus": {
         "enum": [
           "active",
@@ -4137,6 +4502,27 @@
         "summary": "Update Goal",
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/gpa": {
+      "get": {
+        "operationId": "get_gpa_gpa_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GpaView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Gpa",
+        "tags": [
+          "gpa"
         ]
       }
     },
