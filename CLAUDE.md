@@ -54,8 +54,22 @@ yourself (the user, 2026-11-11: "接下来都你自己合并", no exceptions) wi
 head commit:
 - every check in `gh pr checks <n>` passed on windows-latest and ubuntu-latest (none
   pending, failed or cancelled);
-- the `reviewer` subagent's latest verdict on that exact diff is APPROVE;
+- the `reviewer` subagent's latest verdict on that exact diff is APPROVE (or, in the
+  fast lane below, its one review's findings are all fixed);
 - the PR targets `main` (not stacked on an unmerged branch).
+
+**Fast lane (ADR 0035, the user 2026-11-11: "同意").** It applies only to a PR whose diff
+touches `apps/web/src/**`, `scripts/verify/web.py` and its own `docs/tasks/` card, and
+nothing else. So it never touches contracts, the Hub, migrations, dependencies,
+credentials, privacy, permissions, CI or rules. For such a PR:
+- the reviewer reviews once;
+- you fix every blocking and should-fix finding, re-run the gate and `verify/web.py`, and
+  merge without a second review round;
+- nits go to the next card.
+
+Before asking the user to try a page, walk the user's real task on the live Hub and look
+at a screenshot. If the diff touches anything else, the full rule above applies.
+
 This includes migrations, new dependencies, CI and rule changes. For those, the PR's
 「给 Flash 看的」 says plainly what changed, so the user can still object afterwards.
 Never use `--admin`, never delete branches when merging, never merge with a red check.
