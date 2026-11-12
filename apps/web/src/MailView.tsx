@@ -42,8 +42,10 @@ export const FILTERS: { key: MailFilter; label: string }[] = [
   { key: "action", label: "需处理" },
 ];
 
+/** Unread in the app: unread in the mailbox and not marked 已处理 here. The mailbox
+ * itself is never changed (ADR 0022); a handled mail just stops counting as unread. */
 function isUnread(row: MailRow): boolean {
-  return !(row.item.data as { seen?: boolean }).seen;
+  return !(row.item.data as { seen?: boolean }).seen && !row.handled;
 }
 
 function needsAction(row: MailRow): boolean {
@@ -52,7 +54,7 @@ function needsAction(row: MailRow): boolean {
 }
 
 function isOpen(row: MailRow): boolean {
-  return isUnread(row) && !row.handled;
+  return isUnread(row);
 }
 
 /** The rows a filter shows, still newest first. */
@@ -161,7 +163,7 @@ function MailLineView({
           {mailTitle(row)}
         </span>
         {ok && summary.action_needed && <span className="badge submission-缺交">需处理</span>}
-        {!data.seen && <span className="badge unread">未读</span>}
+        {!data.seen && !row.handled && <span className="badge unread">未读</span>}
         {row.handled && (
           <span className="badge" data-testid="mail-handled">
             {row.handled === "rule" ? "已处理·规则" : "已处理"}

@@ -576,7 +576,11 @@ def verify_summaries_view(
         )
         check(True, "one click handles the group: 未处理 2 -> 1")
         digest_line = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）The Weekly")
-        check(digest_line.get_by_test_id("mail-handled").count() == 1, "the mail shows 已处理")
+        check(
+            digest_line.get_by_test_id("mail-handled").count() == 1
+            and digest_line.locator(".badge.unread").count() == 0,
+            "the mail shows 已处理 instead of 未读",
+        )
         shot(page, out, "19-triage")
         triage.get_by_test_id("triage-undo").click()
         page.wait_for_function(
