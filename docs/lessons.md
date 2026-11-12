@@ -80,3 +80,9 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
 - 2026-11-11: `update-hub.ps1` was run from a feature branch's working tree, so the
   unreviewed version of the script ran (it still deployed origin/main correctly). Rule:
   switch to `main` (`git switch main; git pull --ff-only`) before running update-hub.ps1.
+
+- 2026-11-11: `install-always-on.ps1` defaults to `-Ref HEAD`. The user ran it while the
+  assistant's working copy was on an unmerged feature branch, so the Hub ran unreviewed
+  code for ~10 minutes until update-hub.ps1 moved it back to origin/main. Fix (next card):
+  default `-Ref` to `origin/main`. Until then, the assistant stays on `main` whenever it asks
+  the user to run the installer.

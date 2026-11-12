@@ -1,6 +1,7 @@
 # Makes the Personal OS Hub always available on this PC (ADR 0021).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\run\install-always-on.ps1 [-Ref <commit or branch>]
+#   (-Ref defaults to origin/main, fetched first)
 #
 # - Puts a separate copy of the code at -CopyDir (a git worktree, detached at -Ref), so
 #   development never disturbs the running Hub. Running this again updates that copy.
@@ -11,7 +12,8 @@
 param(
     [string]$CopyDir = "D:\dev\personal-os-run",
     [string]$DataDir = "D:\dev\personal-os-data",
-    [string]$Ref = "HEAD",
+    # The merged code by default, never whatever branch the working copy is on (T-0032).
+    [string]$Ref = "origin/main",
     # Prepare the copy and the data folder only: no scheduled task, nothing started.
     [switch]$PrepareOnly
 )
@@ -59,6 +61,10 @@ function Hub-From-Copy {
 $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
 $pnpm = (Get-Command pnpm -ErrorAction SilentlyContinue).Source
 if (-not $uv -or -not $pnpm) { Fail "uv and pnpm must be on PATH" }
+if ($Ref -like "origin/*") {
+    git -C $repo fetch --quiet origin  # a merge on GitHub does not move the local refs
+    if ($LASTEXITCODE -ne 0) { Fail "git fetch failed; check the network, or pass -Ref <commit>" }
+}
 $commit = (git -C $repo rev-parse $Ref 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not $commit) { Fail "unknown -Ref '$Ref'" }
 $commit = $commit.Trim()
