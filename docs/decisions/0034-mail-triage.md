@@ -33,6 +33,8 @@ clear the rest in batches. The mailbox stays read-only (ADR 0022).
   - Flags come from the summary fields.
   - There is no regex, OR or wildcard; ".*" matches only those two characters.
   - Domain equality also covers subdomains.
+  - A sender-domain value must name one sender: a single label or a bare suffix such as
+    `com.cn` is refused, even with `contains`.
 - **Safety:**
   - Every change is a person's click: a group button, one mail's toggle, undo, or a rule
     switch.
