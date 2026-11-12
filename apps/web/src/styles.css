@@ -694,124 +694,236 @@ ul.memories {
   margin: 0.25rem 0;
 }
 
-/* ---------- grades (成绩) ---------- */
+/* ---------- grades (成绩) ----------
+   One answer first: the GPA, then one aligned line per course. Everything else opens
+   under its line. Columns are shared by every row, so names, letters and numbers line up. */
 
-.gpa .headline {
+.gpa {
+  max-width: 880px;
+}
+
+.g-hero {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 14px;
-  margin: 0 0 16px;
+  gap: 14px;
+  margin: 4px 0 28px;
+}
+
+.g-hero strong {
+  font-size: 3.4rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-hero span {
+  color: var(--muted);
+}
+
+.g-list {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 18px 20px;
   box-shadow: var(--shadow);
-}
-
-.gpa .headline strong {
-  font-size: 1.35rem;
-  letter-spacing: -0.01em;
+  overflow: hidden;
 }
 
 .gpa-course {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  margin-bottom: 14px;
-  box-shadow: var(--shadow);
-  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.gpa-course + .gpa-course {
+  border-top: 1px solid var(--border);
 }
 
 .gpa-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  margin-bottom: 6px;
+  display: grid;
+  grid-template-columns: 9rem 3rem 5rem 1fr;
+  align-items: baseline;
+  gap: 0 16px;
+  width: 100%;
+  padding: 16px 20px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.gpa-head h2 {
-  margin: 0;
-  font-size: 1.1rem;
+.gpa-head:hover,
+.gpa-course.open .gpa-head {
+  background: var(--surface-2);
+}
+
+.g-cols,
+.g-cols:hover {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.g-cols .g-line {
+  color: inherit;
+}
+
+.g-name {
+  font-weight: 650;
 }
 
 .gpa-grade {
-  display: inline-grid;
-  place-items: center;
-  min-width: 46px;
-  height: 46px;
-  padding: 0 8px;
-  border-radius: 12px;
-  background: var(--primary-soft);
   color: var(--primary);
-  font-size: 1.35rem;
-  font-weight: 750;
-  order: -1;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.g-percent {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.g-line {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-flag {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.g-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px 40px;
+  padding: 8px 20px 22px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.g-block h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.g-block ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.g-work,
+.g-targets li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 5px 0;
+}
+
+.g-work-meta {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-targets strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-targets .g-far {
+  color: var(--faint);
 }
 
 .gpa-groups {
+  width: 100%;
   border-collapse: collapse;
-  margin: 8px 0;
-  font-size: 0.92rem;
 }
 
 .gpa-groups td {
-  padding: 4px 16px 4px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 5px 0;
 }
 
-.gpa-lines {
+.gpa-groups td:nth-child(n + 2) {
+  width: 5.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-block .gpa-notes li {
+  padding: 4px 0;
+  color: var(--warn);
+}
+
+.g-foot {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0;
-}
-
-.gpa-lines .badge {
-  white-space: normal;
-  font-weight: 500;
-}
-
-.gpa-work {
-  margin: 4px 0;
-}
-
-.gpa-notes {
-  margin: 8px 0;
-  padding: 10px 14px 10px 30px;
-  background: var(--warn-soft);
-  color: var(--warn);
-  border-radius: var(--radius-sm);
+  align-items: baseline;
+  gap: 8px 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
   font-size: 0.9rem;
 }
 
-.gpa-module {
-  margin: 8px 0;
-}
-
-.rules-card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 0;
-}
-
-.rules-body {
-  flex-basis: 100%;
-  border-left: 3px solid var(--primary-soft);
-  padding: 4px 0 4px 14px;
-}
-
-.rules {
-  list-style: none;
+.g-more {
   padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.g-more-note {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
+.rules-card,
+.g-foot > div {
+  display: contents;
+}
+
+.rules-body,
+.gpa-module {
+  flex-basis: 100%;
+}
+
+.gpa-module ul {
+  margin: 4px 0 10px;
+  padding-left: 18px;
+}
+
+.rules,
+.rules-open {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
 }
 
 .rules li {
   margin: 8px 0;
+}
+
+.rule-kind {
+  display: inline-block;
+  min-width: 3.6em;
+  color: var(--muted);
 }
 
 .rule-source {
@@ -821,10 +933,42 @@ ul.memories {
 }
 
 .rules-open {
-  background: var(--warn-soft);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  margin: 8px 0;
+  color: var(--warn);
+}
+
+.g-how {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.g-how summary {
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .gpa-head {
+    grid-template-columns: 1fr auto auto;
+  }
+
+  .g-cols {
+    display: none;
+  }
+
+  .g-line {
+    grid-column: 1 / -1;
+    color: var(--muted);
+    text-align: left;
+    font-size: 0.9rem;
+  }
+
+  .g-keep::before {
+    content: "保住等级，之后平均要 ";
+  }
+
+  .g-detail {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------- schedule (日程) ---------- */

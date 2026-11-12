@@ -364,14 +364,19 @@ def verify_canvas_view(
         check(keyring.get_password(service, key) == token, "the token is in Credential Manager")
         shot(page, out, "12-canvas")
         open_view(page, "成绩")
-        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
         card.wait_for(timeout=30_000)
-        text = card.inner_text()
+        line = card.inner_text()
         check(
-            "93.5" in text and card.locator(".gpa-grade").inner_text() == "A",
-            f"成绩 shows the Canvas score and letter ({text[:60]!r})",
+            "CIS 22A" in line
+            and "缺交 1" in line
+            and card.locator(".gpa-grade").inner_text() == "A",
+            f"成绩 is one line per course: name, letter, what is missing ({line[:60]!r})",
         )
-        check(card.get_by_test_id("gpa-missing").count() == 1, "and the missing lab")
+        card.locator(".gpa-head").click()
+        text = card.inner_text()
+        check("93.5" in text, "opening it shows the Canvas score")
+        check(card.get_by_test_id("gpa-missing").count() == 1, "opening it lists the missing lab")
         # T-0049: a syllabus rules card decides the letter; the user confirms it once.
         profile = {
             "code": "CIS D022A",
@@ -391,7 +396,8 @@ def verify_canvas_view(
         check(put.status_code == 200, f"PUT /academic/profiles -> 200 ({put.status_code})")
         open_view(page, "任务")
         open_view(page, "成绩")
-        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
+        card.locator(".gpa-head").click()
         card.get_by_test_id("rules-card").wait_for(timeout=20_000)
         head = card.locator(".gpa-head").inner_text()
         shown = float(re.search(r"(\d+(?:\.\d+)?)%", head).group(1))  # type: ignore[union-attr]
@@ -421,7 +427,8 @@ def verify_canvas_view(
         check(put.status_code == 200, f"the profile takes own categories ({put.status_code})")
         open_view(page, "任务")
         open_view(page, "成绩")
-        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
+        card.locator(".gpa-head").click()
         card.get_by_text("按大纲的类别加权").wait_for(timeout=20_000)
         text = card.inner_text()
         check(
@@ -538,8 +545,9 @@ def verify_canvas_view(
         page.set_viewport_size({"width": 1200, "height": 800})
         shot(page, out, "27-exam-map")
         open_view(page, "成绩")
-        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
         card.wait_for(timeout=20_000)
+        card.locator(".gpa-head").click()
         card.get_by_text("课件").click()
         check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
         shot(page, out, "21-gpa")
