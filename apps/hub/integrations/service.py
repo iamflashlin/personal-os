@@ -7,6 +7,7 @@ returned is an upsert keyed by (integration, item type, external id).
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -192,6 +193,42 @@ def item_index(
 
 
 ITEMS_PER_QUERY = 500  # well under SQLite's bound-parameter limit
+
+
+@dataclass(frozen=True)
+class ItemHead:
+    """An item without its body: enough to search thousands of mails per question."""
+
+    id: str
+    received: datetime | None
+    changed: datetime
+    subject: str
+    sender: str  # "Name <address>"
+
+
+def item_heads(session: Session, actor: Actor, item_type: str) -> list[ItemHead]:
+    query = (
+        select(
+            SyncedItemRow.id,
+            SyncedItemRow.starts_at,
+            SyncedItemRow.updated_at,
+            SyncedItemRow.title,
+            SyncedItemRow.data,
+        )
+        .join(IntegrationRow, IntegrationRow.id == SyncedItemRow.integration_id)
+        .where(
+            IntegrationRow.owner_id == actor.owner_id,
+            SyncedItemRow.owner_id == actor.owner_id,
+            SyncedItemRow.item_type == item_type,
+        )
+    )
+    heads: list[ItemHead] = []
+    for id_, starts_at, updated_at, title, data in session.execute(query):
+        data = data or {}
+        name, address = str(data.get("from_name") or ""), str(data.get("from_address") or "")
+        sender = f"{name} <{address}>" if name and address else (name or address)
+        heads.append(ItemHead(id_, starts_at, updated_at, title or "", sender))
+    return heads
 
 
 def items_by_id(session: Session, actor: Actor, ids: list[str]) -> dict[str, SyncedItem]:

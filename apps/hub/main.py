@@ -14,6 +14,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from apps.hub.actions import api as actions_api
 from apps.hub.actions import service as actions
 from apps.hub.briefing import api as briefing_api
+from apps.hub.chat import api as chat_api
 from apps.hub.core.db import make_engine, upgrade_to_head
 from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
@@ -179,6 +180,7 @@ def create_app(
     app.include_router(briefing_api.build_router())
     app.include_router(models_api.build_router())
     app.include_router(summaries_api.build_router())
+    app.include_router(chat_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
         # method on an API path therefore falls through to here and gets 404, not 405.

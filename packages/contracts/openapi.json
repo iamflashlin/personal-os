@@ -201,6 +201,109 @@
         "title": "AgentStatus",
         "type": "object"
       },
+      "ChatAnswer": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "cited": {
+            "items": {
+              "$ref": "#/components/schemas/CitedMail"
+            },
+            "title": "Cited",
+            "type": "array"
+          },
+          "considered": {
+            "title": "Considered",
+            "type": "integer"
+          },
+          "unsummarised": {
+            "title": "Unsummarised",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "answer",
+          "cited",
+          "considered",
+          "unsummarised"
+        ],
+        "title": "ChatAnswer",
+        "type": "object"
+      },
+      "ChatAsk": {
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChatTurn"
+            },
+            "maxItems": 6,
+            "title": "History",
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "time_zone": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "ChatAsk",
+        "type": "object"
+      },
+      "ChatTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "text"
+        ],
+        "title": "ChatTurn",
+        "type": "object"
+      },
+      "CitedMail": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/SyncedItem"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EmailSummary"
+          }
+        },
+        "required": [
+          "item",
+          "summary"
+        ],
+        "title": "CitedMail",
+        "type": "object"
+      },
       "Credential": {
         "description": "What the Hub tells about a credential: never the secret itself.",
         "properties": {
@@ -3006,6 +3109,47 @@
         "summary": "Agent Status",
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/chat/ask": {
+      "post": {
+        "operationId": "ask_mail_chat_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Mail",
+        "tags": [
+          "chat"
         ]
       }
     },

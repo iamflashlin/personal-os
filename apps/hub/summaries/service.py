@@ -478,6 +478,17 @@ def status(
     )
 
 
+def ok_summaries(session: Session, actor: Actor) -> list[EmailSummary]:
+    """Every finished summary of this owner (one query; no item-id list to bind)."""
+    rows = session.scalars(
+        select(EmailSummaryRow).where(
+            EmailSummaryRow.owner_id == actor.owner_id,
+            EmailSummaryRow.status == SummaryStatus.ok.value,
+        )
+    )
+    return [_read(r) for r in rows]
+
+
 def count(session: Session, actor: Actor, status_: SummaryStatus) -> int:
     return int(
         session.scalar(
