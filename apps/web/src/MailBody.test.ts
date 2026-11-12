@@ -21,4 +21,20 @@ describe("MailBody", () => {
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(html).not.toContain('href="javascript');
   });
+
+  it("keeps Chinese text after a link, and links with --- whole", () => {
+    const html = renderToStaticMarkup(
+      createElement(MailBody, { body: "详情 https://a.com/x请在周五前提交 https://b.com/post---title。" }),
+    );
+    expect(html).toContain('href="https://a.com/x"');
+    expect(html).toContain("请在周五前提交");
+    expect(html).toContain('href="https://b.com/post---title"');
+    expect(paragraphs("a --- b")).toEqual(["a", "b"]);
+  });
+
+  it("turns a malformed address into plain text, not a link", () => {
+    const html = renderToStaticMarkup(createElement(MailBody, { body: "see https://[bad here" }));
+    expect(html).not.toContain("<a");
+    expect(html).toContain("https://[bad");
+  });
 });

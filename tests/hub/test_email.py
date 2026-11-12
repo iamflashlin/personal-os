@@ -631,4 +631,5 @@ def test_mail_text_keeps_its_paragraphs() -> None:
     )
     text = imap_module._text_of(rich)
     assert text.splitlines()[:2] == ["Hello", "world"] and "Second para" in text
+    assert "\n\nSecond para" in text  # a closed <div> or <p> starts a new paragraph
     assert "x()" not in text

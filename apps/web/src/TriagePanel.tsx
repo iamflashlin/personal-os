@@ -71,7 +71,13 @@ export function TriagePanel({
                 <ul className="memories triage-mails" data-testid="triage-mails">
                   {(expanded[g.key] ? g.item_ids : g.item_ids.slice(0, PREVIEW)).map((id) => {
                     const row = rows.get(id);
-                    return row ? <MailLine key={id} row={row} onHandled={onHandled} /> : null;
+                    return row ? (
+                      <MailLine key={id} row={row} onHandled={onHandled} />
+                    ) : (
+                      <li key={id} className="muted">
+                        （这封邮件不在当前列表里）
+                      </li>
+                    );
                   })}
                 </ul>
                 {g.count > PREVIEW && (

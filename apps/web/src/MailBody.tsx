@@ -1,10 +1,13 @@
 import { Fragment, type ReactNode } from "react";
 import { safeLink } from "./ConnectionsView";
 
-const URL_RE = /https?:\/\/[^\s<>"']+/g;
+// ASCII URL characters only: Chinese mail often runs text straight after a link
+// ("https://a.com/x请在周五前提交"), which must stay visible (as in summaries' _LONG_URL).
+const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&*+,;=%()]+/g;
 // Lines of ___ / --- / === (3+) separate a mail's footer; older stored mail lost its line
 // breaks, so these are the only paragraph marks left in it.
-const RULE_RE = /\s*[_\-=]{3,}\s*/g;
+// Only a rule standing on its own: "post---title" inside a link is not a separator.
+const RULE_RE = /(?:^|\s)[_\-=]{3,}(?=\s|$)/g;
 
 /** Paragraphs of a mail body: its own blank lines, plus breaks at separator rules. */
 export function paragraphs(body: string): string[] {
@@ -30,7 +33,8 @@ export function linkify(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
-    const raw = m[0].replace(/[).,;:!?，。；]+$/, "");
+    let raw = m[0].replace(/[.,;:!?]+$/, "");
+    if (raw.endsWith(")") && !raw.includes("(")) raw = raw.slice(0, -1);
     const at = m.index ?? 0;
     out.push(text.slice(last, at));
     const link = safeLink(raw);
