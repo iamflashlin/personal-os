@@ -10,6 +10,7 @@ import {
   type TriageView,
 } from "./api";
 import { browserZone } from "./TodayView";
+import { MailBody } from "./MailBody";
 import { TriagePanel } from "./TriagePanel";
 import { SUMMARY_LABEL } from "./Summary";
 
@@ -127,7 +128,7 @@ export function MailDetail({ row }: { row: MailRow }) {
         <summary className="muted">
           原文 · {data.from_name || data.from_address || ""} · {item.title}
         </summary>
-        <p className="original">{item.body}</p>
+        <MailBody body={item.body} />
       </details>
     </div>
   );
@@ -298,7 +299,7 @@ export function MailView({ api }: { api: Api }) {
     await reload();
     setActing(false);
   }
-  const titles = new Map(rows.map((r) => [r.item.id, mailTitle(r)]));
+  const byId = new Map(rows.map((r) => [r.item.id, r]));
   const counts = countMail(rows);
   const capped = rowsCapped.current;
   const shown = filterMail(rows, filter);
@@ -311,7 +312,8 @@ export function MailView({ api }: { api: Api }) {
       {triage && (
         <TriagePanel
           view={triage}
-          titles={titles}
+          rows={byId}
+          onHandled={onHandled}
           busy={acting}
           onHandle={(g: TriageGroup, saveRule: boolean) =>
             void act(() => api.handleMail(g.item_ids, g.key, saveRule))

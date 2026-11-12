@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { TriageGroup, TriageView } from "./api";
+import { MailLine, type MailRow } from "./MailView";
 
-const PREVIEW = 3;
+const PREVIEW = 3; // mails shown in a group before 「展开全部」
 
 /** Groups worth a click first: the ones that ask something of the user come first. */
 export function groupHint(g: TriageGroup): string {
@@ -13,14 +14,16 @@ export function groupHint(g: TriageGroup): string {
 
 export function TriagePanel({
   view,
-  titles,
+  rows,
+  onHandled,
   busy,
   onHandle,
   onUndo,
   onRule,
 }: {
   view: TriageView;
-  titles: Map<string, string>;
+  rows: Map<string, MailRow>;
+  onHandled: (itemId: string, handled: boolean) => void;
   busy: boolean;
   onHandle: (group: TriageGroup, saveRule: boolean) => void;
   onUndo: (batchId: string) => void;
@@ -28,13 +31,19 @@ export function TriagePanel({
 }) {
   const [open, setOpen] = useState(false);
   const [saveRule, setSaveRule] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const lastApplied = view.recent.find((b) => b.status === "applied");
   return (
     <section className="triage" data-testid="triage">
       <div className="triage-head">
         <strong data-testid="triage-open">未处理 {view.open_count} 封</strong>
         <span className="muted">（未读 {view.unread_count} 封）</span>
-        <button type="button" data-testid="triage-toggle" onClick={() => setOpen((v) => !v)}>
+        <button
+          type="button"
+          data-testid="triage-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
           {open ? "收起整理" : "帮我整理"}
         </button>
         {lastApplied && (
@@ -58,12 +67,30 @@ export function TriagePanel({
                   <strong>{g.label}</strong> <span className="badge">{g.count} 封</span>
                 </div>
                 {groupHint(g) && <p className="muted">{groupHint(g)}</p>}
-                <ul className="triage-preview">
-                  {g.item_ids.slice(0, PREVIEW).map((id) => (
-                    <li key={id}>{titles.get(id) ?? "（邮件）"}</li>
-                  ))}
-                  {g.count > PREVIEW && <li className="muted">…还有 {g.count - PREVIEW} 封</li>}
+                {/* The group's own mails, each opens like in the list below. */}
+                <ul className="memories triage-mails" data-testid="triage-mails">
+                  {(expanded[g.key] ? g.item_ids : g.item_ids.slice(0, PREVIEW)).map((id) => {
+                    const row = rows.get(id);
+                    return row ? (
+                      <MailLine key={id} row={row} onHandled={onHandled} />
+                    ) : (
+                      <li key={id} className="muted">
+                        （这封邮件不在当前列表里）
+                      </li>
+                    );
+                  })}
                 </ul>
+                {g.count > PREVIEW && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    data-testid="triage-expand"
+                    aria-expanded={!!expanded[g.key]}
+                    onClick={() => setExpanded((e) => ({ ...e, [g.key]: !e[g.key] }))}
+                  >
+                    {expanded[g.key] ? "收起" : `展开全部 ${g.count} 封`}
+                  </button>
+                )}
                 <div className="triage-actions">
                   <button
                     type="button"
@@ -79,6 +106,7 @@ export function TriagePanel({
                         type="checkbox"
                         data-testid="triage-save-rule"
                         checked={!!saveRule[g.key]}
+                        disabled={busy}
                         onChange={(e) => setSaveRule((s) => ({ ...s, [g.key]: e.target.checked }))}
                       />
                       以后也这样（{g.rule_description}）

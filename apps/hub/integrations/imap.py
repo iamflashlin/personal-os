@@ -88,6 +88,12 @@ def _decode(value: Any) -> str:
     return _clean(value).replace("\r", " ").replace("\n", " ").strip()
 
 
+_LINE_END = re.compile(
+    r"<\s*(br|/\s*(tr|li|td|h[1-6]|ul|ol|blockquote|section))\b[^>]*>", re.IGNORECASE
+)
+_PARA_END = re.compile(r"<\s*/\s*(p|div|table)\b[^>]*>", re.IGNORECASE)
+
+
 def _text_of(msg: EmailMessage) -> str:
     part = msg.get_body(preferencelist=("plain", "html"))
     if part is None:
@@ -101,8 +107,17 @@ def _text_of(msg: EmailMessage) -> str:
     if part.get_content_subtype() == "html":
         content = content[:MAX_HTML_CHARS]  # only MAX_BODY characters are kept anyway
         content = re.sub(r"<(script|style)\b[^>]*>.*?</\1\s*>", " ", content, flags=re.I | re.S)
+        # Block tags end a line, so the text keeps its paragraphs (T-0037).
+        content = _PARA_END.sub("\n\n", _LINE_END.sub("\n", content))
         content = html.unescape(re.sub(r"<[^>]+>", " ", content))
-    return re.sub(r"\s+", " ", content).strip()[:MAX_BODY]
+    return _keep_lines(content)[:MAX_BODY]
+
+
+def _keep_lines(text: str) -> str:
+    """Spaces inside a line collapsed, at most one blank line between paragraphs."""
+    lines = [re.sub(r"[^\S\n]+", " ", line).strip() for line in text.splitlines()]
+    joined = "\n".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", joined).strip()
 
 
 @dataclass(frozen=True)

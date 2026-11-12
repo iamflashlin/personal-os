@@ -562,6 +562,14 @@ def verify_summaries_view(
         triage.get_by_test_id("triage-toggle").click()
         news = triage.get_by_test_id("triage-group").filter(has_text="The Weekly")
         check(news.count() == 1, "帮我整理 shows the newsletter in a group")
+        news.get_by_test_id("mail-line").locator(".mail-head").click()
+        check(news.get_by_test_id("mail-detail").count() == 1, "a mail inside a group opens")
+        news.get_by_test_id("mail-original").locator("summary").click()
+        body = news.get_by_test_id("mail-body")
+        check(
+            body.is_visible() and "Campus news" in body.inner_text(),
+            "and its original text can be read there",
+        )
         news.get_by_test_id("triage-handle").click()
         page.wait_for_function(
             "document.querySelector('[data-testid=triage-open]').innerText.includes('未处理 1 封')"

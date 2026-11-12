@@ -44,7 +44,8 @@ describe("TriagePanel", () => {
     const html = renderToStaticMarkup(
       createElement(TriagePanel, {
         view,
-        titles: new Map(),
+        rows: new Map(),
+        onHandled: () => {},
         busy: false,
         onHandle: () => {},
         onUndo: () => {},
