@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { type Api, ApiError, type CourseGpa, type GpaView as Gpa, type WorkItem } from "./api";
+import {
+  type Api,
+  ApiError,
+  type CourseGpa,
+  type CourseProfile,
+  type GpaView as Gpa,
+  type WorkItem,
+} from "./api";
 import { safeLink } from "./ConnectionsView";
 
 const STATE_LABEL: Record<string, string> = {
@@ -66,17 +73,113 @@ export function byModule(c: CourseGpa): [string, CourseGpa["materials"]][] {
   return [...groups.entries()];
 }
 
-function Course({ c }: { c: CourseGpa }) {
+export const RULE_KIND: Record<string, string> = {
+  grading: "评分",
+  late: "迟交",
+  makeup: "补考",
+  exam: "考试",
+  gate: "硬门槛",
+  integrity: "诚信",
+  other: "其他",
+};
+
+export const BASIS: Record<string, string> = {
+  syllabus: "按大纲的权重算",
+  canvas: "Canvas 的当前分",
+  none: "还没有成绩",
+};
+
+function RulesCard({
+  p,
+  onConfirm,
+}: {
+  p: CourseProfile;
+  onConfirm: (p: CourseProfile) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rules-card" data-testid="rules-card">
+      <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {open ? "收起规则卡" : `规则卡（${p.rules.length} 条，来自大纲）`}
+      </button>
+      {p.confirmed_at ? (
+        <span className="badge ok">已确认</span>
+      ) : (
+        <span className="badge warn">待你确认</span>
+      )}
+      {open && (
+        <div className="rules-body">
+          <p className="muted">
+            {p.units !== null && `${p.units} 学分（${p.units_source}）`}
+            <br />
+            分数线：{p.scale.map((b) => `${b.letter} ≥${b.min}`).join("　")}（{p.scale_source}）
+          </p>
+          {p.categories.length > 0 && (
+            <p className="muted">
+              按大纲的类别算：{p.categories.map((c) => `${c.name} ${c.weight}%`).join("、")}
+            </p>
+          )}
+          <ul className="rules">
+            {p.rules.map((r, i) => (
+              <li key={`${i}-${r.kind}`}>
+                <span className={`badge rule-${r.kind}`}>{RULE_KIND[r.kind] ?? r.kind}</span> {r.text}
+                {r.source && <div className="rule-source">原文：{r.source}</div>}
+              </li>
+            ))}
+          </ul>
+          {p.open_questions.length > 0 && (
+            <div className="rules-open">
+              <strong>待确认</strong>
+              <ul>
+                {p.open_questions.map((q, i) => (
+                  <li key={`${i}-${q.slice(0, 20)}`}>{q}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="muted">来源：{p.syllabus_source}</p>
+          {!p.confirmed_at && (
+            <button type="button" onClick={() => onConfirm(p)}>
+              我对照过大纲，没问题
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Course({
+  c,
+  profile,
+  onConfirm,
+}: {
+  c: CourseGpa;
+  profile?: CourseProfile;
+  onConfirm: (p: CourseProfile) => void;
+}) {
   const [showMaterials, setShowMaterials] = useState(false);
   const done = c.completion;
   return (
     <section className="gpa-course" data-testid="gpa-course">
       <div className="gpa-head">
         <h2>{c.code}</h2>
-        <strong className="gpa-grade">{c.current_grade || "—"}</strong>
-        <span>{c.current_score !== null ? `${c.current_score}%` : "还没有成绩"}</span>
-        <span className="muted">{c.name}</span>
+        <strong className="gpa-grade">{c.letter || "—"}</strong>
+        <span>{c.percent !== null ? `${c.percent}%` : "还没有成绩"}</span>
+        <span className="muted">
+          {BASIS[c.basis] ?? c.basis}
+          {c.units !== null && ` · ${c.units} 学分`}
+          {c.letter_source === "syllabus" ? " · 等级按大纲分数线" : ""}
+        </span>
       </div>
+      {c.notes.length > 0 && (
+        <ul className="gpa-notes" data-testid="gpa-notes">
+          {c.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      {profile && <RulesCard p={profile} onConfirm={onConfirm} />}
       <p className="muted">
         作业完成 {done.done}/{done.due_so_far}
         {done.missing > 0 && `，缺交 ${done.missing}`}
@@ -174,10 +277,13 @@ function Course({ c }: { c: CourseGpa }) {
 
 export function GpaView({ api }: { api: Api }) {
   const [view, setView] = useState<Gpa | null>(null);
+  const [profiles, setProfiles] = useState<CourseProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      setView(await api.gpa());
+      const [gpa, ps] = await Promise.all([api.gpa(), api.profiles()]);
+      setView(gpa);
+      setProfiles(ps);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? `（${err.status}）${err.detail}` : String(err));
@@ -200,13 +306,27 @@ export function GpaView({ api }: { api: Api }) {
     <div className="gpa" data-testid="gpa">
       <p className="headline">
         <strong>本学期 GPA 估算：{view.gpa !== null ? view.gpa.toFixed(2) : "—"}</strong>
-        <span className="muted"> {view.gpa_note}</span>
+        <span className="muted">
+          {" "}
+          {view.gpa_weighted && view.units_total !== null && `（共 ${view.units_total} 学分）`}
+          {view.gpa_note}
+        </span>
       </p>
       <p className="muted">
-        分数是 Canvas 的“当前分”（只算已评分的作业）。“剩下的平均要多少”是估算：缺交的作业按 0 分算，分数线（A 90% 等）是常见标准，以教学大纲为准。
+        有规则卡的课按大纲的分数线和权重算；只算已评分的作业，缺交的按 0 分。“剩下的平均要多少”是估算。
       </p>
       {view.courses.map((c) => (
-        <Course key={c.integration_item_id} c={c} />
+        <Course
+          key={c.integration_item_id}
+          c={c}
+          profile={profiles.find((p) => p.code === c.code)}
+          onConfirm={(p) =>
+            void api
+              .confirmProfile(p.code, p.version)
+              .then(load)
+              .catch((err) => setError(err instanceof ApiError ? err.detail : String(err)))
+          }
+        />
       ))}
     </div>
   );

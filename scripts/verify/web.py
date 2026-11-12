@@ -16,6 +16,7 @@ import argparse
 import contextlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -371,6 +372,44 @@ def verify_canvas_view(
             f"成绩 shows the Canvas score and letter ({text[:60]!r})",
         )
         check(card.get_by_test_id("gpa-missing").count() == 1, "and the missing lab")
+        # T-0049: a syllabus rules card decides the letter; the user confirms it once.
+        profile = {
+            "code": "CIS D022A",
+            "units": 4.5,
+            "units_source": "syllabus",
+            "scale": [
+                {"letter": "A", "min": 94},
+                {"letter": "A-", "min": 90},
+                {"letter": "F", "min": 0},
+            ],
+            "scale_source": "syllabus",
+            "rules": [{"kind": "late", "text": "作业不收迟交", "source": "No late work."}],
+            "open_questions": ["分数线请向老师确认"],
+            "syllabus_source": "verify",
+        }
+        put = api.put("/academic/profiles/CIS D022A", json={"fields": profile, "version": None})
+        check(put.status_code == 200, f"PUT /academic/profiles -> 200 ({put.status_code})")
+        open_view(page, "任务")
+        open_view(page, "成绩")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card.get_by_test_id("rules-card").wait_for(timeout=20_000)
+        head = card.locator(".gpa-head").inner_text()
+        shown = float(re.search(r"(\d+(?:\.\d+)?)%", head).group(1))  # type: ignore[union-attr]
+        expected = "A" if shown >= 94 else "A-" if shown >= 90 else "F"
+        check(
+            card.locator(".gpa-grade").inner_text() == expected,
+            f"the syllabus scale decides the letter ({shown}% is {expected} on it)",
+        )
+        check("缺交算成 0" in card.inner_text(), "Canvas leaving the missing lab out is said")
+        check("Canvas 显示 A" in card.inner_text(), "and the Canvas disagreement is said")
+        check("4.5 学分" in card.inner_text(), "the units show")
+        rules = card.get_by_test_id("rules-card")
+        check(rules.get_by_text("待你确认").count() == 1, "the rules card waits for the user")
+        rules.get_by_role("button", name="规则卡", exact=False).click()
+        check("No late work." in rules.inner_text(), "each rule shows its syllabus words")
+        rules.get_by_role("button", name="我对照过大纲，没问题").click()
+        rules.get_by_text("已确认").wait_for(timeout=10_000)
+        check(True, "confirming marks it 已确认")
         card.get_by_text("课件").click()
         check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
         shot(page, out, "21-gpa")
