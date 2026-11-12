@@ -350,6 +350,45 @@ export interface GpaView {
   generated_at: string;
 }
 
+/** The schedule (ADR 0038). */
+export type EventKind = "class" | "activity" | "workout" | "task" | "exam" | "other";
+
+export interface NewEvent {
+  title: string;
+  kind: EventKind;
+  starts_at: string;
+  ends_at: string;
+  all_day?: boolean;
+  location?: string;
+  notes?: string;
+  repeat_days?: string[];
+  repeat_until?: string | null;
+}
+
+export interface AgendaEntry {
+  key: string;
+  title: string;
+  kind: string;
+  starts_at: string;
+  ends_at: string | null;
+  all_day: boolean;
+  location: string;
+  source: "manual" | "calendar" | "canvas";
+  event_id: string | null;
+  url: string;
+  blocks: boolean;
+  conflict: boolean;
+}
+
+export interface Agenda {
+  start: string;
+  end: string;
+  time_zone: string;
+  entries: AgendaEntry[];
+  free: { starts_at: string; ends_at: string; minutes: number }[];
+  day_window: [number, number];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -522,6 +561,15 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
     gpa: () => call<GpaView>("/gpa"),
+    agenda: (start: string, end: string, timeZone: string) =>
+      call<Agenda>(`/schedule?${new URLSearchParams({ start, end, time_zone: timeZone })}`),
+    createEvent: (event: NewEvent, timeZone: string) =>
+      call<{ id: string }>(`/schedule/events?${new URLSearchParams({ time_zone: timeZone })}`, {
+        method: "POST",
+        body: JSON.stringify(event),
+      }),
+    deleteEvent: (id: string) =>
+      call<void>(`/schedule/events/${encodeURIComponent(id)}`, { method: "DELETE" }),
     triage: (timeZone: string) =>
       call<TriageView>(`/triage?${new URLSearchParams({ time_zone: timeZone })}`),
     handleMail: (itemIds: string[], groupKey = "", saveRule = false) =>

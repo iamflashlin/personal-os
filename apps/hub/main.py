@@ -31,6 +31,7 @@ from apps.hub.jobs.worker import JobWorker
 from apps.hub.memory import api as memory_api
 from apps.hub.models import api as models_api
 from apps.hub.models import service as models
+from apps.hub.schedule import api as schedule_api
 from apps.hub.summaries import api as summaries_api
 from apps.hub.summaries import service as summaries
 from apps.hub.system import service as system
@@ -184,6 +185,7 @@ def create_app(
     app.include_router(summaries_api.build_router())
     app.include_router(chat_api.build_router())
     app.include_router(gpa_api.build_router())
+    app.include_router(schedule_api.build_router())
     app.include_router(triage_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong

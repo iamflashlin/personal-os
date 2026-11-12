@@ -673,6 +673,44 @@ def verify_summaries_view(
                 keyring.delete_password(service, f"{owner}:{cred}")
 
 
+def verify_schedule_view(page: Page, out: Path) -> None:
+    """T-0043: add a weekly class and a clashing workout on 日程, see both, then delete."""
+    open_view(page, "日程")
+    view = page.get_by_test_id("schedule")
+    view.get_by_test_id("sched-add").click()
+    form = page.get_by_role("form", name="添加日程")
+    now = datetime.now()
+    day = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    if day.weekday() == 6:  # a Sunday: use the Saturday before, still this Monday-first week
+        day -= timedelta(days=1)
+    code = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][day.weekday()]
+    form.get_by_label("名称").fill("CIS 22A 上课")
+    form.get_by_label("类型").select_option("class")
+    form.get_by_label("开始").fill(day.strftime("%Y-%m-%dT%H:%M"))
+    form.get_by_label("结束").fill((day + timedelta(minutes=110)).strftime("%Y-%m-%dT%H:%M"))
+    form.get_by_label(f"周{'一二三四五六日'[day.weekday()]}").check()
+    form.get_by_role("button", name="保存").click()
+    view.get_by_text("CIS 22A 上课").first.wait_for(timeout=20_000)
+    check(True, f"a weekly class shows on 日程 ({code})")
+    view.get_by_test_id("sched-add").click()
+    form = page.get_by_role("form", name="添加日程")
+    form.get_by_label("名称").fill("健身")
+    form.get_by_label("类型").select_option("workout")
+    clash = day + timedelta(minutes=60)
+    form.get_by_label("开始").fill(clash.strftime("%Y-%m-%dT%H:%M"))
+    form.get_by_label("结束").fill((clash + timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M"))
+    form.get_by_role("button", name="保存").click()
+    view.get_by_text("健身").first.wait_for(timeout=20_000)
+    check(view.get_by_test_id("sched-conflict").count() == 2, "the clash is marked on both")
+    check(view.get_by_text("空闲：").count() >= 1, "free time is listed")
+    shot(page, out, "22-schedule")
+    for title in ("健身", "CIS 22A 上课"):
+        entry = view.get_by_test_id("sched-entry").filter(has_text=title).first
+        entry.get_by_role("button", name="删除").click()
+        view.get_by_test_id("sched-entry").filter(has_text=title).first.wait_for(state="detached")
+    check(view.get_by_test_id("sched-entry").count() == 0, "both are deleted again")
+
+
 def open_view(page: Page, name: str) -> None:
     page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
 
@@ -772,6 +810,7 @@ def run(out: Path, headed: bool) -> None:
             verify_canvas_view(page, api, out, service, hub_log)
             verify_email_view(page, api, out, service, hub_log)
             verify_summaries_view(page, api, out, service, hub_log, errors)
+            verify_schedule_view(page, out)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 
