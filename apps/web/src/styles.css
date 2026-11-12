@@ -349,8 +349,13 @@ input.masked {
 }
 
 .mail-detail .original {
-  white-space: pre-wrap;
   font-size: 0.9rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.mail-detail .original p {
+  margin: 0 0 0.6rem;
 }
 
 .chat-form {
@@ -413,10 +418,16 @@ input.masked {
   padding: 0.5rem 0;
 }
 
-.triage-preview {
+.triage-mails {
   margin: 0.25rem 0;
-  padding-left: 1.25rem;
-  overflow-wrap: anywhere;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  cursor: pointer;
 }
 
 .triage-actions {

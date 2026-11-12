@@ -617,3 +617,18 @@ def test_a_long_reread_never_adds_a_duplicate_note(monkeypatch: pytest.MonkeyPat
         assert cursor["backfill_done"] is True and "reread_upto" not in cursor
     finally:
         server.close()
+
+
+def test_mail_text_keeps_its_paragraphs() -> None:
+    plain = EmailMessage()
+    plain["Subject"] = "p"
+    plain.set_content("第一段  第一行\n第一段 第二行\n\n\n\n第二段")
+    assert imap_module._text_of(plain) == "第一段 第一行\n第一段 第二行\n\n第二段"
+    rich = EmailMessage()
+    rich["Subject"] = "h"
+    rich.set_content(
+        "<div>Hello<br>world</div><p>Second&nbsp;para</p><script>x()</script>", subtype="html"
+    )
+    text = imap_module._text_of(rich)
+    assert text.splitlines()[:2] == ["Hello", "world"] and "Second para" in text
+    assert "x()" not in text
