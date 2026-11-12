@@ -90,6 +90,14 @@ class Evidence(BaseModel):
     url: str
 
 
+class Resource(BaseModel):
+    """A Canvas module item for a section or an exam (the teacher's link)."""
+
+    title: str
+    kind: str  # File | Page | ExternalUrl | ExternalTool
+    url: str
+
+
 class MasteryView(BaseModel):
     state: MasteryState
     source: Literal["user", "quiz", "none"]  # set by the user, inferred from scores, or no data
@@ -109,6 +117,7 @@ class ConceptView(BaseModel):
     prereq_origin: Origin
     origin: Origin
     assessments: list[Evidence]  # only for sections
+    resources: list[Resource]  # the teacher's per-section items (e.g. "Math1A-Sec3.4")
     mastery: MasteryView | None  # only for sections and concepts
 
 
@@ -120,6 +129,7 @@ class ExamView(BaseModel):
     scope_source: str
     review: str
     review_url: str
+    resources: list[Resource]  # module items named after the exam (review, solution)
     grade: Evidence | None  # the exam's own Canvas assignment, once graded
 
 

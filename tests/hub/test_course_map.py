@@ -68,6 +68,18 @@ def seed(engine: Engine) -> None:
     iid = canvas(engine)
     item(engine, iid, "canvas_course", "c", CODE, course_code=CODE, weighted=True, groups=[])
     item(engine, iid, "canvas_material", "m1", "Notes.pdf", course_code=CODE, kind="File")
+    item(
+        engine, iid, "canvas_material", "m2", "Math1A-Sec3.4", course_code=CODE, kind="ExternalUrl"
+    )
+    item(
+        engine,
+        iid,
+        "canvas_material",
+        "m3",
+        "Math 1A Exam 2 Review Solution",
+        course_code=CODE,
+        kind="ExternalUrl",
+    )
     past = NOW - timedelta(days=5)
     for ext, title, pts, score in [
         ("q1", "[Canvas] Quiz #2 (3.1 to 3.3)", 10, 9.5),  # 95%: 3.1 and 3.3
@@ -108,6 +120,8 @@ def test_put_and_read_a_map_with_links_and_inferred_mastery(hub) -> None:
     by = {c["key"]: c for c in m["concepts"]}
     assert by["3.4"]["material_url"] == "https://c/m1" and by["3.4"]["page"] == 31
     assert [a["title"] for a in by["3.3"]["assessments"]] == ["[Canvas] Quiz #2 (3.1 to 3.3)"]
+    assert [r["title"] for r in by["3.4"]["resources"]] == ["Math1A-Sec3.4"]  # the teacher's link
+    assert by["3.3"]["resources"] == []
     assert by["3.3"]["mastery"] == {
         "state": "verified",
         "source": "quiz",
@@ -125,6 +139,7 @@ def test_put_and_read_a_map_with_links_and_inferred_mastery(hub) -> None:
     assert by["ch3"]["mastery"] is None and by["3.5"]["prereq_origin"] == "ai"
     exam = next(e for e in m["exams"] if e["name"] == "Exam 2")
     assert exam["days_left"] == 3 and exam["grade"]["title"] == "[In-person] Exam 2"
+    assert [r["title"] for r in exam["resources"]] == ["Math 1A Exam 2 Review Solution"]
     assert all("Exam 2" not in a["title"] for c in m["concepts"] for a in c["assessments"])
     final = next(e for e in m["exams"] if e["name"] == "Final")
     assert final["scope"] == ["2.3", "3.1", "3.3", "3.4", "3.5", "3.11"]  # chapters expanded

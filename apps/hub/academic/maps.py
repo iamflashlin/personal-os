@@ -31,6 +31,7 @@ from packages.contracts.course_map import (
     MapIn,
     MasteryView,
     MasteryWrite,
+    Resource,
 )
 from packages.contracts.integrations import SyncedItem
 
@@ -138,6 +139,16 @@ def _mastery(key: str, rows: dict[str, ConceptMasteryRow], evidence: list[Eviden
     return MasteryView(state=state, source="quiz", note=note, updated_at=None)
 
 
+def _spaced(title: str) -> str:
+    """'Math1A-Sec3.9(part1)' -> 'Math1A-Sec 3.9 (part1)': lets the section pattern see
+    numbers glued to letters."""
+    return re.sub(r"(\d+\.\d+)", r" \1 ", title)
+
+
+def _title_key(title: str) -> str:
+    return " ".join(title.casefold().replace("#", " ").split())
+
+
 def _material_url(materials: list[SyncedItem], name: str) -> str:
     if not name:
         return ""
@@ -160,6 +171,11 @@ def _build(
     materials = _canvas(session, actor, "canvas_material", row.code)
     exam_titles = [title_pattern(e.match) for e in exams if e.match]
     linked: dict[str, list[Evidence]] = {k: [] for k in order}
+    resources: dict[str, list[Resource]] = {k: [] for k in order}
+    for m in materials:
+        res = Resource(title=m.title, kind=str(m.data.get("kind") or ""), url=m.url)
+        for key in sections_in(_spaced(m.title), order):
+            resources[key].append(res)
     for a in assignments:
         title = a.title.strip()[:TITLE_MAX]
         if any(p.fullmatch(title) for p in exam_titles):
@@ -188,6 +204,7 @@ def _build(
             prereq_origin=c.prereq_origin,
             origin=c.origin,
             assessments=linked.get(c.key, []) if c.kind == "section" else [],
+            resources=resources.get(c.key, []) if c.kind == "section" else [],
             mastery=None
             if c.kind == "chapter"
             else _mastery(c.key, mastery, linked.get(c.key, [])),
@@ -220,6 +237,11 @@ def _build(
                 scope_source=e.scope_source,
                 review=e.review,
                 review_url=_material_url(materials, e.review),
+                resources=[
+                    Resource(title=m.title, kind=str(m.data.get("kind") or ""), url=m.url)
+                    for m in materials
+                    if _title_key(e.name) in _title_key(m.title)
+                ],
                 grade=grade,
             )
         )
