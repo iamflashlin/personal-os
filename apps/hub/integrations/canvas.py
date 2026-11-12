@@ -1,7 +1,9 @@
-"""Canvas LMS through its REST API (ADR 0020).
+"""Canvas LMS through its REST API (ADR 0020, ADR 0037).
 
-Reads active courses, their assignments (due date, points, submission state) and recent
-announcements, with a personal access token the user created in Canvas. The token goes
+Reads active courses with their current score and assignment groups (weights), their
+assignments (due date, points, group, submission state and score), the course materials
+listed in modules (files, pages, links: names and Canvas links only, nothing downloaded)
+and recent announcements, with a personal access token the user created in Canvas. The token goes
 only to the configured Canvas origin (scheme, host and port): every request, every
 `Link: rel="next"` page and every redirect is checked against it, because urllib would
 otherwise carry the Authorization header along, even over plain http.
@@ -168,6 +170,62 @@ def _course_label(course: Mapping[str, Any]) -> str:
     return str(course.get("name") or course.get("course_code") or "")
 
 
+MATERIAL_TYPES = {"File", "Page", "ExternalUrl", "ExternalTool"}
+
+
+def _number(value: Any) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _course(course: Mapping[str, Any], groups: list[Mapping[str, Any]]) -> ItemIn:
+    """The course itself: its current grade as Canvas computes it, and its groups."""
+    enrollments = course.get("enrollments")
+    first = enrollments[0] if isinstance(enrollments, list) and enrollments else {}
+    enrollment: Mapping[str, Any] = first if isinstance(first, dict) else {}
+    data: dict[str, Any] = {
+        "course_code": str(course.get("course_code") or ""),
+        # Canvas's "current" score counts only graded work; its "final" score counts every
+        # ungraded assignment as 0, so it is far below what the student has earned so far.
+        "current_score": _number(enrollment.get("computed_current_score")),
+        "current_grade": str(enrollment.get("computed_current_grade") or ""),
+        "final_score": _number(enrollment.get("computed_final_score")),
+        "weighted": bool(course.get("apply_assignment_group_weights")),
+        "groups": [
+            {
+                "id": _id(g.get("id")),
+                "name": str(g.get("name") or "").strip(),
+                "weight": _number(g.get("group_weight")) or 0.0,
+            }
+            for g in groups
+            if _id(g.get("id")) is not None
+        ],
+    }
+    return ItemIn(
+        item_type="canvas_course",
+        external_id=str(course["id"]),
+        title=_course_label(course),
+        url=f"{course.get('_base', '')}/courses/{course['id']}",
+        data=data,
+    )
+
+
+def _material(course: Mapping[str, Any], module: Mapping[str, Any], m: Mapping[str, Any]) -> ItemIn:
+    return ItemIn(
+        item_type="canvas_material",
+        external_id=f"{course['id']}:{m['id']}",
+        title=str(m.get("title") or ""),
+        url=str(m.get("html_url") or ""),
+        data={
+            "course": _course_label(course),
+            "course_code": str(course.get("course_code") or ""),
+            "module": str(module.get("name") or "").strip(),
+            "module_position": module.get("position"),
+            "kind": str(m.get("type") or ""),
+            "position": m.get("position"),
+        },
+    )
+
+
 def _assignment(course: Mapping[str, Any], a: Mapping[str, Any]) -> ItemIn:
     raw_submission = a.get("submission")
     submission: Mapping[str, Any] = raw_submission if isinstance(raw_submission, dict) else {}
@@ -178,8 +236,13 @@ def _assignment(course: Mapping[str, Any], a: Mapping[str, Any]) -> ItemIn:
         "submission_state": str(submission.get("workflow_state") or ""),
         "submitted_at": submission.get("submitted_at"),
         "score": submission.get("score"),
+        "grade": str(submission.get("grade") or ""),
+        "graded_at": submission.get("graded_at"),
+        "excused": bool(submission.get("excused")),
         "missing": bool(submission.get("missing")),
         "late": bool(submission.get("late")),
+        "group_id": _id(a.get("assignment_group_id")),
+        "omit_from_final": bool(a.get("omit_from_final_grade")),
     }
     return ItemIn(
         item_type="canvas_assignment",
@@ -212,7 +275,10 @@ class CanvasConnector:
         client = _Client(base, secret.strip())
         try:
             listed = list(
-                client.pages("/api/v1/courses", {"enrollment_state": "active", "per_page": 100})
+                client.pages(
+                    "/api/v1/courses",
+                    {"enrollment_state": "active", "per_page": 100, "include[]": "total_scores"},
+                )
             )
         except _Denied as denied:
             # Refusing the course list itself means the token is not accepted.
@@ -228,6 +294,34 @@ class CanvasConnector:
         items: list[ItemIn] = []
         skipped = 0
         for course in courses:
+            course["_base"] = base
+            try:
+                groups = [
+                    g
+                    for g in client.pages(
+                        f"/api/v1/courses/{course['id']}/assignment_groups", {"per_page": 100}
+                    )
+                    if isinstance(g, dict)
+                ]
+                items.append(_course(course, groups))
+            except _Denied:
+                skipped += 1
+            try:
+                for module in client.pages(
+                    f"/api/v1/courses/{course['id']}/modules",
+                    {"include[]": "items", "per_page": 100},
+                ):
+                    if not isinstance(module, dict):
+                        continue
+                    for m in module.get("items") or []:
+                        if (
+                            isinstance(m, dict)
+                            and m.get("type") in MATERIAL_TYPES
+                            and _id(m.get("id")) is not None
+                        ):
+                            items.append(_material(course, module, m))
+            except _Denied:
+                skipped += 1  # modules can be hidden from students
             try:
                 for a in client.pages(
                     f"/api/v1/courses/{course['id']}/assignments",
