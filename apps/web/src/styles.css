@@ -16,7 +16,7 @@
   --primary-hover: #4338ca;
   --primary-soft: #eef0ff;
   --on-primary: #ffffff;
-  --ok: #15803d;
+  --ok: #166534;
   --ok-soft: #e7f6ec;
   --warn: #b45309;
   --warn-soft: #fdf2e2;
@@ -35,7 +35,7 @@
   --error: var(--danger);
   color-scheme: light;
   font-family:
-    "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 15px;
   line-height: 1.55;
 }
@@ -141,7 +141,7 @@ body {
 }
 
 .nav-label {
-  color: var(--faint);
+  color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;

@@ -158,73 +158,73 @@ export function App({ api }: { api: Api }) {
           ))}
         </nav>
       </aside>
-    <main className="page">
-      <header className="topbar">
-        <div>
-          <h1>{VIEW[view]}</h1>
-          <p className="subtitle">{SUBTITLE[view]}</p>
+      <main className="page">
+        <header className="topbar">
+          <div>
+            <h1>{VIEW[view]}</h1>
+            <p className="subtitle">{SUBTITLE[view]}</p>
+          </div>
+          <span className="topbar-date">{todayLabel()}</span>
+        </header>
+        {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
+        {view === "mail" && <MailView api={api} />}
+        {view === "digest" && <DigestView api={api} />}
+        {view === "gpa" && <GpaView api={api} />}
+        {view === "schedule" && <ScheduleView api={api} />}
+        {view === "memories" && <MemoryView api={api} />}
+        {view === "connections" && <ConnectionsView api={api} />}
+        {view === "tasks" && !data && !error && <p>加载中…</p>}
+        {view === "tasks" && error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        {view === "tasks" && data && (
+        <>
+        <div className="columns">
+          <section data-testid="goals">
+            <h2>目标</h2>
+            {data.goals.length === 0 && <p className="muted">还没有目标</p>}
+            <ul>
+              {data.goals.map((g) => (
+                <li key={g.id}>{g.title}</li>
+              ))}
+            </ul>
+          </section>
+          <section data-testid="projects">
+            <h2>项目</h2>
+            {data.projects.length === 0 && <p className="muted">还没有项目</p>}
+            <ul>
+              {data.projects.map((p) => (
+                <li key={p.id}>
+                  {p.title}
+                  {p.goal_id && <span className="muted"> · {goalTitle.get(p.goal_id)}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
-        <span className="topbar-date">{todayLabel()}</span>
-      </header>
-      {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
-      {view === "mail" && <MailView api={api} />}
-      {view === "digest" && <DigestView api={api} />}
-      {view === "gpa" && <GpaView api={api} />}
-      {view === "schedule" && <ScheduleView api={api} />}
-      {view === "memories" && <MemoryView api={api} />}
-      {view === "connections" && <ConnectionsView api={api} />}
-      {view === "tasks" && !data && !error && <p>加载中…</p>}
-      {view === "tasks" && error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {view === "tasks" && data && (
-      <>
-      <div className="columns">
-        <section data-testid="goals">
-          <h2>目标</h2>
-          {data.goals.length === 0 && <p className="muted">还没有目标</p>}
-          <ul>
-            {data.goals.map((g) => (
-              <li key={g.id}>{g.title}</li>
+        <section data-testid="tasks">
+          <h2>任务</h2>
+          <NewTaskForm
+            projects={data.projects}
+            onCreate={(task, key) => run(() => api.createTask(task, key))}
+          />
+          {data.tasks.length === 0 && <p className="muted">还没有任务</p>}
+          <ul className="tasks">
+            {data.tasks.map((t) => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                project={t.project_id ? projectTitle.get(t.project_id) : undefined}
+                onComplete={(note) => run(() => api.completeTask(t, note))}
+              />
             ))}
           </ul>
         </section>
-        <section data-testid="projects">
-          <h2>项目</h2>
-          {data.projects.length === 0 && <p className="muted">还没有项目</p>}
-          <ul>
-            {data.projects.map((p) => (
-              <li key={p.id}>
-                {p.title}
-                {p.goal_id && <span className="muted"> · {goalTitle.get(p.goal_id)}</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-      <section data-testid="tasks">
-        <h2>任务</h2>
-        <NewTaskForm
-          projects={data.projects}
-          onCreate={(task, key) => run(() => api.createTask(task, key))}
-        />
-        {data.tasks.length === 0 && <p className="muted">还没有任务</p>}
-        <ul className="tasks">
-          {data.tasks.map((t) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              project={t.project_id ? projectTitle.get(t.project_id) : undefined}
-              onComplete={(note) => run(() => api.completeTask(t, note))}
-            />
-          ))}
-        </ul>
-      </section>
-      </>
-      )}
-    </main>
+        </>
+        )}
+      </main>
     </div>
   );
 }

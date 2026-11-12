@@ -1,5 +1,5 @@
 /** Small line icons for the navigation (24×24, drawn with the current text colour). */
-const PATHS: Record<string, string> = {
+const PATHS = {
   today: "M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8",
   schedule: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
   gpa: "M3 9l9-5l9 5l-9 5zM7 11.5V16c0 1.5 2.2 3 5 3s5-1.5 5-3v-4.5M21 9v5",
@@ -8,9 +8,11 @@ const PATHS: Record<string, string> = {
   tasks: "M9 6h11M9 12h11M9 18h11M4 6l1 1l2-2M4 12l1 1l2-2M4 18l1 1l2-2",
   memories: "M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16M12 8v4l3 2",
   connections: "M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5",
-};
+} as const;
 
-export function Icon({ name }: { name: string }) {
+export type IconName = keyof typeof PATHS;
+
+export function Icon({ name }: { name: IconName }) {
   return (
     <svg
       className="icon"
@@ -24,7 +26,7 @@ export function Icon({ name }: { name: string }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d={PATHS[name] ?? ""} />
+      <path d={PATHS[name]} />
     </svg>
   );
 }

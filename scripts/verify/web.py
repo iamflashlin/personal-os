@@ -410,6 +410,25 @@ def verify_canvas_view(
         rules.get_by_role("button", name="我对照过大纲，没问题").click()
         rules.get_by_text("已确认").wait_for(timeout=10_000)
         check(True, "confirming marks it 已确认")
+        # T-0050: a course computed from the syllabus's own categories says so, and does
+        # not show Canvas's unweighted group table or 按总分计算.
+        current = api.get("/academic/profiles/CIS D022A").json()
+        profile["categories"] = [{"name": "Labs", "weight": 100, "match": ""}]
+        put = api.put(
+            "/academic/profiles/CIS D022A",
+            json={"fields": profile, "version": current["version"]},
+        )
+        check(put.status_code == 200, f"the profile takes own categories ({put.status_code})")
+        open_view(page, "任务")
+        open_view(page, "成绩")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card.get_by_text("按大纲的类别加权").wait_for(timeout=20_000)
+        text = card.inner_text()
+        check(
+            "按总分计算" not in text and card.locator(".gpa-groups").count() == 0,
+            "a syllabus-computed course hides 按总分计算 and Canvas's group table",
+        )
+        shot(page, out, "21c-gpa-syllabus")
         card.get_by_text("课件").click()
         check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
         shot(page, out, "21-gpa")
@@ -825,6 +844,15 @@ def verify_data_kinds(page: Page, out: Path) -> None:
     wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
     check(not wide, "the overview fits a phone screen")
     shot(page, out, "24-data-kinds-phone")
+    # T-0050: on a phone the sidebar is a sticky strip that scrolls sideways; its last item
+    # must still be reachable, and the top of the page is what a phone shows first.
+    nav = page.get_by_role("navigation", name="切换页面")
+    last = nav.get_by_role("button", name="连接")
+    last.scroll_into_view_if_needed()
+    check(last.is_visible(), "the last nav item (连接) can be reached on a phone")
+    page.evaluate("window.scrollTo(0, 0)")
+    page.screenshot(path=str(out / "25-phone-top.png"), full_page=False)
+    check(True, "screenshot 25-phone-top (viewport only)")
     page.set_viewport_size({"width": 1200, "height": 800})
 
 
