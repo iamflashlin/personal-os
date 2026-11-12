@@ -135,7 +135,7 @@ def _apply(entry: TodayEntry, found: EmailSummary | None) -> None:
         found is not None
         and found.status is SummaryStatus.ok
         and found.gist
-        and found.prompt_version >= summaries.PROMPT_VERSION  # older gists are long sentences
+        and found.prompt_version >= summaries.TITLE_SINCE_VERSION  # v1 gists are long sentences
     ):
         entry.title = found.gist
 

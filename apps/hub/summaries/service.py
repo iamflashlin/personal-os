@@ -24,8 +24,9 @@ import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.hub.core.domain import Actor
@@ -54,7 +55,8 @@ RUN_DEADLINE_S = 150.0
 MAX_ATTEMPTS = 3
 RETRY_BASE = timedelta(minutes=5)
 MAX_OUTPUT_TOKENS = 600
-PROMPT_NAME, PROMPT_VERSION = "email_summary", 2
+PROMPT_NAME, PROMPT_VERSION = "email_summary", 3
+TITLE_SINCE_VERSION = 2  # from prompt v2 on, `gist` is a short title (ADR 0029)
 EMAIL = "email_message"
 UNREADABLE_TITLE = "（无法解析的邮件）"
 MAX_ITEM_IDS = 200
@@ -76,6 +78,19 @@ def item_hash(item: SyncedItem) -> str:
 
 
 _DELIMITER = re.compile(r"</?\s*email\s*>", re.IGNORECASE)
+# Tracking links run to hundreds of characters: they cost tokens and say nothing to the
+# model. The user still sees them in the original text.
+# Only ASCII URL characters: Chinese mail often has no space after a link, and \S would
+# swallow the following sentence (and its deadline) along with the link.
+_LONG_URL = re.compile(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]{40,}")
+_URL_TAIL = ".,;:!?'"
+
+
+def _shorten_link(match: re.Match[str]) -> str:
+    """A long link becomes 「[链接]」; punctuation that ends the sentence stays."""
+    url = match.group(0)
+    kept = url.rstrip(_URL_TAIL)
+    return "[链接]" + url[len(kept) :]
 
 
 def _defang(text: str) -> str:
@@ -99,7 +114,7 @@ def variables(item: SyncedItem) -> dict[str, str]:
         "subject": _defang(item.title),
         "received": item.starts_at.isoformat() if item.starts_at else "unknown",
         "attachments": _defang(", ".join(names)) or "无",
-        "body": _defang(item.body),
+        "body": _defang(_LONG_URL.sub(_shorten_link, item.body)),
     }
 
 
@@ -200,6 +215,22 @@ def prepare(session: Session, actor: Actor, now: datetime) -> dict[str, SyncedIt
     return items
 
 
+def _outdated_filter() -> Any:
+    """Rows a newer prompt should redo once: v1 summaries (long sentences, not titles) and
+    failures from an older prompt. Good v2+ summaries are kept: redoing them costs money and
+    gains nothing."""
+    return or_(
+        and_(
+            EmailSummaryRow.status == SummaryStatus.ok.value,
+            EmailSummaryRow.prompt_version < TITLE_SINCE_VERSION,
+        ),
+        and_(
+            EmailSummaryRow.status == SummaryStatus.failed.value,
+            EmailSummaryRow.prompt_version < PROMPT_VERSION,
+        ),
+    )
+
+
 def _redo_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) -> int:
     """Reset summaries from an older prompt so they are redone. Only called once a model
     client is open: without a key or budget, the old summary stays visible."""
@@ -207,8 +238,7 @@ def _redo_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem])
         select(EmailSummaryRow).where(
             EmailSummaryRow.owner_id == actor.owner_id,
             EmailSummaryRow.item_id.in_(list(items)),
-            EmailSummaryRow.status == SummaryStatus.ok.value,
-            EmailSummaryRow.prompt_version < PROMPT_VERSION,
+            _outdated_filter(),
         )
     ).all()
     for row in rows:
@@ -223,8 +253,7 @@ def _has_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) 
             select(func.count(EmailSummaryRow.id)).where(
                 EmailSummaryRow.owner_id == actor.owner_id,
                 EmailSummaryRow.item_id.in_(list(items)),
-                EmailSummaryRow.status == SummaryStatus.ok.value,
-                EmailSummaryRow.prompt_version < PROMPT_VERSION,
+                _outdated_filter(),
             )
         )
         or 0
@@ -300,7 +329,7 @@ def run(
         except models.ModelUnavailable:
             return False  # budget, key rejected, no balance, rate limit: stop here
         except models.ModelFailed as exc:
-            _record_failure(engine, summary_id, exc, tick())
+            _record_failure(engine, summary_id, exc, tick(), prompt.version)
             handled += 1
             continue
         handled += 1
@@ -328,7 +357,7 @@ def run(
 
 
 def _record_failure(
-    engine: Engine, summary_id: str, exc: models.ModelFailed, now: datetime
+    engine: Engine, summary_id: str, exc: models.ModelFailed, now: datetime, version: int
 ) -> None:
     with Session(engine) as session:
         row = session.get(EmailSummaryRow, summary_id)
@@ -339,6 +368,8 @@ def _record_failure(
         if not exc.retryable or row.attempts >= MAX_ATTEMPTS:
             row.status = SummaryStatus.failed.value
             row.next_try_at = None
+            # Records which prompt failed, so only a newer prompt retries it (no loop).
+            row.prompt_version = version
         else:
             row.next_try_at = now + RETRY_BASE * (2 ** (row.attempts - 1))
         row.updated_at = now

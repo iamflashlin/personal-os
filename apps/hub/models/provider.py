@@ -28,6 +28,9 @@ class JsonRequest:
     user: str
     max_output_tokens: int
     temperature: float = 0.0
+    # Off unless a task needs it: a vendor's hidden reasoning spends the output budget, and
+    # DeepSeek thinks on its own for harder inputs until max_tokens leaves no answer.
+    reasoning: bool = False
 
 
 @dataclass(frozen=True)
