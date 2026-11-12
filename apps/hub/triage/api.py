@@ -57,7 +57,14 @@ def build_router() -> APIRouter:
         return call(lambda: service.set_item(session, actor, item_id, body.handled))
 
     @router.patch("/rules/{rule_id}", name="set_rule")
-    def set_rule(session: SessionDep, actor: ActorDep, rule_id: str, body: RulePatch) -> TriageRule:
-        return call(lambda: service.set_rule_enabled(session, actor, rule_id, body.enabled))
+    def set_rule(
+        session: SessionDep,
+        actor: ActorDep,
+        rule_id: str,
+        body: RulePatch,
+        time_zone: Annotated[str, Query(max_length=64)] = "",
+    ) -> TriageRule:
+        today = _today(time_zone).date()
+        return call(lambda: service.set_rule_enabled(session, actor, rule_id, body.enabled, today))
 
     return router

@@ -138,7 +138,7 @@ def view(session: Session, actor: Actor, today: date) -> TriageView:
         open_count=len(open_),
         unread_count=len(unread),
         unsummarised=sum(1 for f in open_ if f.summary is None),
-        groups=group(open_, today, integrations.course_codes(session, actor)),
+        groups=group(open_, today, integrations.course_codes(session, actor), facts),
         handled=list(handled.values()),
         recent=[_batch(b) for b in batches],
         rules=[_rule(r, by_rule.count(r.id)) for r in rules],
@@ -183,7 +183,7 @@ def handle(
         found = next(
             (
                 g
-                for g in group(open_, today, integrations.course_codes(session, actor))
+                for g in group(open_, today, integrations.course_codes(session, actor), facts)
                 if g.key == req.group_key
             ),
             None,
@@ -214,13 +214,15 @@ def handle(
         session.flush()
         for item_id in wanted:
             _set(session, actor, item_id, HANDLED, batch.id)
-        if req.save_rule and rule_selector is not None:
+        selector_json = rule_selector.model_dump(mode="json") if rule_selector else None
+        already = any(r.enabled and r.selector == selector_json for r in rules)
+        if req.save_rule and selector_json is not None and not already:
             rule = TriageRuleRow(
                 owner_id=actor.owner_id,
                 source=actor.source,
                 version=1,
                 name=label,
-                selector=rule_selector.model_dump(mode="json"),
+                selector=selector_json,
                 enabled=True,
                 from_batch_id=batch.id,
             )
@@ -230,7 +232,9 @@ def handle(
         session.flush()
         return audit.Outcome(batch.id, _batch(batch), {"count": len(wanted), "rule": batch.rule_id})
 
-    detail: dict[str, Any] = {"group": req.group_key, "save_rule": req.save_rule}
+    # The group's kind only: a key like "sender:<domain>" says who mails the user.
+    kind = req.group_key.split(":", 1)[0]
+    detail: dict[str, Any] = {"group": kind, "save_rule": req.save_rule}
     return audit.audited(session, actor, "triage_batch", "apply", None, detail, op)
 
 
@@ -276,7 +280,9 @@ def set_item(session: Session, actor: Actor, item_id: str, handled: bool) -> Han
     return audit.audited(session, actor, "mail_triage_state", "set", item_id, {}, op)
 
 
-def set_rule_enabled(session: Session, actor: Actor, rule_id: str, enabled: bool) -> TriageRule:
+def set_rule_enabled(
+    session: Session, actor: Actor, rule_id: str, enabled: bool, today: date
+) -> TriageRule:
     rule = session.get(TriageRuleRow, rule_id)
     if rule is None or rule.owner_id != actor.owner_id:
         raise NotFound("没有这条规则")
@@ -284,15 +290,11 @@ def set_rule_enabled(session: Session, actor: Actor, rule_id: str, enabled: bool
     def op() -> audit.Outcome[TriageRule]:
         rule.enabled = enabled
         session.flush()
-        return audit.Outcome(rule.id, _rule(rule, 0), {"enabled": enabled})
+        marks = _handled(_facts(session, actor), _marks(session, actor), [rule], today)
+        matched = sum(1 for m in marks.values() if m.rule_id == rule.id)
+        return audit.Outcome(rule.id, _rule(rule, matched), {"enabled": enabled})
 
     return audit.audited(session, actor, "triage_rule", "update", rule_id, {}, op)
 
 
-def handled_ids(session: Session, actor: Actor, today: date) -> set[str]:
-    """Mails counted as 已处理 now (for 今日, later)."""
-    facts = _facts(session, actor)
-    return set(_handled(facts, _marks(session, actor), _rules(session, actor), today))
-
-
-__all__ = ["handle", "handled_ids", "set_item", "set_rule_enabled", "undo", "view"]
+__all__ = ["handle", "set_item", "set_rule_enabled", "undo", "view"]

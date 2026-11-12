@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from packages.contracts.summaries import EmailSummary
-from packages.contracts.triage import FlagCondition, Selector, TextCondition, normalize
+from packages.contracts.triage import (
+    FlagCondition,
+    Selector,
+    TextCondition,
+    base_domain,
+    normalize,
+)
 
 FIELD_LABEL = {
     "sender": "发件人",
@@ -39,8 +45,7 @@ class MailFacts:
     def domain(self) -> str:
         """The sender's base domain: "g.joinhandshake.com" -> "joinhandshake.com", so one
         sender's subdomains form one group (a "sender_domain equals" rule covers them)."""
-        host = normalize(self.sender_address.rpartition("@")[2])
-        return ".".join(host.split(".")[-2:])
+        return base_domain(self.sender_address.rpartition("@")[2])
 
     @property
     def low(self) -> bool:

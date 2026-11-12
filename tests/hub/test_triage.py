@@ -240,3 +240,88 @@ def test_course_keys_match_what_mail_senders_carry() -> None:
         "DA ISP New Student",
     ]
     assert course_keys(codes) == ["CIS D022A", "MATH D001A"]
+
+
+def test_undo_after_later_changes_keeps_the_later_ones(hub) -> None:
+    client, engine, store = hub
+    ids = seed(engine, store)
+    x, y = ids["old"], ids["act0"]
+    a = client.post("/triage/handle", json={"item_ids": [x, y]}).json()
+    client.put(f"/triage/items/{x}", json={"handled": False})  # by hand, after batch A
+    b = client.post("/triage/handle", json={"item_ids": [x]}).json()
+    client.put(f"/triage/items/{y}", json={"handled": True})  # by hand: y leaves batch A
+    client.post(f"/triage/batches/{a['id']}/undo")
+    handled = {m["item_id"] for m in view(client)["handled"]}
+    assert x in handled and y in handled  # undo A touched neither: both changed later
+    client.post(f"/triage/batches/{b['id']}/undo")
+    handled = {m["item_id"] for m in view(client)["handled"]}
+    assert x not in handled and y in handled  # undo B restores x's manual 未处理
+
+
+def test_sender_rules_stay_narrow_and_never_cover_important_senders(hub) -> None:
+    client, engine, store = hub
+    seed(engine, store)
+    box = mailbox(engine)
+    now = datetime.now(UTC)
+    for i in range(5):  # a sender that also sends grades gets no rule
+        mail(
+            engine,
+            box,
+            f"Weekly digest canvas {i}",
+            at=now - timedelta(minutes=i + 1),
+            from_name="Canvas",
+            from_address="notify@instructure.com",
+        )
+    mail(
+        engine,
+        box,
+        "成绩已发布 Exam",
+        at=now - timedelta(minutes=30),
+        from_name="Canvas",
+        from_address="notify@instructure.com",
+    )
+    summarise(engine, store)
+    v = view(client)
+    canvas = group(v, "sender:instructure.com")
+    assert canvas["count"] == 5 and canvas["rule"] is None
+    hs = group(v, "sender:joinhandshake.com")
+    flags = {(c.get("flag"), c.get("value")) for c in hs["rule"]["all_of"] if c["kind"] == "flag"}
+    assert flags == {("low_value", True), ("action_needed", False), ("deadline_past", False)}
+    assert all(g["rule"] is None for g in v["groups"] if g["kind"] == "low_value")
+    first = client.post(
+        "/triage/handle",
+        json={"item_ids": hs["item_ids"], "group_key": hs["key"], "save_rule": True},
+    ).json()
+    assert first["rule_id"]
+    for one in hs["item_ids"][:5]:  # five back by hand: a sender group again
+        client.put(f"/triage/items/{one}", json={"handled": False})
+    again = group(view(client), hs["key"])
+    second = client.post(
+        "/triage/handle",
+        json={"item_ids": again["item_ids"], "group_key": hs["key"], "save_rule": True},
+    ).json()
+    assert second["rule_id"] is None  # the same rule exists and is on: no duplicate
+    assert len(view(client)["rules"]) == 1
+
+
+def test_grade_words_are_whole_words() -> None:
+    from apps.hub.triage.groups import _is_grade
+
+    assert _is_grade(facts(subject="Your grade is posted"))
+    assert _is_grade(facts(subject="成绩已发布"))
+    assert not _is_grade(facts(subject="Upgrade your plan"))
+    assert not _is_grade(facts(subject="use an underscore"))
+
+
+def test_country_domains_keep_their_owner_and_bare_suffixes_are_refused() -> None:
+    assert facts("a@x.example.com.cn").domain == "example.com.cn"
+    assert facts("a@g.joinhandshake.com").domain == "joinhandshake.com"
+    for value in ("com.cn", "edu.cn", "com"):
+        with pytest.raises(ValidationError):
+            Selector.model_validate(
+                {
+                    "all_of": [
+                        {"kind": "text", "field": "sender_domain", "op": "equals", "value": value}
+                    ]
+                }
+            )

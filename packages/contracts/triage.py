@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 TextField = Literal["sender", "sender_domain", "subject", "title"]  # title = the AI title
 Flag = Literal["low_value", "action_needed", "importance_high", "importance_low", "deadline_past"]
@@ -19,6 +19,24 @@ MAX_BATCH = 1000
 def normalize(text: str) -> str:
     """How rule values and mail text are compared: NFKC, case-folded, trimmed."""
     return unicodedata.normalize("NFKC", text).casefold().strip()
+
+
+SECOND_LEVEL = {"com", "net", "org", "edu", "gov", "ac", "co"}
+
+
+def base_domain(host: str) -> str:
+    """ "g.joinhandshake.com" -> "joinhandshake.com"; "news.example.com.cn" ->
+    "example.com.cn" (a two-letter country code under com/edu/... keeps three labels)."""
+    labels = normalize(host).split(".")
+    keep = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in SECOND_LEVEL else 2
+    return ".".join(labels[-keep:])
+
+
+def is_bare_suffix(domain: str) -> bool:
+    labels = domain.split(".")
+    return len(labels) < 2 or (
+        len(labels) == 2 and labels[0] in SECOND_LEVEL and len(labels[1]) == 2
+    )
 
 
 def _clean_value(value: str) -> str:
@@ -36,6 +54,13 @@ class TextCondition(BaseModel):
     field: TextField
     op: Literal["contains", "equals"] = "contains"  # plain text only: no patterns
     value: Annotated[str, Field(min_length=2, max_length=80), AfterValidator(_clean_value)]
+
+    @model_validator(mode="after")
+    def _not_a_whole_suffix(self) -> "TextCondition":
+        # "com.cn" would match every sender under it through the subdomain rule.
+        if self.field == "sender_domain" and is_bare_suffix(self.value):
+            raise ValueError("a sender domain must name one sender, not a suffix like com.cn")
+        return self
 
 
 class FlagCondition(BaseModel):

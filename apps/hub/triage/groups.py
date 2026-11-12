@@ -6,7 +6,6 @@ Every mail lands in exactly one group (first match wins), so the counts add up.
 
 import re
 from collections import Counter
-from collections.abc import Callable
 from datetime import date, timedelta
 
 from apps.hub.triage.rules import MailFacts, describe
@@ -16,12 +15,14 @@ from packages.contracts.triage import (
     Selector,
     TextCondition,
     TriageGroup,
+    is_bare_suffix,
     normalize,
 )
 
 SOON_DAYS = 7
 SENDER_GROUP_MIN = 5
-GRADE_WORDS = ("成绩", "分数", "已评分", "评分已", "grade", "graded", "score")
+GRADE_WORDS_ZH = ("成绩", "分数", "已评分", "评分已")
+_GRADE_EN = re.compile(r"\b(grade|graded|grades|score|scores)\b")
 _COURSE = re.compile(r"\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b")
 
 
@@ -42,11 +43,24 @@ def _course(f: MailFacts, keys: list[str]) -> str | None:
 
 def _is_grade(f: MailFacts) -> bool:
     text = normalize(f"{f.subject} {f.summary.gist if f.summary else ''}")
-    return any(w in text for w in GRADE_WORDS)
+    # Whole English words only: "upgrade" and "underscore" are not grades.
+    return any(w in text for w in GRADE_WORDS_ZH) or bool(_GRADE_EN.search(text))
 
 
-def group(facts: list[MailFacts], today: date, codes: list[str]) -> list[TriageGroup]:
-    """Groups of `facts` (already filtered to open mail), newest first inside each group."""
+# A sender that ever sent one of these gets no rule. Mail that needs action or has a
+# deadline is already kept out by the rule's own conditions; grades and course mail are not.
+IMPORTANT = {GroupKind.grades, GroupKind.course}
+
+
+def group(
+    facts: list[MailFacts],
+    today: date,
+    codes: list[str],
+    every: list[MailFacts] | None = None,
+) -> list[TriageGroup]:
+    """Groups of `facts` (open mail), newest first inside each group. `every` is all mail:
+    a sender that ever sent a grade notice or course mail is never offered a rule, so
+    「以后也这样」 cannot hide such mail later."""
     keys = course_keys(codes)
     low_domains = Counter(f.domain for f in facts if f.summary and f.low and f.domain)
     big = {d for d, n in low_domains.items() if n >= SENDER_GROUP_MIN}
@@ -72,6 +86,8 @@ def group(facts: list[MailFacts], today: date, codes: list[str]) -> list[TriageG
             return "low_value", GroupKind.low_value, "广告和推荐"
         return "other", GroupKind.other, "其他"
 
+    important = {f.domain for f in (every or facts) if pick(f)[1] in IMPORTANT}
+
     buckets: dict[str, tuple[GroupKind, str, list[MailFacts]]] = {}
     for f in sorted(facts, key=_newest, reverse=True):
         key, kind, label = pick(f)
@@ -79,7 +95,7 @@ def group(facts: list[MailFacts], today: date, codes: list[str]) -> list[TriageG
 
     groups: list[TriageGroup] = []
     for key, (kind, label, members) in buckets.items():
-        rule = _rule_for(key, kind)
+        rule = _rule_for(key, kind, important)
         groups.append(
             TriageGroup(
                 key=key,
@@ -96,19 +112,25 @@ def group(facts: list[MailFacts], today: date, codes: list[str]) -> list[TriageG
     return groups
 
 
-def _rule_for(key: str, kind: GroupKind) -> Selector | None:
-    """Only sender and low-value groups offer 「以后也这样」: deadlines change, senders do not."""
-    if kind is GroupKind.sender:
-        domain = key.split(":", 1)[1]
-        return Selector(
-            all_of=[
-                TextCondition(field="sender_domain", op="equals", value=domain),
-                FlagCondition(flag="low_value"),
-            ]
-        )
-    if kind is GroupKind.low_value:
-        return Selector(all_of=[FlagCondition(flag="low_value")])
-    return None
+def _rule_for(key: str, kind: GroupKind, important: set[str]) -> Selector | None:
+    """Only a sender group offers 「以后也这样」, and only for a sender that never sent
+    anything important. The rule is no wider than the group: that sender's low-value mail
+    that needs no action and has no past deadline. 广告和推荐 offers none: "every low-value
+    mail" would also cover future grade and deadline notices."""
+    if kind is not GroupKind.sender:
+        return None
+    domain = key.split(":", 1)[1]
+    if domain in important or is_bare_suffix(domain):
+        return None
+    return Selector(
+        all_of=[
+            TextCondition(field="sender_domain", op="equals", value=domain),
+            FlagCondition(flag="low_value"),
+            FlagCondition(flag="action_needed", value=False),
+            FlagCondition(flag="deadline_past", value=False),
+        ]
+    )
 
 
-_newest: Callable[[MailFacts], float] = lambda f: f.received.timestamp() if f.received else 0.0  # noqa: E731
+def _newest(f: MailFacts) -> float:
+    return f.received.timestamp() if f.received else 0.0

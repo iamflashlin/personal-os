@@ -5802,6 +5802,17 @@
               "title": "Rule Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
