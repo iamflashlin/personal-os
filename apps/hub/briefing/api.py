@@ -1,10 +1,10 @@
 from datetime import UTC, datetime, tzinfo
 from typing import Annotated
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from apps.hub.briefing import service
+from apps.hub.core import zones
 from apps.hub.core.http import ActorDep, SessionDep
 from apps.hub.models import service as models
 from apps.hub.summaries import service as summaries
@@ -12,13 +12,9 @@ from packages.contracts.today import TodayView
 
 
 def _zone(name: str) -> tzinfo:
-    if not name:
-        local = datetime.now().astimezone().tzinfo
-        return local or UTC
     try:
-        return ZoneInfo(name)
-    # A key like "America" names a tzdata folder and raises an OSError, not NotFound.
-    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return zones.zone_or_local(name)
+    except zones.UnknownZone:
         raise HTTPException(status_code=422, detail=f"unknown time zone {name!r}") from None
 
 

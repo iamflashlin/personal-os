@@ -1391,6 +1391,152 @@ def verify_history(_client: httpx.Client, data_dir: Path, _args: argparse.Namesp
                 keyring.delete_password(service, f"{owner}:{name}")
 
 
+def verify_chat(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    """T-0030: questions about mail, answered from summaries, with the real Hub, a fake IMAP
+    server and FakeProvider (no money spent)."""
+    import sqlite3
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    model_key = f"sk-verify-{uuid.uuid4().hex}"
+    otp = "482913"
+    body_sentinel = f"BODY{uuid.uuid4().hex[:10]}"
+    question_sentinel = f"Q{uuid.uuid4().hex[:10]}"
+    box = Mailbox(username="student@example.com", password=code)
+    box.add(
+        fake_mail(
+            "CIS 22A Lab 5 截止提醒",
+            "Lab 5 截止 周五 23:59，请在 Canvas 提交。附加说明在后面。" + body_sentinel,
+        ),
+        received=recent(3),
+    )
+    box.add(fake_mail("网易邮箱验证码", f"您的验证码是 {otp}，10分钟内有效。"), received=recent(2))
+    box.add(fake_mail("The Weekly Digest", "Campus news this week."), received=recent(1))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "chat-data"
+    model_log = data_dir.parent / "fake-model-chat.log"
+    names = ("POS_CREDENTIALS_SERVICE", "POS_MODEL_PROVIDER", "POS_FAKE_MODEL_LOG")
+    saved = {k: os.environ.get(k) for k in names}
+    os.environ.update(
+        {
+            "POS_CREDENTIALS_SERVICE": service,
+            "POS_MODEL_PROVIDER": "fake",
+            "POS_FAKE_MODEL_LOG": str(model_log),
+        }
+    )
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    def statuses(hub: httpx.Client, iid: str) -> dict[str, str]:
+        items = hub.get(f"/integrations/{iid}/items").json()
+        ids = ",".join(i["id"] for i in items)
+        found = {
+            s["item_id"]: s["status"]
+            for s in hub.get("/summaries/email", params={"item_ids": ids}).json()
+        }
+        return {i["title"]: found.get(i["id"], "") for i in items}
+
+    try:
+        with running_hub(hub_dir) as hub:
+            hub.put("/credentials/mail.code", json={"secret": code})
+            hub.put("/credentials/deepseek", json={"secret": model_key})
+            iid = hub.post(
+                "/integrations",
+                json={
+                    "kind": "email",
+                    "name": "163",
+                    "credential_name": "mail.code",
+                    "config": {
+                        "host": "127.0.0.1",
+                        "port": str(imap.port),
+                        "username": "student@example.com",
+                        "tls": "off",
+                    },
+                },
+            ).json()["id"]
+            wait(
+                "two mails summarised, the code mail skipped",
+                lambda: sorted(statuses(hub, iid).values()) == ["ok", "ok", "skipped_sensitive"],
+            )
+            calls_before = hub.get("/models/usage").json()["calls"]
+            r = hub.post(
+                "/chat/ask",
+                json={
+                    "question": f"Canvas 作业什么时候交 {question_sentinel}",
+                    "time_zone": "America/Los_Angeles",
+                },
+                timeout=60,
+            )
+            check(r.status_code == 200, f"POST /chat/ask -> {r.status_code}")
+            answer = r.json()
+            check(bool(answer["answer"]), f"an answer: {answer['answer']}")
+            items = {i["id"]: i["title"] for i in hub.get(f"/integrations/{iid}/items").json()}
+            cited = [c["item"]["id"] for c in answer["cited"]]
+            check(bool(cited) and all(c in items for c in cited), f"{len(cited)} real mails cited")
+            check(
+                "CIS 22A Lab 5 截止提醒" in [items[c] for c in cited],
+                "the Canvas mail is among them",
+            )
+            check(
+                answer["considered"] == 2,
+                f"two summarised mails considered ({answer['considered']})",
+            )
+            check(
+                hub.get("/models/usage").json()["calls"] == calls_before + 1,
+                "exactly one model call for the question",
+            )
+            r = hub.post("/chat/ask", json={"question": "[fake:500] 问"}, timeout=60)
+            check(r.status_code == 502, f"a failed call -> {r.status_code} {r.json()['detail']}")
+            hub.delete("/credentials/deepseek")
+            r = hub.post("/chat/ask", json={"question": "问"}, timeout=60)
+            check(
+                r.status_code == 503 and r.headers.get("X-Model-Unavailable") == "no_key",
+                f"without a key -> {r.status_code} {r.json()['detail']}",
+            )
+
+        sent = model_log.read_text(encoding="utf-8").split("\n---\n")
+        chats = [c for c in sent if "<mails>" in c]
+        check(len(chats) == 2, f"the fake model got two questions ({len(chats)})")
+        check("CIS 22A Lab 5" in chats[0], "the Lab mail's subject was sent")
+        check(otp not in chats[0] and "验证码" not in chats[0], "nothing of the code mail was sent")
+        check(body_sentinel not in chats[0], "no mail body was sent")
+        with contextlib.closing(sqlite3.connect(hub_dir / DB_FILENAME)) as db:
+            tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            holders = [
+                t
+                for t in tables
+                if any(
+                    question_sentinel in " ".join(map(str, row))
+                    for row in db.execute(f'SELECT * FROM "{t}"')
+                )
+            ]
+        check(not holders, f"the question is stored in no table ({len(tables)} checked)")
+        hub_log = (hub_dir.parent / f"hub-{hub_dir.name}.log").read_text(encoding="utf-8")
+        check(question_sentinel not in hub_log, "nor in the Hub log")
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        imap.close()
+        for name in ("mail.code", "deepseek"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{name}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -1405,6 +1551,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "today": verify_today,
     "summaries": verify_summaries,
     "history": verify_history,
+    "chat": verify_chat,
 }
 
 

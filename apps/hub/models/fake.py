@@ -2,7 +2,9 @@
 """A deterministic provider for tests and offline verification (HANDOFF §4.4).
 
 It answers with JSON built from the request, and markers in the user text make it fail:
-`[fake:bad-json]`, `[fake:500]`, `[fake:401]`, `[fake:402]`, `[fake:429]`.
+`[fake:bad-json]`, `[fake:500]`, `[fake:401]`, `[fake:402]`, `[fake:429]`. A mail question
+(a `<mails>` section) gets an echo answer citing its first three lines;
+`[fake:cite-unknown]` adds refs that were never given.
 If `POS_FAKE_MODEL_LOG` names a file, every user text it receives is appended there, so a
 verification script in another process can prove what was (not) sent.
 """
@@ -34,6 +36,15 @@ def _tokens(text: str) -> int:
     return max(1, len(text.encode("utf-8")) // 3)
 
 
+def _chat(user: str) -> str:
+    """A mail question (prompt mail_chat): echo the question, cite the first three lines."""
+    question = user.split("<question>", 1)[-1].split("</question>", 1)[0].strip()
+    cited: list[str] = re.findall(r"^\[(m\d+)\]", user, re.MULTILINE)[:3]
+    if "[fake:cite-unknown]" in user:
+        cited += ["m999", "01JZZZZZZZZZZZZZZZZZZZZZZZ"]
+    return json.dumps({"answer": f"（测试回答）{question}", "cited": cited}, ensure_ascii=False)
+
+
 class FakeProvider:
     vendor = "fake"
 
@@ -52,6 +63,10 @@ class FakeProvider:
         usage = Usage(_tokens(request.system + request.user), 0, 40)
         if "[fake:bad-json]" in request.user:
             raise ProviderError(ProviderErrorKind.bad_output, "response is not JSON", usage=usage)
+        if "<mails>" in request.user:
+            return JsonReply(
+                text=_chat(request.user), usage=usage, finish_reason="stop", request_id="fake"
+            )
         match = _SUBJECT.search(request.user)
         subject = match.group(1).strip() if match else request.user.strip()[:40]
         lowered = request.user.lower()
