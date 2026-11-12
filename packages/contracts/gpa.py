@@ -21,7 +21,7 @@ class WorkItem(BaseModel):
     due: datetime | None
     points: float | None
     group: str
-    state: str  # missing | late | submitted | graded | excused | upcoming | open
+    state: str  # missing | late | submitted | graded | excused | upcoming | open | awaiting_grade
     score: float | None
     url: str
 
@@ -43,7 +43,7 @@ class GradeLine(BaseModel):
 
 
 class Completion(BaseModel):
-    due_so_far: int  # assignments whose due time has passed (excused ones left out)
+    due_so_far: int  # counted work past due, leaving out excused and awaiting_grade items
     done: int  # of those: submitted or graded
     missing: int
     late: int

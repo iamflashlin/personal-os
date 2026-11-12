@@ -155,7 +155,7 @@ def test_the_local_midnight_boundary_and_owner_scoping(tmp_path) -> None:
     from sqlalchemy.orm import Session
 
     from apps.hub.core.db import make_engine, upgrade_to_head
-    from apps.hub.core.domain import Actor
+    from apps.hub.core.domain import Actor, NotFound
     from apps.hub.digest import service
     from packages.contracts.digest import NewDigestItem
 
@@ -185,6 +185,24 @@ def test_the_local_midnight_boundary_and_owner_scoping(tmp_path) -> None:
         assert [i.title for i in history.items] == ["before"]  # 23:59 local is yesterday
         assert today.items[0].raw_text == "原文"  # kept when read back
         item_id = today.items[0].id
-        with pytest.raises(Exception, match="没有这条简报"):
+        with pytest.raises(NotFound):
             service.set_read(s, other, item_id, True, now)
         assert [i.title for i in service.view(s, other, "today", now, la).items] == ["theirs"]
+
+
+def test_title_dedup_uses_the_local_day(client) -> None:
+    # 20:00 Monday and 10:00 Tuesday in LA are the same UTC day (Tuesday), but two local days.
+    monday_evening = "2026-11-10T04:00:00+00:00"
+    tuesday_morning = "2026-11-10T18:00:00+00:00"
+    for at in (monday_evening, tuesday_morning):
+        r = client.post(
+            "/digest/items",
+            params=TZ,
+            json={
+                "channel": "club",
+                "source_name": "CS Club",
+                "title": "本周活动",
+                "published_at": at,
+            },
+        )
+        assert r.status_code == 201, r.text

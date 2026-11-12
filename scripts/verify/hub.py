@@ -774,7 +774,16 @@ class FakeCanvas:
                         "assignment_group_id": 5,
                         "html_url": "https://canvas.example.edu/courses/1/assignments/11",
                         "submission": {"workflow_state": "unsubmitted", "missing": True},
-                    }
+                    },
+                    {
+                        "id": 12,
+                        "name": "Lab 1",
+                        "due_at": yesterday,
+                        "points_possible": 10,
+                        "assignment_group_id": 5,
+                        "html_url": "https://canvas.example.edu/courses/1/assignments/12",
+                        "submission": {"workflow_state": "graded", "score": 9},
+                    },
                 ]
             if route == "/api/v1/courses/2/assignments":
                 if fake.quiz_deleted:
@@ -865,8 +874,8 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
                 return [i for i in hub.get(items_url).json() if i["item_type"] in kinds]
 
             wait(
-                "the background sync read 2 assignments and 1 announcement",
-                lambda: len(work()) == 3,
+                "the background sync read 3 assignments and 1 announcement",
+                lambda: len(work()) == 4,
             )
             kinds = sorted(i["item_type"] for i in hub.get(items_url).json())
             check(
@@ -889,7 +898,7 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
             )
             titles = sorted(i["title"] for i in work())
             check(
-                titles == ["Lab 3 实验报告 - 延期", "Midterm moved", "Quiz 5"],
+                titles == ["Lab 1", "Lab 3 实验报告 - 延期", "Midterm moved", "Quiz 5"],
                 "updated, no duplicate",
             )
 

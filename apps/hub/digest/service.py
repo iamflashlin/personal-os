@@ -19,10 +19,11 @@ from packages.contracts.digest import DigestItem, DigestView, NewDigestItem
 HISTORY_LIMIT = 300
 
 
-def _key(new: NewDigestItem, published: datetime) -> str:
+def _key(new: NewDigestItem, published: datetime, zone: tzinfo) -> str:
     """One item once: the same link from the same source; without a link, the same title on
     the same day (a weekly "本周活动" post comes back under the same title)."""
-    basis = new.url.strip() or f"{published.date().isoformat()}|{new.title.strip().casefold()}"
+    day = published.astimezone(zone).date().isoformat()  # the user's day, not UTC's
+    basis = new.url.strip() or f"{day}|{new.title.strip().casefold()}"
     raw = f"{new.channel}|{new.source_name.strip().casefold()}|{basis}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -49,11 +50,16 @@ def _read(row: DigestItemRow) -> DigestItem:
 
 
 def add(
-    session: Session, actor: Actor, new: NewDigestItem, now: datetime, origin: str = "manual"
+    session: Session,
+    actor: Actor,
+    new: NewDigestItem,
+    now: datetime,
+    origin: str = "manual",
+    zone: tzinfo = UTC,
 ) -> DigestItem:
     # A future publish time would keep an item in 今天 for days: clamp it to now.
     published = min(new.published_at or now, now)
-    key = _key(new, published)
+    key = _key(new, published, zone)
     exists = session.scalar(
         select(DigestItemRow).where(
             DigestItemRow.owner_id == actor.owner_id, DigestItemRow.dedup_key == key
