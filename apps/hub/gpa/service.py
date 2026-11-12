@@ -16,7 +16,13 @@ from sqlalchemy.orm import Session
 from apps.hub.academic import service as academic
 from apps.hub.core.domain import Actor
 from apps.hub.integrations import service as integrations
-from packages.contracts.academic import GRADE_POINTS, CourseProfile, letter_for
+from packages.contracts.academic import (
+    GRADE_POINTS,
+    TITLE_MAX,
+    CourseProfile,
+    letter_for,
+    title_pattern,
+)
 from packages.contracts.gpa import (
     Completion,
     CourseView,
@@ -49,10 +55,11 @@ POINTS = {
 LINES = [("A", 90.0), ("B", 80.0), ("C", 70.0)]
 _CODE = re.compile(r"\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b")
 GPA_NOTE = "按每门课同样学分、常见字母分换算估算；学分和各课的分数线以学校和教学大纲为准。"
-GPA_NOTE_UNITS = (
-    "按各课学分加权，等级用各课大纲的分数线，绩点按 De Anza 规定（A+ 和 A 都是 4.0，A- 是 3.7）。"
+GPA_NOTE_UNITS = (  # shown when every graded course has units
+    "按各课学分加权；有规则卡的课用大纲的分数线，"
+    "绩点按 De Anza 规定（A+ 和 A 都是 4.0，A- 是 3.7）。"
 )
-LINES_SHOWN = 4  # grade lines per course: the top letters of its scale
+LINES_SHOWN = 4  # grade lines per course, around the current letter
 
 
 @dataclass
@@ -154,16 +161,23 @@ def _title_key(title: str) -> str:
 def _drop_duplicates(
     assignments: list[_Assignment], now: datetime
 ) -> tuple[list[_Assignment], list[str]]:
-    """A missing item with the same title as one that was handed in or graded is a copy
-    (combined classes import the same work twice): leave it out instead of counting a 0."""
-    done = {
-        _title_key(a.item.title)
-        for a in assignments
-        if a.state(now) in ("graded", "submitted", "late")
-    }
+    """A missing item that is a copy of handed-in work is left out instead of counting a 0:
+    combined classes import the same work twice, into another group and sometimes with other
+    points. A copy has the same title and sits in another Canvas group, or has the same
+    points and due time in the same group. A weekly "Discussion" in one group with its own
+    due date is not a copy."""
+    done = [a for a in assignments if a.state(now) in ("graded", "submitted", "late")]
     keep, dupes = [], []
     for a in assignments:
-        if a.state(now) == "missing" and _title_key(a.item.title) in done:
+        copy = a.state(now) == "missing" and any(
+            _title_key(d.item.title) == _title_key(a.item.title)
+            and (
+                d.data.get("group_id") != a.data.get("group_id")  # imported into another group
+                or (d.points == a.points and d.item.starts_at == a.item.starts_at)
+            )
+            for d in done
+        )
+        if copy:
             dupes.append(a.item.title.strip())
         else:
             keep.append(a)
@@ -172,20 +186,26 @@ def _drop_duplicates(
 
 def _syllabus_totals(
     profile: CourseProfile, assignments: list[_Assignment], groups: dict[int, str]
-) -> tuple[float, float, float, float, list[str]]:
+) -> tuple[float, float, float, float, float | None, list[str]]:
     """The syllabus's own categories over Canvas's assignments (e.g. CIS, where Canvas has
-    one unweighted group): graded, missing and open weight, and the weighted earned part."""
+    one unweighted group).
+
+    Returns, in percent of the whole course: the graded, missing and open weight and the
+    weighted earned part (for the grade lines: what the rest must average). Also returns the
+    percent so far the way syllabi and Canvas mean it: each category's average (missing work
+    as 0) times its weight, over the categories that have graded or missing work."""
     graded_w = missing_w = left = computed = 0.0
+    avg_sum = avg_w = 0.0
     used: set[str] = set()
     for cat in profile.categories:
-        pattern = re.compile(cat.match, re.IGNORECASE) if cat.match else None
+        pattern = title_pattern(cat.match) if cat.match else None
         members = [
             a
             for a in assignments
             if a.counts
             and a.item.id not in used
             and (
-                pattern.search(a.item.title)
+                pattern.fullmatch(a.item.title.strip()[:TITLE_MAX]) is not None
                 if pattern
                 else groups.get(a.data.get("group_id") or -1, "") == cat.name
             )
@@ -205,6 +225,9 @@ def _syllabus_totals(
             if a.score is None and not a.data.get("missing") and a.points
         )
         total = possible + missing_pts + open_pts
+        if possible + missing_pts:
+            avg_sum += cat.weight * earned / (possible + missing_pts)
+            avg_w += cat.weight
         if total:
             graded_w += cat.weight * possible / total
             missing_w += cat.weight * missing_pts / total
@@ -221,7 +244,21 @@ def _syllabus_totals(
         if stray
         else []
     )
-    return graded_w, missing_w, left, computed, notes
+    so_far = round(avg_sum / avg_w * 100, 2) if avg_w else None
+    return graded_w, missing_w, left, computed, so_far, notes
+
+
+def _targets(profile: CourseProfile | None, percent: float | None) -> list[tuple[str, float]]:
+    """The grade lines worth showing: around the current letter (two above, one below), so a
+    B student sees B+ and A-, not only A+ and A. F is never a target."""
+    if not profile or not profile.scale:
+        return LINES
+    bands = [b for b in profile.scale if b.min > 0]
+    if percent is None:
+        return [(b.letter, b.min) for b in bands[:LINES_SHOWN]]
+    at = next((i for i, b in enumerate(bands) if percent >= b.min), len(bands))
+    start = max(0, at - 2)
+    return [(b.letter, b.min) for b in bands[start : start + LINES_SHOWN]]
 
 
 def _course_view(
@@ -304,8 +341,12 @@ def _course_view(
             + "、".join(dupes[:5])
         )
     own = bool(profile and profile.categories)
+    so_far: float | None = None
     if own and profile is not None:
-        graded_w, missing_w, left, computed, notes = _syllabus_totals(profile, assignments, names)
+        graded_w, missing_w, left, computed, so_far, cat_notes = _syllabus_totals(
+            profile, assignments, names
+        )
+        notes.extend(cat_notes)
     elif isinstance(canvas_score, int | float) and not isinstance(canvas_score, bool) and graded_w:
         computed = float(canvas_score) * graded_w / 100
     done_value, done_weight = computed, graded_w + missing_w
@@ -344,12 +385,12 @@ def _course_view(
     canvas = (
         float(score) if isinstance(score, int | float) and not isinstance(score, bool) else None
     )
-    # The course percent so far: own syllabus weights, else Canvas's current score. Missing
-    # work counts as 0 in our own number (Canvas usually scores it that way too).
-    # One number for the letter and the grade lines alike: missing work counts as 0 here,
-    # even when Canvas's current score leaves it out.
+    # The course percent so far counts missing work as 0, like the grade lines do, even
+    # when Canvas's current score leaves it out. With own categories it is each category's
+    # average times its weight (the syllabus's meaning).
     percent = round(done_value / done_weight * 100, 2) if done_weight else None
     if own:
+        percent = so_far
         basis = "syllabus" if percent is not None else "none"
     else:
         if percent is None:
@@ -357,7 +398,7 @@ def _course_view(
         basis = "canvas" if percent is not None else "none"
         if canvas is not None and percent is not None and canvas - percent >= 0.5:
             notes.append(
-                f"Canvas 的当前分 {canvas:g}% 没把 {completion.missing} 份缺交算成 0；"
+                f"Canvas 的当前分 {canvas:g}% 没把 {len(missing)} 份缺交算成 0；"
                 f"算上缺交是 {percent:g}%"
             )
     if profile and profile.scale and percent is not None:
@@ -375,11 +416,13 @@ def _course_view(
         and percent is not None
         and abs(canvas - percent) >= 1
     ):
-        notes.append(f"Canvas 的总分 {canvas:g}% 没按大纲的权重算；按大纲算是 {percent:g}%")
+        notes.append(
+            f"Canvas 的总分是 {canvas:g}%，按大纲的类别和权重算是 {percent:g}%"
+            "（Canvas 里没设这些类别的权重）"
+        )
     if profile:
         notes.extend(f"待确认：{q}" for q in profile.open_questions)
-    bands = (profile.scale if profile and profile.scale else [])[:LINES_SHOWN]
-    targets = [(b.letter, b.min) for b in bands] if bands else LINES
+    targets = _targets(profile, percent)
     return CourseView(
         integration_item_id=course.id,
         code=course_code(str(data.get("course_code") or course.title)) or course.title,

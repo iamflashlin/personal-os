@@ -120,8 +120,8 @@ function RulesCard({
             </p>
           )}
           <ul className="rules">
-            {p.rules.map((r) => (
-              <li key={r.text}>
+            {p.rules.map((r, i) => (
+              <li key={`${i}-${r.kind}`}>
                 <span className={`badge rule-${r.kind}`}>{RULE_KIND[r.kind] ?? r.kind}</span> {r.text}
                 {r.source && <div className="rule-source">原文：{r.source}</div>}
               </li>
@@ -131,8 +131,8 @@ function RulesCard({
             <div className="rules-open">
               <strong>待确认</strong>
               <ul>
-                {p.open_questions.map((q) => (
-                  <li key={q}>{q}</li>
+                {p.open_questions.map((q, i) => (
+                  <li key={`${i}-${q.slice(0, 20)}`}>{q}</li>
                 ))}
               </ul>
             </div>

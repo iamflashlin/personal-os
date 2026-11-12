@@ -1854,11 +1854,11 @@
       },
       "GradeCategory": {
         "additionalProperties": false,
-        "description": "One graded category of the syllabus. `match` picks its Canvas assignments by title\n(a case-insensitive regular expression); empty means the Canvas group of the same name.",
+        "description": "One graded category of the syllabus. `match` picks its Canvas assignments by their\nwhole title (see `title_pattern`: `ZB#` matches ZB01, `ZB# Lab` matches ZB01 Lab);\nempty means the Canvas group of the same name.",
         "properties": {
           "match": {
             "default": "",
-            "maxLength": 200,
+            "maxLength": 120,
             "title": "Match",
             "type": "string"
           },

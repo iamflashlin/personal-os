@@ -45,23 +45,39 @@ class GradeBand(BaseModel):
         return v
 
 
+TITLE_MAX = 300  # longer Canvas titles are cut before matching
+
+
+def title_pattern(match: str) -> re.Pattern[str]:
+    """A category's title pattern: the whole title, ignoring case, where `#` is a number
+    and `*` is anything. No user-written regular expression reaches `re` (no ReDoS)."""
+    parts = []
+    for ch in match.strip():
+        parts.append(r"\d+" if ch == "#" else ".*" if ch == "*" else re.escape(ch))
+    return re.compile("".join(parts), re.IGNORECASE)
+
+
+def normal_code(code: str) -> str:
+    """'math  d001a' and 'MATH D001A' name the same course."""
+    return " ".join(code.upper().split())
+
+
 class GradeCategory(BaseModel):
-    """One graded category of the syllabus. `match` picks its Canvas assignments by title
-    (a case-insensitive regular expression); empty means the Canvas group of the same name."""
+    """One graded category of the syllabus. `match` picks its Canvas assignments by their
+    whole title (see `title_pattern`: `ZB#` matches ZB01, `ZB# Lab` matches ZB01 Lab);
+    empty means the Canvas group of the same name."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=80)
     weight: float = Field(gt=0, le=100)
-    match: str = Field(default="", max_length=200)
+    match: str = Field(default="", max_length=120)
 
     @field_validator("match")
     @classmethod
-    def _regex(cls, v: str) -> str:
-        try:
-            re.compile(v)
-        except re.error as exc:
-            raise ValueError(f"bad pattern: {exc}") from None
+    def _pattern(cls, v: str) -> str:
+        if "**" in v or "##" in v:
+            raise ValueError("write * or # once")
         return v
 
 
@@ -77,6 +93,12 @@ class ProfileFields(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     code: str = Field(min_length=2, max_length=32)  # "MATH D001A", as course_code() gives it
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, v: str) -> str:
+        return normal_code(v)
+
     title: str = Field(default="", max_length=200)
     term: str = Field(default="", max_length=40)
     units: float | None = Field(default=None, gt=0, le=10)
@@ -98,6 +120,8 @@ class ProfileFields(BaseModel):
             raise ValueError("the scale must go from the highest letter down")
         if len({b.letter for b in self.scale}) != len(self.scale):
             raise ValueError("a letter appears twice in the scale")
+        if self.scale and self.scale[-1].min != 0:
+            raise ValueError("the scale must go down to 0 (the lowest letter starts at 0)")
         return self
 
 

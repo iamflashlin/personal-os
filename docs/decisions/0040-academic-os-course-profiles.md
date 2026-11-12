@@ -29,10 +29,21 @@ cannot show:
     score for the graded part.
   - The letter comes from the profile's scale and the points from De Anza's table.
   - The GPA is weighted by units once every course has them.
+  - **Percent so far** with own categories: each category's average (missing work as 0)
+    times its weight, over the categories with graded or missing work. That is what a
+    syllabus's "zyBooks 30%" means, and Canvas computes it the same way.
+  - **Grade lines**: the average the open work needs for the whole-course total to reach
+    a letter. The lines shown are around the current letter (two above, one below).
+  - Category patterns match the whole title with `#` (a number) and `*` (anything), e.g.
+    `ZB#` and `ZB# Lab`. They are never user regular expressions, so a pattern cannot
+    freeze the Hub.
+  - Every scale goes down to 0, so a failing course gets F and never drops out of the GPA.
   - Missing work counts as 0 in both the shown percent and the grade lines, so the two
     agree. When Canvas's current score leaves missing work out, the page says so.
-  - A missing item named like work that was already handed in is treated as a copy. It
-    is left out and named on the page.
+  - A missing item is treated as a copy of handed-in work when it has the same title and
+    sits in another Canvas group (combined classes import work there, sometimes with other
+    points), or has the same points and due time in the same group. It is left out and
+    named on the page. A weekly title with its own due date stays missing.
   - Disagreements (Canvas's letter versus the syllabus's letter) are shown, not resolved.
 - **Profiles come from an import.** `scripts/academic/import_profiles.py` reads a JSON file
   kept outside the repo. The assistant wrote this term's file by reading the syllabi on

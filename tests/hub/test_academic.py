@@ -40,10 +40,10 @@ def fields(code: str = "CIS D022A", **over: Any) -> dict[str, Any]:
         "units": 4.5,
         "scale": CIS_SCALE,
         "categories": [
-            {"name": "zyBooks 作业", "weight": 30, "match": r"^ZB\d+$"},
-            {"name": "zyBooks 实验", "weight": 20, "match": r"^ZB\d+ Lab$"},
-            {"name": "期中", "weight": 25, "match": "^Midterm$"},
-            {"name": "期末", "weight": 25, "match": "^Final$"},
+            {"name": "zyBooks 作业", "weight": 30, "match": "ZB#"},
+            {"name": "zyBooks 实验", "weight": 20, "match": "ZB# Lab"},
+            {"name": "期中", "weight": 25, "match": "Midterm"},
+            {"name": "期末", "weight": 25, "match": "Final"},
         ],
         "rules": [{"kind": "late", "text": "不收迟交", "source": "No late work"}],
         "open_questions": ["ZB30 算哪类？"],
@@ -88,7 +88,8 @@ def test_stale_versions_and_unknown_codes(hub) -> None:
         {"categories": [{"name": "a", "weight": 50}]},  # weights do not add up to 100
         {"scale": [{"letter": "B", "min": 80}, {"letter": "A", "min": 90}]},  # not descending
         {"scale": [{"letter": "C-", "min": 60}]},  # De Anza gives no C-
-        {"categories": [{"name": "a", "weight": 100, "match": "("}]},  # bad pattern
+        {"categories": [{"name": "a", "weight": 100, "match": "ZB**"}]},  # doubled wildcard
+        {"scale": [{"letter": "A", "min": 90}, {"letter": "B", "min": 80}]},  # does not reach 0
         {"rules": [{"kind": "rumour", "text": "x"}]},
     ],
 )
@@ -180,13 +181,14 @@ def test_the_syllabus_weights_and_scale_decide_the_letter(hub) -> None:
     assert course["grade_points"] == 3.0 and course["units"] == 4.5
     notes = " ".join(course["notes"])
     assert "Canvas 显示 A，按大纲的分数线是 B" in notes
-    assert "没按大纲的权重算" in notes
+    assert "按大纲的类别和权重算是 83.33%" in notes
     assert "Bonus survey" in notes  # not in any syllabus category: said, not silently counted
     assert "待确认：ZB30 算哪类？" in notes
     lines = {line["label"]: line for line in course["lines"]}
-    assert set(lines) == {"A+（98%）", "A（92%）", "A-（90%）", "B+（88%）"}
-    # A needs (92*100 - 83.33*75) / 25 = 118: out of reach; B+ needs 102: out of reach too
-    assert lines["A（92%）"]["status"] == "out_of_reach"
+    assert list(lines) == ["A-（90%）", "B+（88%）", "B（82%）"]  # around the current B
+    # A- needs (90*100 - 83.33*75) / 25 = 110: out of reach; B needs 78: reachable
+    assert lines["A-（90%）"]["status"] == "out_of_reach"
+    assert lines["B（82%）"]["status"] == "reachable"
 
 
 def test_without_a_profile_canvas_is_used_as_before(hub) -> None:
@@ -291,3 +293,133 @@ def test_a_missing_copy_of_handed_in_work_is_not_counted_as_zero(hub) -> None:
     assert any("同名" in n and "Introduce  yourself" in n for n in course["notes"])
     assert course["percent"] == 45.0  # Canvas 90% on the graded half, the real missing half as 0
     assert any("没把 1 份缺交算成 0" in n for n in course["notes"])
+
+
+def test_title_patterns_are_whole_title_wildcards() -> None:
+    from packages.contracts.academic import title_pattern
+
+    p = title_pattern("ZB# Lab")
+    assert p.fullmatch("ZB01 Lab") and p.fullmatch("zb7 lab")
+    assert not p.fullmatch("ZB01") and not p.fullmatch("ZB01 Lab extra")
+    assert title_pattern("(a+)+$").fullmatch("(a+)+$")  # taken literally, never as a regex
+    assert title_pattern("Exam*").fullmatch("Exam 2 - Chrome only")
+
+
+def test_codes_are_normalised(hub) -> None:
+    client, _ = hub
+    f = fields(code="cis  d022a")
+    r = client.put("/academic/profiles/CIS D022A", json={"fields": f, "version": None})
+    assert r.status_code == 200 and r.json()["code"] == "CIS D022A"
+
+
+def test_a_half_graded_category_counts_at_its_average_times_weight(hub) -> None:
+    client, engine = hub
+    iid = canvas(engine)
+    code = "F26 CIS D022A 54Y Beg Prog Method C++"
+    item(
+        engine,
+        iid,
+        "canvas_course",
+        "h1",
+        code,
+        course_code=code,
+        current_score=None,
+        current_grade="",
+        weighted=False,
+        groups=[{"id": 1, "name": "Assignments"}],
+    )
+    past, later = NOW - timedelta(days=2), NOW + timedelta(days=9)
+    for n in range(10):  # zyBooks: all ten graded at 100%
+        item(
+            engine,
+            iid,
+            "canvas_assignment",
+            f"z{n}",
+            f"ZB{n:02d}",
+            past,
+            course_code=code,
+            group_id=1,
+            points_possible=2,
+            score=2,
+            submission_state="graded",
+        )
+    item(
+        engine,
+        iid,
+        "canvas_assignment",
+        "l0",
+        "ZB00 Lab",
+        past,
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        score=0,
+        submission_state="graded",
+    )
+    for n in range(1, 10):  # labs: one of ten graded, at 0%
+        item(
+            engine,
+            iid,
+            "canvas_assignment",
+            f"l{n}",
+            f"ZB{n:02d} Lab",
+            later,
+            course_code=code,
+            group_id=1,
+            points_possible=2,
+            score=None,
+            submission_state="unsubmitted",
+        )
+    put(
+        client,
+        categories=[
+            {"name": "zyBooks 作业", "weight": 60, "match": "ZB#"},
+            {"name": "zyBooks 实验", "weight": 40, "match": "ZB# Lab"},
+        ],
+        open_questions=[],
+    )
+    course = client.get("/gpa").json()["courses"][0]
+    # each category's average times its weight: (60*100 + 40*0) / 100 = 60
+    assert course["percent"] == 60.0
+
+
+def test_a_copy_note_survives_own_categories_and_weekly_titles_stay_missing(hub) -> None:
+    client, engine = hub
+    seed_cis(engine)
+    iid = canvas(engine)
+    code = "F26 CIS D022A 54Y Beg Prog Method C++"
+    past = NOW - timedelta(days=3)
+    # a copy: same title and points as the graded ZB01, imported into another group
+    item(
+        engine,
+        iid,
+        "canvas_assignment",
+        "dup",
+        "ZB01",
+        past,
+        course_code=code,
+        group_id=2,
+        points_possible=2,
+        score=None,
+        missing=True,
+        submission_state="unsubmitted",
+    )
+    # a weekly title: same group and points as ZB02, another due date: really missing
+    item(
+        engine,
+        iid,
+        "canvas_assignment",
+        "wk",
+        "ZB02",
+        past - timedelta(days=7),
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        score=None,
+        missing=True,
+        submission_state="unsubmitted",
+    )
+    put(client)
+    course = client.get("/gpa").json()["courses"][0]
+    assert any("同名" in n and "ZB01" in n for n in course["notes"])
+    assert [w["title"] for w in course["missing"]] == ["ZB02"]
