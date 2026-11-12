@@ -28,6 +28,16 @@ function Find-Uv {
     return $null
 }
 
+$lockScript = Join-Path $PSScriptRoot "update-lock.ps1"
+if (Test-Path $lockScript) {
+    . $lockScript  # Wait-For-Update: waits while an update replaces the copy
+} else {
+    # A partial checkout mid-update: do not exit (the watchdog would wait 5 min); start as before.
+    function Wait-For-Update([string]$DataDir) {}
+}
+
+Wait-For-Update $DataDir
+Write-Log "supervisor started (pid $PID)"
 $env:POS_DATA_DIR = $DataDir
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $CopyDir
@@ -36,6 +46,7 @@ while ($true) {
     # Each run writes its own files, so a crash's output survives the next start.
     Get-ChildItem $logs -Filter "hub-run-*.log" | Sort-Object Name -Descending |
         Select-Object -Skip ($keepRuns * 2) | Remove-Item -Force -ErrorAction SilentlyContinue
+    Wait-For-Update $DataDir
     $uvExe = Find-Uv
     if (-not $uvExe) {
         Write-Log "uv was not found; trying again in 60 s"

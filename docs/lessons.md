@@ -76,3 +76,7 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   hidden reasoning — before switching a live prompt, run one live call on a realistic,
   link-heavy fake email and check finish_reason and token use; switch vendor reasoning off
   unless a task needs it.
+
+- 2026-11-11: `update-hub.ps1` was run from a feature branch's working tree, so the
+  unreviewed version of the script ran (it still deployed origin/main correctly). Rule:
+  switch to `main` (`git switch main; git pull --ff-only`) before running update-hub.ps1.
