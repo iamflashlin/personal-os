@@ -559,3 +559,25 @@ input.masked {
   overflow-wrap: anywhere;
 }
 
+.data-kinds {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.data-kind {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
+.data-kind.state-error {
+  border-color: #c62828;
+}
+
+.data-kind.state-stale {
+  border-color: #b26a00;
+}

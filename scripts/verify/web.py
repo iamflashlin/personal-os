@@ -757,6 +757,28 @@ def verify_digest_view(page: Page, out: Path) -> None:
     page.set_viewport_size({"width": 1200, "height": 800})
 
 
+def verify_data_kinds(page: Page, out: Path) -> None:
+    """T-0046: 连接 starts with the six data kinds and each one's status."""
+    open_view(page, "连接")
+    overview = page.get_by_test_id("data-kinds")
+    overview.wait_for(timeout=20_000)
+    keys = ("academic", "schedule", "mail", "pc", "files", "goals")
+    check(
+        all(overview.get_by_test_id(f"kind-{k}").count() == 1 for k in keys),
+        "连接 shows the six data kinds",
+    )
+    check("以后接入" in overview.get_by_test_id("kind-pc").inner_text(), "PC activity says later")
+    check(
+        "手动记录" in overview.get_by_test_id("kind-goals").inner_text(),
+        "goals are kept in the Hub",
+    )
+    page.set_viewport_size({"width": 390, "height": 900})
+    wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    check(not wide, "the overview fits a phone screen")
+    shot(page, out, "24-data-kinds-phone")
+    page.set_viewport_size({"width": 1200, "height": 800})
+
+
 def open_view(page: Page, name: str) -> None:
     page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
 
@@ -858,6 +880,7 @@ def run(out: Path, headed: bool) -> None:
             verify_summaries_view(page, api, out, service, hub_log, errors)
             verify_schedule_view(page, out)
             verify_digest_view(page, out)
+            verify_data_kinds(page, out)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 
