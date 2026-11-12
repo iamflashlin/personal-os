@@ -335,16 +335,17 @@ class CanvasConnector:
                 ):
                     if not isinstance(module, dict):
                         continue
-                    listed = module.get("items")
-                    if not isinstance(listed, list):
+                    module_items = module.get("items")
+                    if not isinstance(module_items, list):
                         # Canvas inlines items only "if possible": a big module sends just
                         # items_url, so read its items rather than take it as empty.
                         module_id = _id(module.get("id"))
                         if module_id is None:
                             continue
                         path = f"/api/v1/courses/{cid}/modules/{module_id}/items"
-                        listed = _optional(client, path, {})
-                    for m in listed:
+                        # A 404 here means the module went away between the two calls.
+                        module_items = _optional(client, path, {})
+                    for m in module_items:
                         if (
                             isinstance(m, dict)
                             and m.get("type") in MATERIAL_TYPES

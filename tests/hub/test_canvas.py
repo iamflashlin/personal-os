@@ -126,6 +126,11 @@ class FakeCanvas:
                     {"id": "bad", "name": "Broken"},
                 ],
             )
+        if url.path == "/api/v1/courses/101/modules" and self.mode == "modules-page2-gone":
+            if query.get("page") == ["2"]:
+                return 404, {}, {"errors": [{"message": "not found"}]}
+            link = f'<{self.base}/api/v1/courses/101/modules?page=2&per_page=100>; rel="next"'
+            return 200, {"Link": link}, [{"id": 1, "name": "Week 1", "position": 1, "items": []}]
         if url.path == "/api/v1/courses/101/modules":
             assert query.get("include[]") == ["items"]
             return (
@@ -603,3 +608,9 @@ def test_materials_are_pruned_only_after_complete_syncs(
     sync(client, store, integration)  # the first complete sync without them
     removed = sync(client, store, integration)["removed"]  # the second removes them
     assert removed == 3
+
+
+def test_a_list_lost_part_way_is_an_error_not_a_short_list(canvas: FakeCanvas) -> None:
+    canvas.mode = "modules-page2-gone"
+    with pytest.raises(SyncError, match="part-way"):
+        CanvasConnector().fetch(TOKEN, {}, {"base_url": canvas.base})
