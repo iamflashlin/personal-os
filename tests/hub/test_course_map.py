@@ -1,6 +1,7 @@
 # ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation)
 """The course knowledge map (ADR 0041): structure, assessment links, mastery, exam maps."""
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 
 from apps.hub.academic.maps import sections_in
 from apps.hub.core.settings import Settings
@@ -295,3 +296,115 @@ def test_undated_repeats_in_one_group_are_not_copies(hub) -> None:
     course = client.get("/gpa").json()["courses"][0]
     assert [w["title"] for w in course["missing"]] == ["Discussion"]
     assert not any("同名" in n for n in course["notes"])
+
+
+ECON = "F26 ECON C2002 03Y Prin Macroeconomics"
+
+
+def test_sections_without_numbers_link_their_work_by_title(hub) -> None:
+    client, engine = hub
+    iid = canvas(engine)
+    item(engine, iid, "canvas_course", "c", ECON, course_code=ECON, weighted=True, groups=[])
+    for ext, title in [
+        ("m1", "Monetary Policy.doc"),
+        ("m2", "Intro: Monetary Policy"),
+        ("m3", "Financial Crisis, Panics, and Unconventional Monetary Policy.doc"),
+        ("m4", "Exam #2 Study Guide with video"),
+    ]:
+        item(engine, iid, "canvas_material", ext, title, course_code=ECON, kind="File")
+    for ext, title, pts, score in [
+        ("h1", "Homework - Monetary  Policy", 10, 9),  # Canvas titles keep stray spaces
+        ("h2", "Homework - Financial Crisis, Panics, and Unconventional Monetary Policy", 10, 6),
+        # a stray double space: still the exam, never practice for a broad section pattern
+        ("e2", "Exam #2 - Please  don't forget to use a Chrome web browser. Monetary", 30, 12),
+    ]:
+        item(
+            engine,
+            iid,
+            "canvas_assignment",
+            ext,
+            title,
+            NOW,
+            course_code=ECON,
+            points_possible=pts,
+            score=score,
+        )
+    body = {
+        "course_code": "ECON C2002",
+        "concepts": [
+            {"key": "p2", "kind": "chapter", "title": "Before Exam 2"},
+            {
+                "key": "U7",
+                "kind": "section",
+                "parent": "p2",
+                "title": "Monetary Policy",
+                "match": ["Homework -  Monetary Policy", "Monetary Policy.doc", "Intro: Monetary*"],
+            },
+            {
+                "key": "U8",
+                "kind": "section",
+                "parent": "p2",
+                "title": "Financial Crisis",
+                "match": ["*Financial Crisis, Panics*", "*Monetary"],
+            },
+        ],
+        "exams": [{"name": "Exam 2", "scope": ["p2"], "match": "Exam *2 - Please*"}],
+    }
+    assert client.put("/academic/maps/ECON C2002", json=body).status_code == 200
+    by = {c["key"]: c for c in client.get("/academic/maps/ECON C2002").json()["concepts"]}
+    assert [a["title"] for a in by["U7"]["assessments"]] == ["Homework - Monetary  Policy"]
+    assert sorted(r["title"] for r in by["U7"]["resources"]) == [
+        "Intro: Monetary Policy",
+        "Monetary Policy.doc",
+    ]
+    # the whole title must match: "Monetary Policy" does not take the crisis chapter's work
+    assert [a["percent"] for a in by["U8"]["assessments"]] == [60.0]
+    assert by["U8"]["mastery"]["state"] == "needs_review"
+    e = client.get("/academic/maps/ECON C2002/exams/Exam 2").json()
+    assert e["suggested"] == ["U8", "U7"]
+    assert [r["title"] for r in e["exam"]["resources"]] == ["Exam #2 Study Guide with video"]
+    assert e["exam"]["grade"]["percent"] == 40.0  # found despite the double space
+
+
+def test_a_map_saved_before_title_patterns_still_reads(hub) -> None:
+    client, engine = hub
+    seed(engine)
+    client.put("/academic/maps/MATH D001A", json=course_map())
+    with engine.begin() as con:
+        row = con.execute(text("select id, concepts from course_map")).one()
+        old = [{k: v for k, v in c.items() if k != "match"} for c in json.loads(row.concepts)]
+        con.execute(
+            text("update course_map set concepts = :c where id = :i"),
+            {"c": json.dumps(old), "i": row.id},
+        )
+    by = {c["key"]: c for c in client.get("/academic/maps/MATH D001A").json()["concepts"]}
+    assert by["3.4"]["mastery"]["state"] == "needs_review"
+
+
+def test_title_patterns_are_checked(hub) -> None:
+    client, _ = hub
+    sec_ = {"key": "a", "kind": "section", "title": "x"}
+    for bad in (
+        {**sec_, "match": ["*a*b*c*d"]},  # more than three wildcards
+        {**sec_, "match": [" "]},
+        {"key": "a", "kind": "chapter", "title": "x", "match": ["x"]},
+    ):
+        r = client.put(
+            "/academic/maps/ECON C2002", json={"course_code": "ECON C2002", "concepts": [bad]}
+        )
+        assert r.status_code == 422, bad
+
+
+def test_a_map_holds_at_most_200_title_patterns(hub) -> None:
+    client, _ = hub
+
+    def put(sections: int) -> int:
+        concepts = [
+            {"key": f"s{i}", "kind": "section", "title": "x", "match": ["a"] * 8}
+            for i in range(sections)
+        ]
+        body = {"course_code": "ECON C2002", "concepts": concepts}
+        return client.put("/academic/maps/ECON C2002", json=body).status_code
+
+    assert put(25) == 200  # 200 patterns
+    assert put(26) == 422  # 208

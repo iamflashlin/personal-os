@@ -30,6 +30,25 @@ class ConceptIn(BaseModel):
     prereq: list[str] = Field(default_factory=list, max_length=12)
     prereq_origin: Origin = "ai"
     origin: Origin = "teacher"
+    # For a section whose Canvas work does not carry its number (ECON: "Homework - Monetary
+    # Policy"): whole-title patterns (`title_pattern`) of its assignments and module items.
+    match: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("match")
+    @classmethod
+    def _patterns(cls, v: list[str]) -> list[str]:
+        v = [" ".join(p.split()) for p in v]  # titles are matched with single spaces
+        for p in v:
+            if not p or len(p) > 120:
+                raise ValueError("a title pattern has 1 to 120 characters")
+            check_pattern(p)
+        return v
+
+    @model_validator(mode="after")
+    def _only_sections_match(self) -> "ConceptIn":
+        if self.match and self.kind != "section":
+            raise ValueError(f"{self.key}: only a section links work by title")
+        return self
 
 
 class CheckItem(BaseModel):
@@ -54,7 +73,7 @@ class ExamIn(BaseModel):
     @field_validator("match")
     @classmethod
     def _pattern(cls, v: str) -> str:
-        return check_pattern(v)
+        return check_pattern(" ".join(v.split()))  # matched with single spaces, like titles
 
 
 class MapIn(BaseModel):
@@ -82,6 +101,8 @@ class MapIn(BaseModel):
                 if p not in known:
                     raise ValueError(f"{c.key}: unknown prerequisite {p}")
         kinds = {c.key: c.kind for c in self.concepts}
+        if sum(len(c.match) for c in self.concepts) > 200:
+            raise ValueError("at most 200 title patterns in a map")
         names = [e.name for e in self.exams]
         if len(set(names)) != len(names):
             raise ValueError("an exam name appears twice")
