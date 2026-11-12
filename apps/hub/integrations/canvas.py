@@ -183,7 +183,7 @@ def _number(value: Any) -> float | None:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
-def _course(course: Mapping[str, Any], groups: list[Mapping[str, Any]]) -> ItemIn:
+def _course(base: str, course: Mapping[str, Any], groups: list[Mapping[str, Any]] | None) -> ItemIn:
     """The course itself: its current grade as Canvas computes it, and its groups."""
     enrollments = course.get("enrollments")
     first = enrollments[0] if isinstance(enrollments, list) and enrollments else {}
@@ -196,7 +196,10 @@ def _course(course: Mapping[str, Any], groups: list[Mapping[str, Any]]) -> ItemI
         "current_grade": str(enrollment.get("computed_current_grade") or ""),
         "final_score": _number(enrollment.get("computed_final_score")),
         "weighted": bool(course.get("apply_assignment_group_weights")),
-        "groups": [
+        # None: Canvas would not show the groups (unknown), not "no groups".
+        "groups": None
+        if groups is None
+        else [
             {
                 "id": _id(g.get("id")),
                 "name": str(g.get("name") or "").strip(),
@@ -210,7 +213,7 @@ def _course(course: Mapping[str, Any], groups: list[Mapping[str, Any]]) -> ItemI
         item_type="canvas_course",
         external_id=str(course["id"]),
         title=_course_label(course),
-        url=f"{course.get('_base', '')}/courses/{course['id']}",
+        url=f"{base}/courses/{course['id']}",
         data=data,
     )
 
@@ -218,16 +221,16 @@ def _course(course: Mapping[str, Any], groups: list[Mapping[str, Any]]) -> ItemI
 def _material(course: Mapping[str, Any], module: Mapping[str, Any], m: Mapping[str, Any]) -> ItemIn:
     return ItemIn(
         item_type="canvas_material",
-        external_id=f"{course['id']}:{m['id']}",
+        external_id=f"{course['id']}:{_id(m.get('id'))}",
         title=str(m.get("title") or ""),
         url=str(m.get("html_url") or ""),
         data={
             "course": _course_label(course),
             "course_code": str(course.get("course_code") or ""),
             "module": str(module.get("name") or "").strip(),
-            "module_position": module.get("position"),
+            "module_position": _id(module.get("position")),
             "kind": str(m.get("type") or ""),
-            "position": m.get("position"),
+            "position": _id(m.get("position")),
         },
     )
 
@@ -272,6 +275,20 @@ def _announcement(course: Mapping[str, Any], n: Mapping[str, Any]) -> ItemIn:
     )
 
 
+def _optional(client: "_Client", path: str, params: Mapping[str, Any]) -> list[Any]:
+    """A list that may not exist: 404 on its first page means none. A 404 after some pages
+    came back is a failure (part of a list must never read as the whole list)."""
+    got: list[Any] = []
+    try:
+        for x in client.pages(path, {"per_page": 100, **params}):
+            got.append(x)
+    except _Missing:
+        if got:
+            raise SyncError("Canvas lost a list part-way (HTTP 404)") from None
+        return []
+    return got
+
+
 class CanvasConnector:
     def fetch(self, secret: str, cursor: Mapping[str, Any], config: Mapping[str, Any]) -> Batch:
         try:
@@ -300,36 +317,40 @@ class CanvasConnector:
         items: list[ItemIn] = []
         skipped = 0
         for course in courses:
-            course["_base"] = base
+            cid = course["id"]
             try:
-                groups: list[Mapping[str, Any]] = [
+                groups = [
                     g
-                    for g in client.pages(
-                        f"/api/v1/courses/{course['id']}/assignment_groups", {"per_page": 100}
-                    )
+                    for g in _optional(client, f"/api/v1/courses/{cid}/assignment_groups", {})
                     if isinstance(g, dict)
                 ]
-                items.append(_course(course, groups))
-            except _Missing:
-                items.append(_course(course, []))
+                items.append(_course(base, course, groups))
             except _Denied:
+                # The score came with the course list; only the groups are unknown.
+                items.append(_course(base, course, None))
                 skipped += 1
             try:
-                for module in client.pages(
-                    f"/api/v1/courses/{course['id']}/modules",
-                    {"include[]": "items", "per_page": 100},
+                for module in _optional(
+                    client, f"/api/v1/courses/{cid}/modules", {"include[]": "items"}
                 ):
                     if not isinstance(module, dict):
                         continue
-                    for m in module.get("items") or []:
+                    listed = module.get("items")
+                    if not isinstance(listed, list):
+                        # Canvas inlines items only "if possible": a big module sends just
+                        # items_url, so read its items rather than take it as empty.
+                        module_id = _id(module.get("id"))
+                        if module_id is None:
+                            continue
+                        path = f"/api/v1/courses/{cid}/modules/{module_id}/items"
+                        listed = _optional(client, path, {})
+                    for m in listed:
                         if (
                             isinstance(m, dict)
                             and m.get("type") in MATERIAL_TYPES
                             and _id(m.get("id")) is not None
                         ):
                             items.append(_material(course, module, m))
-            except _Missing:
-                pass  # no modules in this course
             except _Denied:
                 skipped += 1  # modules can be hidden from students
             try:

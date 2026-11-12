@@ -24,3 +24,13 @@ built by the assistant; a live AI-over-API summary may come later.
   the user confirms them.
 - **Later:** downloading materials (needs the user's go-ahead, and disk space on D),
   grade history over time, and assistant tools over grades.
+
+## Consequences
+- **Completeness is one flag per sync.** If a teacher hides groups or modules in one course,
+  that sync is incomplete, and nothing of any kind is pruned until every list can be read
+  again. Per-type completeness needs a `Batch` change and is a later card.
+- **The course list includes non-credit shells** such as orientation courses. The GPA module
+  (T-0041) keeps only courses whose code names a department and a number.
+- **Typed views.** The raw `canvas_course` and `canvas_material` data stays internal to the
+  Hub. The web reads typed views that T-0041 defines in `packages/contracts/gpa.py`.
+

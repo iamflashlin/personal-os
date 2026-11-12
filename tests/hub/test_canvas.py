@@ -75,6 +75,7 @@ class FakeCanvas:
         self.elsewhere = elsewhere
         self.assignment_title = "Lab 3 实验报告"
         self.reading_deleted = False  # the teacher deleted the "Reading" assignment
+        self.material_deleted = False  # the teacher removed every module item
         self.server = Server(self.answer)
         self.base = self.server.base
 
@@ -154,6 +155,42 @@ class FakeCanvas:
                             {"id": 504, "type": "SubHeader", "title": "Readings"},
                             "not-an-item",
                         ],
+                    },
+                    # Canvas leaves out `items` for a big module and sends only items_url.
+                    {
+                        "id": 2,
+                        "name": "Week 2",
+                        "position": 2,
+                        "items_count": 40,
+                        "items_url": "https://school.instructure.com/api/v1/courses/101/modules/2/items",
+                    },
+                ]
+                if not self.material_deleted
+                else [
+                    {"id": 1, "name": "Week 1", "position": 1, "items": []},
+                    {"id": 2, "name": "Week 2", "position": 2, "items": []},
+                ],
+            )
+        if url.path in (
+            "/api/v1/courses/202/assignment_groups",
+            "/api/v1/courses/404/assignment_groups",
+        ):
+            if self.mode == "hidden-groups" and "202" in url.path:
+                return 403, {}, {"errors": [{"message": "unauthorized"}]}
+            return 200, {}, []
+        if url.path == "/api/v1/courses/404/modules":
+            return 200, {}, []
+        if url.path == "/api/v1/courses/101/modules/2/items":
+            return (
+                200,
+                {},
+                [
+                    {
+                        "id": 601,
+                        "type": "File",
+                        "title": "Big module file",
+                        "position": 1,
+                        "html_url": "https://school.instructure.com/courses/101/modules/items/601",
                     }
                 ],
             )
@@ -174,6 +211,7 @@ class FakeCanvas:
                         "points_possible": 20,
                         "html_url": "https://school.instructure.com/courses/101/assignments/1",
                         "assignment_group_id": 11,
+                        "omit_from_final_grade": True,
                         "submission": {"workflow_state": "unsubmitted", "missing": True},
                     },
                     *(
@@ -196,7 +234,13 @@ class FakeCanvas:
                         "id": 9,
                         "name": "Quiz 5",
                         "due_at": "2026-11-20T17:00:00Z",
-                        "submission": {"workflow_state": "graded", "score": 9.5},
+                        "submission": {
+                            "workflow_state": "graded",
+                            "score": 9.5,
+                            "grade": "A",
+                            "graded_at": "2026-11-10T01:00:00Z",
+                            "excused": False,
+                        },
                     }
                 ],
             )
@@ -291,6 +335,7 @@ def test_courses_assignments_and_announcements_are_read(canvas: FakeCanvas) -> N
         "canvas_course/404",  # no groups (404): still a course, with none
         "canvas_material/101:501",
         "canvas_material/101:502",
+        "canvas_material/101:601",  # from a big module's items_url
     ]
     assert items["canvas_assignment/404:5"].data["course"] == "PE-1"
     assert items["canvas_assignment/404:5"].data["submission_state"] == ""  # odd shape
@@ -364,7 +409,7 @@ def test_through_the_hub_a_resync_updates_without_duplicates(
     integration = connect(client, canvas)
     assert integration["config"] == {"base_url": canvas.base}
     assert sync(client, store, integration) == {
-        "added": 10,
+        "added": 11,
         "updated": 0,
         "unchanged": 0,
         "removed": 0,
@@ -373,11 +418,11 @@ def test_through_the_hub_a_resync_updates_without_duplicates(
     assert sync(client, store, integration) == {
         "added": 0,
         "updated": 1,
-        "unchanged": 9,
+        "unchanged": 10,
         "removed": 0,
     }
     titles = {i["title"] for i in client.get(f"/integrations/{integration['id']}/items").json()}
-    assert "Lab 3 实验报告 - 延期" in titles and len(titles) == 10
+    assert "Lab 3 实验报告 - 延期" in titles and len(titles) == 11
 
 
 @pytest.mark.parametrize(
@@ -516,10 +561,45 @@ def test_courses_groups_scores_and_materials_are_read(canvas: FakeCanvas) -> Non
         {"id": 12, "name": "Exams", "weight": 40.0},
     ]
     materials = {m.title: m for m in by_type["canvas_material"]}
-    assert set(materials) == {"Syllabus.pdf", "Notes"}  # assignments and headers are not materials
+    # assignments and headers are not materials; a big module's items are read too
+    assert set(materials) == {"Syllabus.pdf", "Notes", "Big module file"}
+    assert materials["Notes"].url.endswith("/modules/items/502")
+    assert course.url == f"{canvas.base}/courses/101"
     assert materials["Syllabus.pdf"].data["module"] == "Week 1"
     assert materials["Syllabus.pdf"].data["kind"] == "File"
     lab = next(a for a in by_type["canvas_assignment"] if a.external_id == "101:1")
     assert lab.data["group_id"] == 11 and lab.data["missing"] is True
     # course 202 hides its modules: its materials are unknown, so nothing is pruned
     assert batch.complete is False
+
+
+def test_new_assignment_fields_are_kept(canvas: FakeCanvas) -> None:
+    items = fetch(canvas)
+    quiz = items["canvas_assignment/202:9"].data
+    assert quiz["grade"] == "A" and quiz["graded_at"] == "2026-11-10T01:00:00Z"
+    assert quiz["excused"] is False
+    assert items["canvas_assignment/101:1"].data["omit_from_final"] is True
+
+
+def test_hidden_groups_keep_the_course_with_unknown_groups(canvas: FakeCanvas) -> None:
+    canvas.mode = "hidden-groups"
+    batch = CanvasConnector().fetch(TOKEN, {}, {"base_url": canvas.base})
+    assert batch.items is not None and batch.complete is False
+    course = next(
+        i for i in batch.items if i.item_type == "canvas_course" and i.external_id == "202"
+    )
+    assert course.data["groups"] is None and course.title == "MATH 1B"
+
+
+def test_materials_are_pruned_only_after_complete_syncs(
+    client: TestClient, canvas: FakeCanvas, store: Any
+) -> None:
+    integration = connect(client, canvas)
+    sync(client, store, integration)
+    canvas.material_deleted = True
+    canvas.mode = "hidden-modules"  # a refused module list: nothing may be removed
+    assert sync(client, store, integration)["removed"] == 0
+    canvas.mode = "normal"
+    sync(client, store, integration)  # the first complete sync without them
+    removed = sync(client, store, integration)["removed"]  # the second removes them
+    assert removed == 3
