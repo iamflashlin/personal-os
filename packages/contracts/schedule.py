@@ -33,6 +33,8 @@ class EventFields(BaseModel):
             raise ValueError("one occurrence may last at most 14 days")
         if self.repeat_until is not None and not self.repeat_days:
             raise ValueError("repeat_until needs repeat_days")
+        if self.repeat_until is not None and self.repeat_until < self.starts_at.date():
+            raise ValueError("repeat_until is before the first day")
         return self
 
 

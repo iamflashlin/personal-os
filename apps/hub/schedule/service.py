@@ -25,6 +25,7 @@ from packages.contracts.schedule import (
 )
 
 DAY_WINDOW = (8, 22)  # local hours in which free time is looked for
+LOOKBACK_DAYS = 14  # calendar events longer than this that started earlier are not shown
 MIN_FREE_MINUTES = 30
 DAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 DONE_STATES = {"submitted", "graded", "pending_review"}
@@ -55,7 +56,8 @@ def _apply(row: ScheduleEventRow, f: EventFields, zone_name: str) -> None:
     row.location, row.notes = f.location, f.notes
     row.repeat_days = [d for d in DAYS if d in f.repeat_days]
     row.repeat_until = f.repeat_until
-    row.time_zone = zone_name
+    if zone_name or not row.time_zone:  # an edit without a zone keeps the entered one
+        row.time_zone = zone_name
 
 
 def create(session: Session, actor: Actor, new: NewEvent, zone_name: str) -> ScheduleEvent:
@@ -180,8 +182,16 @@ def _slot(out: list[FreeSlot], a: datetime, b: datetime) -> None:
 
 
 def agenda(
-    session: Session, actor: Actor, start: datetime, end: datetime, zone: tzinfo, zone_name: str
+    session: Session,
+    actor: Actor,
+    start: datetime,
+    end: datetime,
+    zone: tzinfo,
+    zone_name: str,
+    now: datetime | None = None,
 ) -> Agenda:
+    """`now`: free time is only listed from now on (past gaps are no use for planning)."""
+    now = now or datetime.now(UTC)
     if end <= start:
         raise Invalid("结束时间要晚于开始时间")
     if end - start > timedelta(days=MAX_SPAN_DAYS):
@@ -204,12 +214,16 @@ def agenda(
                     source="manual",
                     event_id=row.id,
                     url="",
-                    blocks=row.kind != "task" or not row.all_day,
+                    blocks=not row.all_day,
                 )
             )
-    for item in integrations.items_between(session, actor, start, end, "calendar_event"):
+    # Events that start before the window can still run into it (overnight, multi-day).
+    lookback = start - timedelta(days=LOOKBACK_DAYS)
+    for item in integrations.items_between(session, actor, lookback, end, "calendar_event"):
         if item.starts_at is None:
             continue
+        if (item.ends_at or item.starts_at) <= start and item.starts_at < start:
+            continue  # over before the window opens
         entries.append(
             AgendaEntry(
                 key=f"calendar:{item.id}",
@@ -236,7 +250,7 @@ def agenda(
         entries.append(
             AgendaEntry(
                 key=f"canvas:{item.id}",
-                title=f"截止：{item.title}",
+                title=item.title,  # the 截止 badge says what it is
                 kind="deadline",
                 starts_at=item.starts_at,
                 ends_at=None,
@@ -255,7 +269,7 @@ def agenda(
         end=end,
         time_zone=zone_name or str(zone),
         entries=entries,
-        free=_free(entries, start, end, zone),
+        free=_free(entries, max(start, now), end, zone) if now < end else [],
         day_window=DAY_WINDOW,
     )
 

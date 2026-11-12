@@ -51,7 +51,15 @@ function localInput(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function Entry({ e, onDelete }: { e: AgendaEntry; onDelete: (id: string) => void }) {
+function Entry({
+  e,
+  onDelete,
+  repeats,
+}: {
+  e: AgendaEntry;
+  onDelete: (id: string) => void;
+  repeats: boolean;
+}) {
   const link = safeLink(e.url);
   return (
     <li className={`sched-entry${e.conflict ? " conflict" : ""}`} data-testid="sched-entry">
@@ -73,8 +81,16 @@ function Entry({ e, onDelete }: { e: AgendaEntry; onDelete: (id: string) => void
         </span>
       )}
       {e.event_id && (
-        <button type="button" className="link-button" onClick={() => onDelete(e.event_id ?? "")}>
-          删除
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            // One click on a weekly class would delete every week: say so first.
+            if (repeats && !window.confirm("这是每周重复的日程，删除会删掉所有的周次。确定删除？")) return;
+            onDelete(e.event_id ?? "");
+          }}
+        >
+          {repeats ? "删除全部" : "删除"}
         </button>
       )}
     </li>
@@ -152,6 +168,12 @@ export function ScheduleView({ api }: { api: Api }) {
     return d;
   });
   const grouped = byDay(agenda?.entries ?? []);
+  // An event shown on more than one day this week repeats weekly.
+  const seen = new Map<string, number>();
+  for (const e of agenda?.entries ?? []) {
+    if (e.event_id) seen.set(e.event_id, (seen.get(e.event_id) ?? 0) + 1);
+  }
+  const repeating = new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
   const freeByDay = byDay(
     (agenda?.free ?? []).map((f) => ({
       key: f.starts_at,
@@ -253,7 +275,12 @@ export function ScheduleView({ api }: { api: Api }) {
                 {entries.length === 0 && <p className="muted">没有安排</p>}
                 <ul>
                   {entries.map((e) => (
-                    <Entry key={e.key} e={e} onDelete={(id) => void remove(id)} />
+                    <Entry
+                      key={e.key}
+                      e={e}
+                      repeats={repeating.has(e.event_id ?? "")}
+                      onDelete={(id) => void remove(id)}
+                    />
                   ))}
                 </ul>
                 {free.length > 0 && (
