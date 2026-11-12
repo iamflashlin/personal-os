@@ -46,9 +46,11 @@ def build_router() -> APIRouter:
         session: SessionDep,
         actor: ActorDep,
         which: Annotated[Literal["today", "history"], Query(alias="view")] = "today",
+        channel: Channel | None = None,
         time_zone: ZoneQuery = "",
     ) -> dict[str, int]:
         zone = _zone(time_zone)
-        return {"marked": service.read_all(session, actor, which, datetime.now(UTC), zone)}
+        marked = service.read_all(session, actor, which, datetime.now(UTC), zone, channel)
+        return {"marked": marked}
 
     return router

@@ -738,6 +738,11 @@ def verify_digest_view(page: Page, out: Path) -> None:
     check(True, "opening it marks it read")
     check("ASSIST 查课程对应" in item.inner_text(), "the points show first")
     shot(page, out, "23-digest")
+    page.set_viewport_size({"width": 390, "height": 900})
+    wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    check(not wide, "简报 fits a phone screen (no sideways scrolling)")
+    shot(page, out, "23b-digest-phone")
+    page.set_viewport_size({"width": 1200, "height": 800})
 
 
 def open_view(page: Page, name: str) -> None:

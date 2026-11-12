@@ -11,12 +11,14 @@ describe("digest", () => {
     });
     await api.digest("today", "America/Los_Angeles", true, "group");
     await api.markDigest("d1", true);
-    await api.readAllDigest("history", "America/Los_Angeles");
+    await api.readAllDigest("history", "America/Los_Angeles", "news");
     expect(calls[0].path).toBe(
       "/digest?view=today&time_zone=America%2FLos_Angeles&unread_only=true&channel=group",
     );
     expect(calls[1]).toEqual({ path: "/digest/items/d1/read", method: "PUT", body: { read: true } });
-    expect(calls[2].path).toBe("/digest/read-all?view=history&time_zone=America%2FLos_Angeles");
+    expect(calls[2].path).toBe(
+      "/digest/read-all?view=history&time_zone=America%2FLos_Angeles&channel=news",
+    );
   });
 
   it("names every channel in Chinese", () => {

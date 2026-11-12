@@ -13,12 +13,14 @@ It separates today from history and tracks read/unread.
   channel (news | club | group | other), the source name, title, summary (the distilled
   points), the raw text (the original, kept as is), the link, topics, the publish time, an
   event time, an important flag and the read time.
-- **Dedup** is by channel, source and link (or title), unique per owner: one item is
-  kept once.
+- **Dedup** is unique per owner: by channel, source and link; without a link, by title
+  and publish day, so a weekly post under the same title comes back as a new item. A future
+  publish time is clamped to now.
 - **Views.** `GET /digest?view=today|history`. Today starts at local midnight. Within
   today, unread and important items come first; history is newest first, capped at 300.
   Unread counts are given for both views and per channel.
-- **Writes.** Add an item, mark one read or unread, or mark a whole view read. All are
+- **Writes.** Add an item, mark one read or unread, or mark what is on screen read (the
+  view, and the chosen channel if any). All are
   audited. Opening an item in the web marks it read.
 - **No sources and no model yet.** Items come in by hand now. Connectors (news feeds, IG,
   Discord, a WeChat export) will write through the same `add`, with `source` set to their

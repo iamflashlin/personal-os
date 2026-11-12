@@ -6,14 +6,13 @@ the original fact."""
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 Channel = Literal["news", "club", "group", "other"]
-CHANNEL_LABEL = {"news": "时事", "club": "社团活动", "group": "群聊精华", "other": "其他"}
 
 
 class NewDigestItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     channel: Channel
     source_name: Annotated[str, Field(min_length=1, max_length=120)]  # "微信转学群", "Reuters"
     title: Annotated[str, Field(min_length=1, max_length=300)]
@@ -23,8 +22,8 @@ class NewDigestItem(BaseModel):
     topics: Annotated[
         list[Annotated[str, Field(min_length=1, max_length=40)]], Field(max_length=10)
     ] = []
-    published_at: datetime | None = None  # when the source posted it; now when unknown
-    happens_at: datetime | None = None  # an event's own time (a club meeting), if any
+    published_at: AwareDatetime | None = None  # when the source posted it; now when unknown
+    happens_at: AwareDatetime | None = None  # an event's own time (a club meeting), if any
     important: bool = False
 
 

@@ -87,8 +87,19 @@ export function DigestView({ api }: { api: Api }) {
 
   async function read(id: string, value: boolean) {
     try {
-      await api.markDigest(id, value);
-      await load();
+      const updated = await api.markDigest(id, value);
+      // Update in place: with 只看未读 on, a reload would pull the item away while reading it.
+      setView((v) => {
+        if (!v) return v;
+        const was = v.items.find((i) => i.id === id);
+        const delta = was && was.read !== updated.read ? (updated.read ? -1 : 1) : 0;
+        return {
+          ...v,
+          items: v.items.map((i) => (i.id === id ? updated : i)),
+          unread_today: v.view === "today" ? v.unread_today + delta : v.unread_today,
+          unread_history: v.view === "history" ? v.unread_history + delta : v.unread_history,
+        };
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : String(err));
     }
@@ -140,7 +151,7 @@ export function DigestView({ api }: { api: Api }) {
             type="button"
             onClick={() =>
               void api
-                .readAllDigest(which, browserZone())
+                .readAllDigest(which, browserZone(), channel)
                 .then(load)
                 .catch((err) => setError(String(err)))
             }

@@ -19,9 +19,10 @@ from packages.contracts.digest import DigestItem, DigestView, NewDigestItem
 HISTORY_LIMIT = 300
 
 
-def _key(new: NewDigestItem) -> str:
-    """One item once: the same link (or, without one, the same title) from the same source."""
-    basis = new.url.strip() or new.title.strip().casefold()
+def _key(new: NewDigestItem, published: datetime) -> str:
+    """One item once: the same link from the same source; without a link, the same title on
+    the same day (a weekly "本周活动" post comes back under the same title)."""
+    basis = new.url.strip() or f"{published.date().isoformat()}|{new.title.strip().casefold()}"
     raw = f"{new.channel}|{new.source_name.strip().casefold()}|{basis}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -50,7 +51,9 @@ def _read(row: DigestItemRow) -> DigestItem:
 def add(
     session: Session, actor: Actor, new: NewDigestItem, now: datetime, origin: str = "manual"
 ) -> DigestItem:
-    key = _key(new)
+    # A future publish time would keep an item in 今天 for days: clamp it to now.
+    published = min(new.published_at or now, now)
+    key = _key(new, published)
     exists = session.scalar(
         select(DigestItemRow).where(
             DigestItemRow.owner_id == actor.owner_id, DigestItemRow.dedup_key == key
@@ -71,7 +74,7 @@ def add(
             raw_text=new.raw_text,
             url=new.url.strip(),
             topics=[t.strip() for t in new.topics if t.strip()],
-            published_at=new.published_at or now,
+            published_at=published,
             happens_at=new.happens_at,
             important=new.important,
             dedup_key=key,
@@ -104,7 +107,15 @@ def _day_start(now: datetime, zone: tzinfo) -> datetime:
     return datetime.combine(local.date(), time(0), zone).astimezone(UTC)
 
 
-def read_all(session: Session, actor: Actor, view: str, now: datetime, zone: tzinfo) -> int:
+def read_all(
+    session: Session,
+    actor: Actor,
+    view: str,
+    now: datetime,
+    zone: tzinfo,
+    channel: str | None = None,
+) -> int:
+    """Mark read what the user sees: this view, and only the chosen channel if one is set."""
     start = _day_start(now, zone)
     query = select(DigestItemRow).where(
         DigestItemRow.owner_id == actor.owner_id, DigestItemRow.read_at.is_(None)
@@ -114,7 +125,11 @@ def read_all(session: Session, actor: Actor, view: str, now: datetime, zone: tzi
         if view == "today"
         else DigestItemRow.published_at < start
     )
+    if channel:
+        query = query.where(DigestItemRow.channel == channel)
     rows = list(session.scalars(query))
+    if not rows:
+        return 0
 
     def op() -> audit.Outcome[int]:
         for r in rows:

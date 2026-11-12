@@ -5241,6 +5241,28 @@
           },
           {
             "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "news",
+                    "club",
+                    "group",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "in": "query",
             "name": "time_zone",
             "required": false,
             "schema": {

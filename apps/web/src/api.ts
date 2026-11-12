@@ -618,10 +618,15 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         method: "PUT",
         body: JSON.stringify({ read }),
       }),
-    readAllDigest: (view: "today" | "history", timeZone: string) =>
-      call<{ marked: number }>(`/digest/read-all?${new URLSearchParams({ view, time_zone: timeZone })}`, {
-        method: "POST",
-      }),
+    readAllDigest: (view: "today" | "history", timeZone: string, channel = "") =>
+      call<{ marked: number }>(
+        `/digest/read-all?${new URLSearchParams({
+          view,
+          time_zone: timeZone,
+          ...(channel ? { channel } : {}),
+        })}`,
+        { method: "POST" },
+      ),
     agenda: (start: string, end: string, timeZone: string) =>
       call<Agenda>(`/schedule?${new URLSearchParams({ start, end, time_zone: timeZone })}`),
     createEvent: (event: NewEvent, timeZone: string) =>
