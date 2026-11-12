@@ -57,6 +57,15 @@ def title_pattern(match: str) -> re.Pattern[str]:
     return re.compile("".join(parts), re.IGNORECASE)
 
 
+_CANVAS_CODE = re.compile(r"\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b")
+
+
+def canvas_course_code(raw: str) -> str:
+    """'F26 MATH D001A 49 Calculus I' -> 'MATH D001A' ("" when there is none)."""
+    m = _CANVAS_CODE.search(raw or "")
+    return f"{m.group(1)} {m.group(2)}" if m else ""
+
+
 def normal_code(code: str) -> str:
     """'math  d001a' and 'MATH D001A' name the same course."""
     return " ".join(code.upper().split())
@@ -78,6 +87,8 @@ class GradeCategory(BaseModel):
     def _pattern(cls, v: str) -> str:
         if "**" in v or "##" in v:
             raise ValueError("write * or # once")
+        if v.count("*") + v.count("#") > 3:
+            raise ValueError("at most three * or # in a pattern")
         return v
 
 

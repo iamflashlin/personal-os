@@ -173,7 +173,11 @@ def _drop_duplicates(
             _title_key(d.item.title) == _title_key(a.item.title)
             and (
                 d.data.get("group_id") != a.data.get("group_id")  # imported into another group
-                or (d.points == a.points and d.item.starts_at == a.item.starts_at)
+                or (
+                    d.points == a.points
+                    and a.item.starts_at is not None
+                    and d.item.starts_at == a.item.starts_at
+                )
             )
             for d in done
         )
