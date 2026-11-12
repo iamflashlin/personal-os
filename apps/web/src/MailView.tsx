@@ -1,6 +1,16 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ChatBox } from "./ChatBox";
-import { type Api, ApiError, type EmailSummary, type SyncedItem } from "./api";
+import {
+  type Api,
+  ApiError,
+  type EmailSummary,
+  type HandledBy,
+  type SyncedItem,
+  type TriageGroup,
+  type TriageView,
+} from "./api";
+import { browserZone } from "./TodayView";
+import { TriagePanel } from "./TriagePanel";
 import { SUMMARY_LABEL } from "./Summary";
 
 const MAIL_LIMIT = 1000; // every mail (the Hub's max per request); was 100 before history
@@ -13,6 +23,7 @@ export interface MailRow {
   item: SyncedItem;
   source: string;
   summary?: EmailSummary;
+  handled?: HandledBy; // in-app 已处理 (ADR 0034); the mailbox itself is not changed
 }
 
 const IMPORTANCE: Record<EmailSummary["importance"], { text: string; className: string }> = {
@@ -21,10 +32,11 @@ const IMPORTANCE: Record<EmailSummary["importance"], { text: string; className: 
   low: { text: "次要", className: "badge" },
 };
 
-export type MailFilter = "all" | "unread" | "action";
+export type MailFilter = "all" | "open" | "unread" | "action";
 
 export const FILTERS: { key: MailFilter; label: string }[] = [
   { key: "all", label: "全部" },
+  { key: "open", label: "未处理" },
   { key: "unread", label: "未读" },
   { key: "action", label: "需处理" },
 ];
@@ -35,11 +47,16 @@ function isUnread(row: MailRow): boolean {
 
 function needsAction(row: MailRow): boolean {
   const s = row.summary;
-  return !!s && s.status === "ok" && s.action_needed && !s.low_value;
+  return !row.handled && !!s && s.status === "ok" && s.action_needed && !s.low_value;
+}
+
+function isOpen(row: MailRow): boolean {
+  return isUnread(row) && !row.handled;
 }
 
 /** The rows a filter shows, still newest first. */
 export function filterMail(rows: MailRow[], filter: MailFilter): MailRow[] {
+  if (filter === "open") return rows.filter(isOpen);
   if (filter === "unread") return rows.filter(isUnread);
   if (filter === "action") return rows.filter(needsAction);
   return rows;
@@ -48,6 +65,7 @@ export function filterMail(rows: MailRow[], filter: MailFilter): MailRow[] {
 export function countMail(rows: MailRow[]): Record<MailFilter, number> {
   return {
     all: rows.length,
+    open: rows.filter(isOpen).length,
     unread: rows.filter(isUnread).length,
     action: rows.filter(needsAction).length,
   };
@@ -115,7 +133,15 @@ export function MailDetail({ row }: { row: MailRow }) {
   );
 }
 
-function MailLineView({ row, initiallyOpen = false }: { row: MailRow; initiallyOpen?: boolean }) {
+function MailLineView({
+  row,
+  initiallyOpen = false,
+  onHandled,
+}: {
+  row: MailRow;
+  initiallyOpen?: boolean;
+  onHandled?: (itemId: string, handled: boolean) => void;
+}) {
   const [open, setOpen] = useState(initiallyOpen);
   const { item, summary } = row;
   const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
@@ -135,6 +161,11 @@ function MailLineView({ row, initiallyOpen = false }: { row: MailRow; initiallyO
         </span>
         {ok && summary.action_needed && <span className="badge submission-缺交">需处理</span>}
         {!data.seen && <span className="badge unread">未读</span>}
+        {row.handled && (
+          <span className="badge" data-testid="mail-handled">
+            {row.handled === "rule" ? "已处理·规则" : "已处理"}
+          </span>
+        )}
         <span className="muted">{when(item)}</span>
       </button>
       {summary && !ok && (
@@ -143,6 +174,16 @@ function MailLineView({ row, initiallyOpen = false }: { row: MailRow; initiallyO
         </p>
       )}
       {open && <MailDetail row={row} />}
+      {open && onHandled && (
+        <button
+          type="button"
+          className="mail-toggle"
+          data-testid="mail-toggle-handled"
+          onClick={() => onHandled(item.id, !row.handled)}
+        >
+          {row.handled ? "改回未处理" : "标为已处理"}
+        </button>
+      )}
     </li>
   );
 }
@@ -150,6 +191,9 @@ function MailLineView({ row, initiallyOpen = false }: { row: MailRow; initiallyO
 export function MailView({ api }: { api: Api }) {
   const [rows, setRows] = useState<MailRow[] | null>(null);
   const [filter, setFilter] = useState<MailFilter>("all");
+  const [triage, setTriage] = useState<TriageView | null>(null);
+  const [acting, setActing] = useState(false);
+  const [triageError, setTriageError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
   const busy = useRef(false); // a slow refresh is not stacked on by the next tick
@@ -171,11 +215,14 @@ export function MailView({ api }: { api: Api }) {
         (r) => r.status === "fulfilled" && r.value.length >= MAIL_LIMIT,
       );
       found.sort((a, b) => (b.item.starts_at ?? "").localeCompare(a.item.starts_at ?? ""));
+      const view = await api.triage(browserZone()).catch(() => null);
       const summaries = await summariesFor(
         api,
         found.map((r) => r.item.id),
       ).catch(() => null);
       if (ticket !== latest.current) return;
+      if (view) setTriage(view);
+      const marks = view ? new Map(view.handled.map((m) => [m.item_id, m.by])) : null;
       setRows((previous) => {
         const known = summaries
           ? new Map(summaries.map((s) => [s.item_id, s]))
@@ -186,12 +233,14 @@ export function MailView({ api }: { api: Api }) {
         return found.map((r) => {
           const summary = known.get(r.item.id);
           const was = old.get(r.item.id);
+          const handled = marks ? marks.get(r.item.id) : was?.handled;
           const same =
             was &&
             was.item.updated_at === r.item.updated_at &&
             was.item.version === r.item.version &&
-            was.summary?.updated_at === summary?.updated_at;
-          return same ? was : { ...r, summary };
+            was.summary?.updated_at === summary?.updated_at &&
+            was.handled === handled;
+          return same ? was : { ...r, summary, handled };
         });
       });
       setError(null);
@@ -202,6 +251,19 @@ export function MailView({ api }: { api: Api }) {
       busy.current = false;
     }
   }, [api]);
+
+  const onHandled = useCallback(
+    async (itemId: string, handled: boolean) => {
+      try {
+        await api.setMailHandled(itemId, handled);
+      } catch (err) {
+        setTriageError(errorText(err));
+      }
+      busy.current = false;
+      await reload();
+    },
+    [api, reload],
+  );
 
   useEffect(() => {
     void reload();
@@ -224,6 +286,19 @@ export function MailView({ api }: { api: Api }) {
   if (rows === null) return alert || <p>加载中…</p>;
   if (rows.length === 0) return <p className="muted">还没有邮件。在“连接”页接入邮箱后，这里会列出整理好的邮件。</p>;
 
+  async function act(work: () => Promise<unknown>) {
+    setActing(true);
+    setTriageError(null);
+    try {
+      await work();
+    } catch (err) {
+      setTriageError(errorText(err));
+    }
+    busy.current = false; // the next refresh must not be skipped as "already running"
+    await reload();
+    setActing(false);
+  }
+  const titles = new Map(rows.map((r) => [r.item.id, mailTitle(r)]));
   const counts = countMail(rows);
   const capped = rowsCapped.current;
   const shown = filterMail(rows, filter);
@@ -233,6 +308,23 @@ export function MailView({ api }: { api: Api }) {
     <section data-testid="mail-view">
       {alert}
       <ChatBox api={api} />
+      {triage && (
+        <TriagePanel
+          view={triage}
+          titles={titles}
+          busy={acting}
+          onHandle={(g: TriageGroup, saveRule: boolean) =>
+            void act(() => api.handleMail(g.item_ids, g.key, saveRule))
+          }
+          onUndo={(id) => void act(() => api.undoBatch(id))}
+          onRule={(id, enabled) => void act(() => api.setRule(id, enabled))}
+        />
+      )}
+      {triageError && (
+        <p className="error" role="alert">
+          {triageError}
+        </p>
+      )}
       <h2>
         邮件（共 {capped ? "至少 " : ""}
         {counts.all} 封，未读 {counts.unread} 封）
@@ -255,7 +347,7 @@ export function MailView({ api }: { api: Api }) {
       {shown.length === 0 && <p className="muted">这里没有邮件。</p>}
       <ul className="memories">
         {shown.map((r) => (
-          <MailLine key={r.item.id} row={r} />
+          <MailLine key={r.item.id} row={r} onHandled={onHandled} />
         ))}
       </ul>
     </section>

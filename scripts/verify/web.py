@@ -553,6 +553,35 @@ def verify_summaries_view(
         )
         shot(page, out, "16-ai-summaries")
 
+        triage = page.get_by_test_id("triage")
+        opened = triage.get_by_test_id("triage-open")
+        check(
+            "未处理 2 封" in opened.inner_text(),
+            f"the panel counts open mail ({opened.inner_text()})",
+        )
+        triage.get_by_test_id("triage-toggle").click()
+        news = triage.get_by_test_id("triage-group").filter(has_text="The Weekly")
+        check(news.count() == 1, "帮我整理 shows the newsletter in a group")
+        news.get_by_test_id("triage-handle").click()
+        page.wait_for_function(
+            "document.querySelector('[data-testid=triage-open]').innerText.includes('未处理 1 封')"
+        )
+        check(True, "one click handles the group: 未处理 2 -> 1")
+        digest_line = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）The Weekly")
+        check(digest_line.get_by_test_id("mail-handled").count() == 1, "the mail shows 已处理")
+        shot(page, out, "19-triage")
+        triage.get_by_test_id("triage-undo").click()
+        page.wait_for_function(
+            "document.querySelector('[data-testid=triage-open]').innerText.includes('未处理 2 封')"
+        )
+        check(True, "撤销 puts it back to 2")
+        lab.get_by_test_id("mail-toggle-handled").click()
+        lab.get_by_test_id("mail-handled").wait_for()
+        check(True, "one mail can be marked 已处理 by hand")
+        lab.get_by_test_id("mail-toggle-handled").click()
+        lab.get_by_test_id("mail-handled").wait_for(state="detached")
+        check(True, "and marked back")
+
         chat = page.get_by_test_id("chat")
         chat.get_by_test_id("chat-input").fill("Lab 5 什么时候交")
         chat.get_by_test_id("chat-send").click()
