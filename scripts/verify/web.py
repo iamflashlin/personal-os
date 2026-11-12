@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import httpx  # noqa: E402
 import keyring  # noqa: E402
 from hub import CheckFailed, FakeCanvas, check, fake_mail, recent, running_hub  # noqa: E402
-from playwright.sync_api import Locator, Page, sync_playwright  # noqa: E402
+from playwright.sync_api import Dialog, Locator, Page, sync_playwright  # noqa: E402
 
 TASK_TITLE = "读第 3 次实验的说明"
 NOTE = "读完了，记下了三个问题"
@@ -704,10 +704,22 @@ def verify_schedule_view(page: Page, out: Path) -> None:
     check(view.get_by_test_id("sched-conflict").count() == 2, "the clash is marked on both")
     check(view.get_by_text("空闲：").count() >= 1, "free time is listed")
     shot(page, out, "22-schedule")
-    for title in ("健身", "CIS 22A 上课"):
-        entry = view.get_by_test_id("sched-entry").filter(has_text=title).first
-        entry.get_by_role("button", name="删除").click()
-        view.get_by_test_id("sched-entry").filter(has_text=title).first.wait_for(state="detached")
+    workout = view.get_by_test_id("sched-entry").filter(has_text="健身").first
+    workout.get_by_role("button", name="删除").click()
+    view.get_by_test_id("sched-entry").filter(has_text="健身").first.wait_for(state="detached")
+    # The class repeats on one weekday: it shows once this week, but deleting it deletes
+    # every week, so the button says 删除全部 and asks first.
+    asked: list[str] = []
+
+    def accept(d: Dialog) -> None:
+        asked.append(d.message)
+        d.accept()
+
+    page.once("dialog", accept)
+    weekly = view.get_by_test_id("sched-entry").filter(has_text="CIS 22A 上课").first
+    weekly.get_by_role("button", name="删除全部").click()
+    view.get_by_test_id("sched-entry").filter(has_text="CIS 22A").first.wait_for(state="detached")
+    check(bool(asked) and "每周重复" in asked[0], f"a weekly series asks before deleting ({asked})")
     check(view.get_by_test_id("sched-entry").count() == 0, "both are deleted again")
 
 

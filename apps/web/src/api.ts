@@ -378,6 +378,7 @@ export interface AgendaEntry {
   url: string;
   blocks: boolean;
   conflict: boolean;
+  repeats: boolean;
 }
 
 export interface Agenda {

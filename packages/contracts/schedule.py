@@ -73,6 +73,7 @@ class AgendaEntry(BaseModel):
     url: str
     blocks: bool
     conflict: bool = False
+    repeats: bool = False  # a weekly series: deleting it deletes every week
 
 
 class FreeSlot(BaseModel):

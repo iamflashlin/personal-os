@@ -149,9 +149,9 @@ def test_calendar_events_and_canvas_deadlines_join_and_conflicts_show(hub) -> No
     )
     a = agenda(client, local(2026, 11, 12, 0), local(2026, 11, 13, 0))
     by = {e["title"]: e for e in a["entries"]}
-    assert set(by) == {"健身", "社团活动", "截止：Lab 5"}  # a handed-in lab is no deadline
+    assert set(by) == {"健身", "社团活动", "Lab 5"}  # a handed-in lab is no deadline
     assert by["健身"]["conflict"] and by["社团活动"]["conflict"]
-    deadline = by["截止：Lab 5"]
+    deadline = by["Lab 5"]
     assert (
         deadline["blocks"] is False
         and deadline["conflict"] is False
@@ -161,11 +161,11 @@ def test_calendar_events_and_canvas_deadlines_join_and_conflicts_show(hub) -> No
 
 def test_free_time_skips_busy_blocks_inside_the_day_window(hub) -> None:
     client, _ = hub
-    event(client, starts_at=local(2026, 11, 12, 10), ends_at=local(2026, 11, 12, 12))
+    event(client, starts_at=local(2030, 1, 15, 10), ends_at=local(2030, 1, 15, 12))
     event(
-        client, title="短会", starts_at=local(2026, 11, 12, 12, 10), ends_at=local(2026, 11, 12, 13)
+        client, title="短会", starts_at=local(2030, 1, 15, 12, 10), ends_at=local(2030, 1, 15, 13)
     )
-    a = agenda(client, local(2026, 11, 12, 0), local(2026, 11, 13, 0))
+    a = agenda(client, local(2030, 1, 15, 0), local(2030, 1, 16, 0))
     slots = [
         (
             datetime.fromisoformat(f["starts_at"]).astimezone(LA).strftime("%H:%M"),
@@ -239,4 +239,136 @@ def test_agenda_range_is_checked(hub) -> None:
         == 422
     )
     assert agenda(client, local(2026, 11, 1, 0), local(2026, 11, 2, 0))["entries"] == []
-    _ = timedelta
+
+
+def test_repeat_until_is_inclusive_and_window_start_overlap_counts(hub) -> None:
+    client, _ = hub
+    event(
+        client,
+        repeat_days=["MO"],
+        repeat_until="2026-11-30",
+        starts_at=local(2026, 11, 2, 10),
+        ends_at=local(2026, 11, 2, 11, 50),
+    )
+    a = agenda(client, local(2026, 11, 30, 0), local(2026, 12, 8, 0))
+    assert [e["starts_at"][:10] for e in a["entries"]] == ["2026-11-30"]  # 12-07 is after until
+    late = agenda(client, local(2026, 11, 9, 10, 30), local(2026, 11, 9, 23))
+    assert len(late["entries"]) == 1  # 10:00-11:50 still runs at 10:30
+
+
+def test_an_overnight_calendar_event_shows_on_the_next_morning(hub) -> None:
+    client, engine = hub
+    synced(
+        engine,
+        "calendar_event",
+        "夜间活动",
+        datetime(2026, 11, 10, 7, 0, tzinfo=UTC),
+        datetime(2026, 11, 10, 17, 0, tzinfo=UTC),
+    )  # 23:00 Nov 9 to 09:00 Nov 10 local
+    synced(
+        engine,
+        "calendar_event",
+        "前一天上午",
+        datetime(2026, 11, 9, 18, 0, tzinfo=UTC),
+        datetime(2026, 11, 9, 19, 0, tzinfo=UTC),
+    )  # Nov 9 10:00-11:00 local: over before
+    a = agenda(client, local(2026, 11, 10, 0), local(2026, 11, 11, 0))
+    assert [e["title"] for e in a["entries"]] == ["夜间活动"]
+
+
+def test_an_edit_without_a_zone_keeps_the_entered_zone(hub) -> None:
+    client, engine = hub
+    e = event(
+        client, repeat_days=["MO"], starts_at=local(2026, 11, 2, 10), ends_at=local(2026, 11, 2, 11)
+    )
+    fields = {
+        "title": "改名",
+        "kind": "class",
+        "starts_at": e["starts_at"],
+        "ends_at": e["ends_at"],
+        "repeat_days": ["MO"],
+    }
+    r = client.put(f"/schedule/events/{e['id']}", json={"fields": fields, "version": e["version"]})
+    assert r.status_code == 200
+    from apps.hub.schedule.models import ScheduleEventRow
+
+    with Session(engine) as s:
+        row = s.get(ScheduleEventRow, e["id"])
+        assert row is not None and row.time_zone == "America/Los_Angeles"
+
+
+def test_repeat_until_before_the_start_is_refused(hub) -> None:
+    client, _ = hub
+    body = {
+        "title": "x",
+        "kind": "class",
+        "starts_at": local(2026, 11, 9, 10),
+        "ends_at": local(2026, 11, 9, 11),
+        "repeat_days": ["MO"],
+        "repeat_until": "2026-11-01",
+    }
+    assert client.post("/schedule/events", params=TZ, json=body).status_code == 422
+
+
+def test_free_time_is_listed_only_from_now_on(hub) -> None:
+    client, _ = hub
+    past = agenda(client, local(2026, 1, 5, 0), local(2026, 1, 6, 0))
+    assert past["free"] == []  # a day that is over has no useful free time
+
+
+def test_an_evening_class_until_its_own_local_day_is_accepted(hub) -> None:
+    client, _ = hub
+    # 18:00 local on Nov 9 is Nov 10 in UTC; until Nov 9 (local) is still valid
+    r = client.post(
+        "/schedule/events",
+        params=TZ,
+        json={
+            "title": "晚课",
+            "kind": "class",
+            "starts_at": datetime(2026, 11, 9, 18, tzinfo=LA).astimezone(UTC).isoformat(),
+            "ends_at": datetime(2026, 11, 9, 20, tzinfo=LA).astimezone(UTC).isoformat(),
+            "repeat_days": ["MO"],
+            "repeat_until": "2026-11-09",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+
+def test_weekly_entries_say_they_repeat(hub) -> None:
+    client, _ = hub
+    event(
+        client, repeat_days=["MO"], starts_at=local(2026, 11, 2, 10), ends_at=local(2026, 11, 2, 11)
+    )
+    event(client, title="一次性", starts_at=local(2026, 11, 3, 10), ends_at=local(2026, 11, 3, 11))
+    a = agenda(client, local(2026, 11, 2, 0), local(2026, 11, 9, 0))
+    assert {e["title"]: e["repeats"] for e in a["entries"]} == {
+        "CIS 22A 上课": True,
+        "一次性": False,
+    }
+
+
+def test_free_time_starts_at_now_part_way_through_the_day(tmp_path) -> None:
+    from sqlalchemy.orm import Session as S
+
+    from apps.hub.core.db import make_engine, upgrade_to_head
+    from apps.hub.core.domain import Actor
+    from apps.hub.schedule import service
+
+    engine = make_engine(tmp_path)
+    upgrade_to_head(engine)
+    day = datetime(2026, 11, 12, 0, tzinfo=LA)
+    now = datetime(2026, 11, 12, 14, 30, tzinfo=LA)
+    with S(engine) as s:
+        a = service.agenda(
+            s,
+            Actor(owner_id="local", source="t"),
+            day,
+            day + timedelta(days=1),
+            LA,
+            "America/Los_Angeles",
+            now=now,
+        )
+    assert [
+        (f.starts_at.astimezone(LA).strftime("%H:%M"), f.ends_at.astimezone(LA).strftime("%H:%M"))
+        for f in a.free
+    ] == [("14:30", "22:00")]
