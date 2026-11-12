@@ -47,7 +47,7 @@ cannot show:
   - Disagreements (Canvas's letter versus the syllabus's letter) are shown, not resolved.
 - **Profiles come from an import.** `scripts/academic/import_profiles.py` reads a JSON file
   kept outside the repo. The assistant wrote this term's file by reading the syllabi on
-  the PC. Nothing was sent to an outside AI.
+  the PC (the assistant is a cloud model; the Hub itself calls no AI API). Nothing was sent to DeepSeek.
 - **Units come from the web when the syllabus has none.** MATH 1A is 5 units according to
   2026 De Anza MATH 1A syllabi. ENGL C1000 is 5 units according to a De Anza instructor
   page. Each profile says which source it used.

@@ -429,6 +429,117 @@ def verify_canvas_view(
             "a syllabus-computed course hides 按总分计算 and Canvas's group table",
         )
         shot(page, out, "21c-gpa-syllabus")
+        # T-0052: the course knowledge map and an exam's review map.
+        course_map = {
+            "course_code": "CIS D022A",
+            "material": "Syllabus.pdf",
+            "concepts": [
+                {"key": "ch1", "kind": "chapter", "title": "Basics", "title_zh": "基础"},
+                {
+                    "key": "1.1",
+                    "kind": "section",
+                    "parent": "ch1",
+                    "title": "Variables",
+                    "title_zh": "变量",
+                    "page": 3,
+                },
+                {
+                    "key": "1.2",
+                    "kind": "section",
+                    "parent": "ch1",
+                    "title": "Branches",
+                    "title_zh": "分支",
+                    "page": 7,
+                    "prereq": ["1.1"],
+                },
+                {
+                    "key": "x.1",
+                    "kind": "section",
+                    "parent": "",
+                    "title": "Extra",
+                    "title_zh": "补充",
+                },
+            ],
+            "exams": [
+                {
+                    "name": "Midterm",
+                    "scope": ["1.2"],
+                    "match": "Midterm*",
+                    "scope_source": "syllabus",
+                }
+            ],
+            "exam_checklist": [{"text": "写出过程", "source": "Show your work."}],
+        }
+        put = api.put("/academic/maps/CIS D022A", json=course_map)
+        check(put.status_code == 200, f"PUT /academic/maps -> 200 ({put.status_code})")
+        # The course list fails once (the Hub restarting): 重试 must bring the page back.
+        failed: list[str] = []
+
+        def fail_once(route) -> None:
+            if not failed:
+                failed.append(route.request.url)
+                route.fulfill(status=503, body='{"detail": "Hub 正在重启"}')
+            else:
+                route.continue_()
+
+        page.route("**/academic/maps", fail_once)
+        open_view(page, "课程")
+        page.get_by_role("button", name="重试").click()
+        course = page.get_by_test_id("course")
+        course.get_by_test_id("km-chapter").first.wait_for(timeout=20_000)
+        page.unroute("**/academic/maps")
+        check(bool(failed), "after a failed course list, 重试 brings 课程 back")
+        check(
+            "补充" in course.get_by_test_id("km-chapter").filter(has_text="其他").inner_text(),
+            "a section without a chapter is listed under 其他",
+        )
+        first = course.get_by_test_id("km-section").filter(has_text="变量")
+        check(
+            first.get_by_role("link", name="讲义 第 3 页").count() == 1,
+            "a section links the teacher's notes at its page",
+        )
+        check(first.get_by_text("未测试").count() == 1, "with no graded work it says 未测试")
+        first.locator(".km-head").click()
+        first.get_by_label("我的掌握情况").select_option("verified")
+        first.locator(".badge.mastery-verified").wait_for(timeout=10_000)
+        saved = next(
+            c for c in api.get("/academic/maps/CIS D022A").json()["concepts"] if c["key"] == "1.1"
+        )["mastery"]
+        check(
+            saved["source"] == "user" and saved["state"] == "verified",
+            "the user sets 1.1 to 已掌握 and the Hub keeps it",
+        )
+        shot(page, out, "26-course")
+        first.get_by_label("我的掌握情况").select_option("")
+        first.locator(".badge.mastery-not_tested").wait_for(timeout=10_000)
+        check(True, "back to 自动判断 shows 未测试 again")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "课程 fits a phone screen")
+        shot(page, out, "26b-course-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
+        course.get_by_test_id("exam-card").get_by_role("button", name="打开复习地图").click()
+        exam = page.get_by_test_id("exam-map")
+        exam.wait_for(timeout=10_000)
+        check("写出过程" in exam.inner_text(), "the exam map shows the checklist")
+        check(
+            "变量" in exam.get_by_test_id("exam-prereqs").inner_text(),
+            "and the prerequisite outside its scope",
+        )
+        check("还没有评分的练习" in exam.inner_text(), "and why 1.2 comes first")
+        inside = exam.get_by_test_id("km-section").filter(has_text="分支").first
+        inside.locator(".km-head").click()
+        inside.get_by_label("我的掌握情况").select_option("needs_review")
+        inside.locator(".badge.mastery-needs_review").wait_for(timeout=10_000)
+        check("你自己标记为" in exam.inner_text(), "a change inside the exam map refreshes it")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "the exam map fits a phone screen")
+        page.set_viewport_size({"width": 1200, "height": 800})
+        shot(page, out, "27-exam-map")
+        open_view(page, "成绩")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card.wait_for(timeout=20_000)
         card.get_by_text("课件").click()
         check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
         shot(page, out, "21-gpa")
@@ -958,6 +1069,9 @@ def run(out: Path, headed: bool) -> None:
             verify_schedule_view(page, out)
             verify_digest_view(page, out)
             verify_data_kinds(page, out)
+            # The one 503 that verify_canvas_view makes on purpose (重试 must recover from it).
+            expected = ("/academic/maps", "status of 503")
+            errors = [e for e in errors if not (("503" in e) and any(x in e for x in expected))]
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

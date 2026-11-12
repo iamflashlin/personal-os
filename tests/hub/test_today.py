@@ -435,3 +435,45 @@ def test_an_old_prompt_gist_is_not_used_as_the_title(session: Session) -> None:
     session.execute(update(EmailSummaryRow).values(prompt_version=1))
     session.flush()
     assert titles(view(session).mail) == ["Lab 8"]  # the v1 gist was a long sentence
+
+
+def test_a_missing_copy_of_handed_in_work_is_not_missing(session: Session) -> None:
+    """Combined classes import work twice; 今日 agrees with 成绩 that the copy is no gap."""
+    canvas = source(session, "canvas", "Canvas")
+    code = "F26 ENGL C1000 35Y"
+    old = la(11, 9) - timedelta(days=40)
+    item(
+        session,
+        canvas,
+        "canvas_assignment",
+        "Introduce Yourself",
+        old,
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        score=2,
+        submission_state="graded",
+    )
+    item(
+        session,
+        canvas,
+        "canvas_assignment",
+        " Introduce Yourself ",
+        old,
+        course_code=code,
+        group_id=2,
+        points_possible=2,
+        missing=True,
+    )
+    item(
+        session,
+        canvas,
+        "canvas_assignment",
+        "Journal #9",
+        old,
+        course_code=code,
+        group_id=1,
+        points_possible=2,
+        missing=True,
+    )
+    assert titles(view(session).missing) == ["Journal #9"]

@@ -5,6 +5,7 @@ const PATHS = {
   gpa: "M3 9l9-5l9 5l-9 5zM7 11.5V16c0 1.5 2.2 3 5 3s5-1.5 5-3v-4.5M21 9v5",
   mail: "M3 6h18v12H3zM3 7l9 6l9-6",
   digest: "M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5",
+  course: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M9 8h6M9 12h6",
   tasks: "M9 6h11M9 12h11M9 18h11M4 6l1 1l2-2M4 12l1 1l2-2M4 18l1 1l2-2",
   memories: "M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16M12 8v4l3 2",
   connections: "M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5",

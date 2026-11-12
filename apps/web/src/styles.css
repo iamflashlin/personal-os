@@ -930,3 +930,219 @@ ul.memories {
 .data-kind .badge {
   white-space: nowrap;
 }
+
+/* ---------- course knowledge map (课程, T-0052) ---------- */
+
+.course-hero,
+.exam-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.course-hero h2,
+.exam-hero h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.mastery-bar,
+.exam-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exam-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.exam-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+
+.exam-card.past {
+  border-left-color: var(--border-strong);
+  opacity: 0.85;
+}
+
+.exam-card .exam-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.exam-card button {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+.km-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.km-section {
+  border-top: 1px solid var(--border);
+  padding: 10px 0 10px 12px;
+  border-left: 3px solid transparent;
+}
+
+.km-section:first-child {
+  border-top: 0;
+}
+
+.km-section.mastery-needs_review {
+  border-left-color: var(--danger);
+}
+
+.km-section.mastery-practicing,
+.km-section.mastery-seen {
+  border-left-color: var(--warn);
+}
+
+.km-section.mastery-verified {
+  border-left-color: var(--ok);
+}
+
+.km-section.mastery-not_tested {
+  border-left-color: var(--border-strong);
+}
+
+.km-head {
+  all: unset;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.km-head:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.km-key {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 2.6em;
+  color: var(--text-2);
+}
+
+.km-title {
+  flex: 1 1 240px;
+  font-weight: 550;
+}
+
+.km-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0 calc(2.6em + 8px);
+  font-size: 0.88rem;
+}
+
+.km-why {
+  margin: 4px 0 0 calc(2.6em + 8px);
+  color: var(--warn);
+  font-size: 0.88rem;
+}
+
+.km-detail {
+  margin: 8px 0 0 calc(2.6em + 8px);
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.km-concepts {
+  margin: 4px 0 8px;
+}
+
+.km-set {
+  max-width: 240px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.chip.score.good {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+
+.chip.score.bad {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+
+.badge.mastery-verified {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+
+.badge.mastery-practicing,
+.badge.mastery-seen {
+  background: var(--warn-soft);
+  border-color: transparent;
+  color: var(--warn);
+}
+
+.badge.mastery-needs_review {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+
+.exam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.suggested,
+.checklist {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.suggested li,
+.checklist li {
+  margin: 8px 0;
+}
+
+.exam-map > section,
+.course > section {
+  margin-bottom: 16px;
+}
