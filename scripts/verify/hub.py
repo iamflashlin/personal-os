@@ -891,12 +891,14 @@ def recent(hours_ago: float) -> str:
     return (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime("%d-%b-%Y %H:%M:%S +0000")
 
 
-def fake_mail(subject: str, body: str) -> bytes:
+def fake_mail(
+    subject: str, body: str, sender: str = "Canvas 通知 <notifications@instructure.com>"
+) -> bytes:
     from email.message import EmailMessage
     from email.utils import format_datetime
 
     m = EmailMessage()
-    m["From"] = "Canvas 通知 <notifications@instructure.com>"
+    m["From"] = sender
     m["To"] = "student@example.com"
     m["Subject"] = subject
     m["Date"] = format_datetime(datetime.now(UTC) - timedelta(hours=1))
@@ -1537,6 +1539,124 @@ def verify_chat(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace
                 keyring.delete_password(service, f"{owner}:{name}")
 
 
+def verify_triage(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    """T-0035: in-app triage - groups, a batch and its undo, a saved rule that covers new mail
+    after a re-sync. Real Hub, fake IMAP, FakeProvider (no money spent)."""
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    box = Mailbox(username="student@example.com", password=code)
+    for i in range(6):
+        box.add(
+            fake_mail(
+                f"Weekly digest {i}", "Jobs this week.", sender="Handshake <jobs@joinhandshake.com>"
+            ),
+            received=recent(10 + i),
+        )
+    box.add(fake_mail("CIS 22A Lab 5 截止提醒", "Lab 5 截止 周五 23:59。"), received=recent(3))
+    box.add(fake_mail("Already read", "Old news."), seen=True, received=recent(30))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "triage-data"
+    names = ("POS_CREDENTIALS_SERVICE", "POS_MODEL_PROVIDER")
+    saved = {k: os.environ.get(k) for k in names}
+    os.environ.update({"POS_CREDENTIALS_SERVICE": service, "POS_MODEL_PROVIDER": "fake"})
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 30
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    def view(hub: httpx.Client) -> dict[str, Any]:
+        return hub.get("/triage").json()
+
+    try:
+        with running_hub(hub_dir) as hub:
+            hub.put("/credentials/mail.code", json={"secret": code})
+            hub.put("/credentials/deepseek", json={"secret": f"sk-verify-{uuid.uuid4().hex}"})
+            iid = hub.post(
+                "/integrations",
+                json={
+                    "kind": "email",
+                    "name": "163",
+                    "credential_name": "mail.code",
+                    "config": {
+                        "host": "127.0.0.1",
+                        "port": str(imap.port),
+                        "username": "student@example.com",
+                        "tls": "off",
+                    },
+                },
+            ).json()["id"]
+            wait(
+                "seven unread mails are open and summarised",
+                lambda: view(hub)["open_count"] == 7 and view(hub)["unsummarised"] == 0,
+            )
+            v = view(hub)
+            check(sum(g["count"] for g in v["groups"]) == v["open_count"], "group counts add up")
+            hs = next((g for g in v["groups"] if g["key"] == "sender:joinhandshake.com"), None)
+            check(
+                hs is not None and hs["count"] == 6,
+                f"Handshake has its own group ({hs and hs['count']})",
+            )
+            assert hs is not None
+            batch = hub.post(
+                "/triage/handle", json={"item_ids": hs["item_ids"], "group_key": hs["key"]}
+            ).json()
+            check(view(hub)["open_count"] == 1, "one click handles the group: 未处理 7 -> 1")
+            hub.post(f"/triage/batches/{batch['id']}/undo")
+            check(view(hub)["open_count"] == 7, "撤销 puts it back to 7")
+            batch = hub.post(
+                "/triage/handle",
+                json={"item_ids": hs["item_ids"], "group_key": hs["key"], "save_rule": True},
+            ).json()
+            check(bool(batch["rule_id"]), "the group was saved as a rule (以后也这样)")
+            box.add(
+                fake_mail(
+                    "Weekly digest new", "More jobs.", sender="Handshake <jobs@joinhandshake.com>"
+                ),
+                received=recent(0.5),
+            )
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a re-sync finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            wait(
+                "the new mail is summarised",
+                lambda: view(hub)["unsummarised"] == 0 and view(hub)["unread_count"] == 8,
+            )
+            v = view(hub)
+            new_rule = [m for m in v["handled"] if m["by"] == "rule"]
+            check(
+                len(new_rule) == 1 and v["open_count"] == 1,
+                f"the rule handles the new Handshake mail by itself (open {v['open_count']})",
+            )
+            flags = [m.seen for m in box.messages]
+            check(
+                flags.count(True) == 1 and len(flags) == 9,
+                f"the mailbox itself is untouched: still 1 read of 9 ({flags.count(True)})",
+            )
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        imap.close()
+        for name in ("mail.code", "deepseek"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{name}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -1552,6 +1672,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "summaries": verify_summaries,
     "history": verify_history,
     "chat": verify_chat,
+    "triage": verify_triage,
 }
 
 

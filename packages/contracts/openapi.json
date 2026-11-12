@@ -201,6 +201,14 @@
         "title": "AgentStatus",
         "type": "object"
       },
+      "BatchStatus": {
+        "enum": [
+          "applied",
+          "undone"
+        ],
+        "title": "BatchStatus",
+        "type": "string"
+      },
       "ChatAnswer": {
         "properties": {
           "answer": {
@@ -708,6 +716,38 @@
         "title": "ExecutionMode",
         "type": "string"
       },
+      "FlagCondition": {
+        "additionalProperties": false,
+        "properties": {
+          "flag": {
+            "enum": [
+              "low_value",
+              "action_needed",
+              "importance_high",
+              "importance_low",
+              "deadline_past"
+            ],
+            "title": "Flag",
+            "type": "string"
+          },
+          "kind": {
+            "const": "flag",
+            "default": "flag",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "default": true,
+            "title": "Value",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "flag"
+        ],
+        "title": "FlagCondition",
+        "type": "object"
+      },
       "Goal": {
         "additionalProperties": false,
         "properties": {
@@ -878,6 +918,21 @@
         "title": "GoalUpdate",
         "type": "object"
       },
+      "GroupKind": {
+        "enum": [
+          "due_soon",
+          "overdue",
+          "grades",
+          "course",
+          "needs_action",
+          "sender",
+          "low_value",
+          "unsummarised",
+          "other"
+        ],
+        "title": "GroupKind",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -889,6 +944,86 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HandleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "group_key": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Group Key",
+            "type": "string"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "save_rule": {
+            "default": false,
+            "title": "Save Rule",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "item_ids"
+        ],
+        "title": "HandleRequest",
+        "type": "object"
+      },
+      "HandledBy": {
+        "enum": [
+          "batch",
+          "manual",
+          "rule"
+        ],
+        "title": "HandledBy",
+        "type": "string"
+      },
+      "HandledMark": {
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "by": {
+            "$ref": "#/components/schemas/HandledBy"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          }
+        },
+        "required": [
+          "item_id",
+          "by",
+          "batch_id",
+          "rule_id"
+        ],
+        "title": "HandledMark",
         "type": "object"
       },
       "HealthResponse": {
@@ -1074,6 +1209,20 @@
         ],
         "title": "IntegrationStatus",
         "type": "string"
+      },
+      "ItemHandled": {
+        "additionalProperties": false,
+        "properties": {
+          "handled": {
+            "title": "Handled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "handled"
+        ],
+        "title": "ItemHandled",
+        "type": "object"
       },
       "Job": {
         "properties": {
@@ -1825,6 +1974,20 @@
         "title": "RiskLevel",
         "type": "string"
       },
+      "RulePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "RulePatch",
+        "type": "object"
+      },
       "RunStarted": {
         "properties": {
           "job_id": {
@@ -1894,6 +2057,40 @@
           "version"
         ],
         "title": "Schedule",
+        "type": "object"
+      },
+      "Selector": {
+        "additionalProperties": false,
+        "description": "All conditions must hold (AND). Kept tiny on purpose: no regex, OR or wildcards.",
+        "properties": {
+          "all_of": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "flag": "#/components/schemas/FlagCondition",
+                  "text": "#/components/schemas/TextCondition"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextCondition"
+                },
+                {
+                  "$ref": "#/components/schemas/FlagCondition"
+                }
+              ]
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "All Of",
+            "type": "array"
+          }
+        },
+        "required": [
+          "all_of"
+        ],
+        "title": "Selector",
         "type": "object"
       },
       "Sensitivity": {
@@ -2416,6 +2613,48 @@
         "title": "TaskUpdate",
         "type": "object"
       },
+      "TextCondition": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "enum": [
+              "sender",
+              "sender_domain",
+              "subject",
+              "title"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "text",
+            "default": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "op": {
+            "default": "contains",
+            "enum": [
+              "contains",
+              "equals"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "title": "TextCondition",
+        "type": "object"
+      },
       "TodayEntry": {
         "properties": {
           "all_day": {
@@ -2606,6 +2845,248 @@
           "sources"
         ],
         "title": "TodayView",
+        "type": "object"
+      },
+      "TriageBatch": {
+        "properties": {
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchStatus"
+          },
+          "undone_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undone At"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "label",
+          "description",
+          "count",
+          "item_ids",
+          "rule_id",
+          "applied_at",
+          "undone_at",
+          "version"
+        ],
+        "title": "TriageBatch",
+        "type": "object"
+      },
+      "TriageGroup": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GroupKind"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Selector"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule_description": {
+            "title": "Rule Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "count",
+          "item_ids",
+          "rule",
+          "rule_description"
+        ],
+        "title": "TriageGroup",
+        "type": "object"
+      },
+      "TriageRule": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/Selector"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "selector",
+          "description",
+          "enabled",
+          "matched",
+          "created_at",
+          "version"
+        ],
+        "title": "TriageRule",
+        "type": "object"
+      },
+      "TriageView": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/TriageGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "handled": {
+            "items": {
+              "$ref": "#/components/schemas/HandledMark"
+            },
+            "title": "Handled",
+            "type": "array"
+          },
+          "open_count": {
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/TriageBatch"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/TriageRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "unread_count": {
+            "title": "Unread Count",
+            "type": "integer"
+          },
+          "unsummarised": {
+            "title": "Unsummarised",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open_count",
+          "unread_count",
+          "unsummarised",
+          "groups",
+          "handled",
+          "recent",
+          "rules"
+        ],
+        "title": "TriageView",
         "type": "object"
       },
       "ValidationError": {
@@ -5114,6 +5595,261 @@
         "summary": "Get Today",
         "tags": [
           "today"
+        ]
+      }
+    },
+    "/triage": {
+      "get": {
+        "operationId": "get_triage_triage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Triage",
+        "tags": [
+          "triage"
+        ]
+      }
+    },
+    "/triage/batches/{batch_id}/undo": {
+      "post": {
+        "operationId": "undo_batch_triage_batches__batch_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageBatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Batch",
+        "tags": [
+          "triage"
+        ]
+      }
+    },
+    "/triage/handle": {
+      "post": {
+        "operationId": "handle_mail_triage_handle_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageBatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Handle Mail",
+        "tags": [
+          "triage"
+        ]
+      }
+    },
+    "/triage/items/{item_id}": {
+      "put": {
+        "operationId": "set_mail_handled_triage_items__item_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemHandled"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandledMark"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Mail Handled",
+        "tags": [
+          "triage"
+        ]
+      }
+    },
+    "/triage/rules/{rule_id}": {
+      "patch": {
+        "operationId": "set_rule_triage_rules__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RulePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Rule",
+        "tags": [
+          "triage"
         ]
       }
     },
