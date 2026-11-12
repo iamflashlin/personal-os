@@ -276,15 +276,19 @@ export function CourseView({ api }: { api: Api }) {
   const [error, setError] = useState<string | null>(null);
   const fail = (err: unknown) => setError(err instanceof ApiError ? err.detail : String(err));
 
-  useEffect(() => {
-    api
-      .courseMaps()
-      .then((cs) => {
-        setCodes(cs);
-        if (cs.length > 0) setCode((c) => c || cs[0]);
-      })
-      .catch(fail);
+  const loadCodes = useCallback(async () => {
+    try {
+      const cs = await api.courseMaps();
+      setCodes(cs);
+      if (cs.length > 0) setCode((c) => c || cs[0]);
+      setError(null);
+    } catch (err) {
+      fail(err);
+    }
   }, [api]);
+  useEffect(() => {
+    void loadCodes();
+  }, [loadCodes]);
 
   const latest = useRef("");
   const load = useCallback(async () => {
@@ -296,7 +300,7 @@ export function CourseView({ api }: { api: Api }) {
       setMap(m);
       setError(null);
     } catch (err) {
-      fail(err);
+      if (latest.current === code) fail(err);
     }
   }, [api, code]);
   useEffect(() => {
@@ -329,7 +333,7 @@ export function CourseView({ api }: { api: Api }) {
         type="button"
         onClick={() => {
           setError(null);
-          void load();
+          void (codes === null ? loadCodes() : load());
         }}
       >
         重试

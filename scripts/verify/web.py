@@ -452,6 +452,13 @@ def verify_canvas_view(
                     "page": 7,
                     "prereq": ["1.1"],
                 },
+                {
+                    "key": "x.1",
+                    "kind": "section",
+                    "parent": "",
+                    "title": "Extra",
+                    "title_zh": "补充",
+                },
             ],
             "exams": [
                 {
@@ -465,9 +472,27 @@ def verify_canvas_view(
         }
         put = api.put("/academic/maps/CIS D022A", json=course_map)
         check(put.status_code == 200, f"PUT /academic/maps -> 200 ({put.status_code})")
+        # The course list fails once (the Hub restarting): 重试 must bring the page back.
+        failed: list[str] = []
+
+        def fail_once(route) -> None:
+            if not failed:
+                failed.append(route.request.url)
+                route.fulfill(status=503, body='{"detail": "Hub 正在重启"}')
+            else:
+                route.continue_()
+
+        page.route("**/academic/maps", fail_once)
         open_view(page, "课程")
+        page.get_by_role("button", name="重试").click()
         course = page.get_by_test_id("course")
         course.get_by_test_id("km-chapter").first.wait_for(timeout=20_000)
+        page.unroute("**/academic/maps")
+        check(bool(failed), "after a failed course list, 重试 brings 课程 back")
+        check(
+            "补充" in course.get_by_test_id("km-chapter").filter(has_text="其他").inner_text(),
+            "a section without a chapter is listed under 其他",
+        )
         first = course.get_by_test_id("km-section").filter(has_text="变量")
         check(
             first.get_by_role("link", name="讲义 第 3 页").count() == 1,
@@ -1044,6 +1069,9 @@ def run(out: Path, headed: bool) -> None:
             verify_schedule_view(page, out)
             verify_digest_view(page, out)
             verify_data_kinds(page, out)
+            # The one 503 that verify_canvas_view makes on purpose (重试 must recover from it).
+            expected = ("/academic/maps", "status of 503")
+            errors = [e for e in errors if not (("503" in e) and any(x in e for x in expected))]
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 
