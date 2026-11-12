@@ -11,6 +11,7 @@ import re
 import socketserver
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 
 _SINCE = re.compile(r"SINCE \d{1,2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}")
 
@@ -32,7 +33,9 @@ class Mailbox:
     messages: list[Message] = field(default_factory=list[Message])
     commands: list[str] = field(default_factory=list[str])
     refuse_uid: int | None = None  # FETCH of this message's body answers NO
+    refuse_search_all: bool = False  # "UID SEARCH ALL" answers NO
     drop_at_uid: int | None = None  # the connection closes when this body is fetched
+    vanish_uid: int | None = None  # SEARCH lists it, FETCH returns nothing (expunged)
 
     def add(self, raw: bytes, seen: bool = False, received: str | None = None) -> Message:
         uid = max((m.uid for m in self.messages), default=100) + 1
@@ -131,7 +134,7 @@ class FakeImapServer:
                 uid_text, _, items = args.partition(" ")
                 wanted = _uids(uid_text)
                 for seq, m in enumerate(box.messages, start=1):
-                    if m.uid not in wanted:
+                    if m.uid not in wanted or m.uid == box.vanish_uid:
                         continue
                     flags = "(\\Seen)" if m.seen else "()"
                     if "BODY.PEEK" in items:
@@ -168,8 +171,20 @@ class FakeImapServer:
                     low = int(ranged.group(1))
                     # IMAP: "n:*" always includes the highest UID, even if it is below n.
                     return sorted({u for u in uids if u >= low} | ({max(uids)} if uids else set()))
+                bounded = re.fullmatch(r"UID (\d+):(\d+)", args.strip())
+                if bounded:
+                    low, high = sorted((int(bounded.group(1)), int(bounded.group(2))))
+                    return sorted(u for u in uids if low <= u <= high)
+                if args.strip() == "ALL":
+                    return None if box.refuse_search_all else sorted(uids)
                 if _SINCE.fullmatch(args.strip()):
-                    return uids  # every message here counts as recent
+                    # Like a real server: only mail received on or after that day.
+                    day = datetime.strptime(args.strip()[6:], "%d-%b-%Y").date()
+                    return [
+                        m.uid
+                        for m in box.messages
+                        if datetime.strptime(m.received, "%d-%b-%Y %H:%M:%S %z").date() >= day
+                    ]
                 return None
 
         class Server(socketserver.ThreadingTCPServer):

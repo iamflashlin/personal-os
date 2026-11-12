@@ -394,3 +394,226 @@ def test_the_code_leaves_no_trace(
     for where in (json.dumps(after), logged, caplog.text):
         assert "WRONGCODE-abc123" not in where
     assert b"WRONGCODE-abc123" not in stored
+
+
+# --- History backfill (T-0027, ADR 0031) -----------------------------------------------
+
+
+def _history_box(old: int, new: int = 2) -> Mailbox:
+    mailbox = Mailbox(username=ADDRESS, password=AUTH_CODE)
+    for n in range(old):  # added first, so they get the lower UIDs, like real history
+        mailbox.add(mail(f"Old {n}", "history", n=n), received=internaldate(24 * (60 + n)))
+    for n in range(new):
+        mailbox.add(mail(f"New {n}", "recent", n=100 + n), received=internaldate(1 + n))
+    return mailbox
+
+
+def _titles(batch: Batch) -> list[str]:
+    return [i.title for i in batch.items or []]
+
+
+def test_history_is_read_after_new_mail_newest_first_until_done() -> None:
+    mailbox = _history_box(old=3)
+    server = FakeImapServer(mailbox)
+    try:
+        first = fetch(server)
+        # New mail first (oldest first), then history from the newest old mail down.
+        assert _titles(first) == ["New 0", "New 1", "Old 2", "Old 1", "Old 0"]
+        assert first.cursor["backfill_done"] is True
+        again = fetch(server, dict(first.cursor))
+        assert _titles(again) == []  # nothing new, history complete
+    finally:
+        server.close()
+
+
+def test_long_history_is_read_in_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(imap_module, "MAX_BACKFILL_PER_SYNC", 2)
+    mailbox = _history_box(old=5, new=1)
+    server = FakeImapServer(mailbox)
+    try:
+        seen: list[str] = []
+        cursor: dict[str, Any] = {}
+        for _ in range(4):
+            batch = fetch(server, cursor)
+            seen += _titles(batch)
+            cursor = dict(batch.cursor)
+        assert seen == ["New 0", "Old 4", "Old 3", "Old 2", "Old 1", "Old 0"]
+        assert cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_a_cursor_from_before_backfill_starts_history_below_what_it_read() -> None:
+    mailbox = _history_box(old=2, new=2)
+    server = FakeImapServer(mailbox)
+    try:
+        newest_uid = max(m.uid for m in mailbox.messages)
+        old_cursor = {"uidvalidity": "7", "last_uid": newest_uid, "recent": []}
+        batch = fetch(server, old_cursor)
+        # Everything below last_uid is read again; stored mail is recognised by its id.
+        assert _titles(batch) == ["New 1", "New 0", "Old 1", "Old 0"]
+        assert batch.cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_a_refused_history_message_is_retried_then_noted_and_never_blocks() -> None:
+    mailbox = _history_box(old=3)
+    mailbox.refuse_uid = mailbox.messages[1].uid  # "Old 1"
+    server = FakeImapServer(mailbox)
+    try:
+        cursor: dict[str, Any] = {}
+        titles: list[str] = []
+        for _ in range(3):  # MAX_TRIES syncs, then it becomes a note
+            batch = fetch(server, cursor)
+            titles += _titles(batch)
+            cursor = dict(batch.cursor)
+        assert titles[:3] == ["New 0", "New 1", "Old 2"]
+        assert titles[3:] == ["（无法解析的邮件）", "Old 0"]
+        assert cursor["backfill_done"] is True and "backfill_stuck" not in cursor
+    finally:
+        server.close()
+
+
+def test_a_quiet_mailbox_still_reads_its_history() -> None:
+    mailbox = _history_box(old=3, new=0)  # nothing in the first-sync window
+    server = FakeImapServer(mailbox)
+    try:
+        batch = fetch(server)
+        assert _titles(batch) == ["Old 2", "Old 1", "Old 0"]
+        assert batch.cursor["backfill_done"] is True
+        mailbox.uidvalidity = 8  # renumbered and still quiet: history again
+        again = fetch(server, dict(batch.cursor))
+        assert _titles(again) == ["Old 2", "Old 1", "Old 0"]
+    finally:
+        server.close()
+
+
+def test_a_deadline_mid_history_keeps_the_bound_at_the_last_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mailbox = _history_box(old=4, new=0)
+    server = FakeImapServer(mailbox)
+    real_message = ImapConnector._message
+    real_monotonic = imap_module.time.monotonic
+    state = {"reads": 0, "late": False}
+
+    def message(self: ImapConnector, *args: Any) -> Any:
+        state["reads"] += 1
+        if state["reads"] == 2:  # after "Old 3" and "Old 2", the sync's time is up
+            state["late"] = True
+        return real_message(self, *args)
+
+    import time as real_time
+    import types
+
+    clock = types.SimpleNamespace(
+        **{k: getattr(real_time, k) for k in dir(real_time) if not k.startswith("_")}
+    )
+    clock.monotonic = lambda: real_monotonic() + (10_000 if state["late"] else 0)
+    monkeypatch.setattr(ImapConnector, "_message", message)
+    monkeypatch.setattr(imap_module, "time", clock)
+    try:
+        batch = fetch(server)
+        assert _titles(batch) == ["Old 3", "Old 2"]
+        assert batch.cursor["backfill_done"] is False
+        assert batch.cursor["backfill_below"] == mailbox.messages[2].uid  # "Old 2"
+        state["late"] = False
+        rest = fetch(server, dict(batch.cursor))
+        assert _titles(rest) == ["Old 1", "Old 0"] and rest.cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_a_message_listed_but_gone_is_skipped() -> None:
+    mailbox = _history_box(old=3, new=0)
+    mailbox.vanish_uid = mailbox.messages[1].uid  # "Old 1" was expunged meanwhile
+    server = FakeImapServer(mailbox)
+    try:
+        batch = fetch(server)
+        assert _titles(batch) == ["Old 2", "Old 0"] and batch.cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_exactly_one_batch_of_history_is_done_in_one_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(imap_module, "MAX_BACKFILL_PER_SYNC", 3)
+    mailbox = _history_box(old=3, new=0)
+    server = FakeImapServer(mailbox)
+    try:
+        batch = fetch(server)
+        assert len(_titles(batch)) == 3 and batch.cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_an_old_cursor_rereads_stored_mail_without_adding_it_again(
+    client: TestClient, store: Any
+) -> None:
+    box = _history_box(old=2, new=2)  # history first: older mail has the lower UIDs
+    server = FakeImapServer(box)
+    try:
+        integration = connect(client, server)
+        first = sync(client, store, integration)
+        assert first["added"] == 4  # two recent + two from history
+        with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+            from apps.hub.integrations.models import IntegrationRow
+
+            row = s.get(IntegrationRow, integration["id"])
+            assert row is not None
+            row.cursor = {k: v for k, v in row.cursor.items() if not k.startswith("backfill")}
+            s.commit()  # what a cursor from before T-0027 looks like
+        again = sync(client, store, integration)
+        assert again["added"] == 0  # everything re-read is recognised
+        assert len(client.get(f"/integrations/{integration['id']}/items").json()) == 4
+    finally:
+        server.close()
+
+
+def test_a_renumbered_mailbox_restarts_history() -> None:
+    mailbox = _history_box(old=2)
+    server = FakeImapServer(mailbox)
+    try:
+        done = fetch(server)
+        mailbox.uidvalidity = 8  # the server renumbered every message
+        again = fetch(server, dict(done.cursor))
+        assert set(_titles(again)) == {"New 0", "New 1", "Old 1", "Old 0"}
+    finally:
+        server.close()
+
+
+def test_a_refused_search_all_leaves_history_for_the_next_sync() -> None:
+    mailbox = _history_box(old=2, new=0)
+    mailbox.refuse_search_all = True
+    server = FakeImapServer(mailbox)
+    try:
+        batch = fetch(server)
+        assert _titles(batch) == [] and batch.cursor["backfill_done"] is False
+        mailbox.refuse_search_all = False
+        again = fetch(server, dict(batch.cursor))
+        assert _titles(again) == ["Old 1", "Old 0"] and again.cursor["backfill_done"] is True
+    finally:
+        server.close()
+
+
+def test_a_long_reread_never_adds_a_duplicate_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(imap_module, "MAX_BACKFILL_PER_SYNC", 1)
+    mailbox = _history_box(old=0, new=3)  # all three were stored by the old connector
+    refused = mailbox.messages[0]
+    mailbox.refuse_uid = refused.uid
+    server = FakeImapServer(mailbox)
+    try:
+        cursor: dict[str, Any] = {
+            "uidvalidity": "7",
+            "last_uid": max(m.uid for m in mailbox.messages),
+            "recent": [],
+        }
+        titles: list[str] = []
+        for _ in range(8):  # one UID per sync; the refused one is retried MAX_TRIES times
+            batch = fetch(server, cursor)
+            titles += _titles(batch)
+            cursor = dict(batch.cursor)
+        assert "（无法解析的邮件）" not in titles  # stored already: skipped, never noted
+        assert cursor["backfill_done"] is True and "reread_upto" not in cursor
+    finally:
+        server.close()

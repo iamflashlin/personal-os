@@ -174,6 +174,45 @@ def items_between(
     return [SyncedItem.model_validate(r, from_attributes=True) for r in rows]
 
 
+def item_index(
+    session: Session, actor: Actor, item_type: str
+) -> list[tuple[str, datetime | None, datetime]]:
+    """(id, starts_at, updated_at) of every item of one type, without bodies: cheap enough
+    to scan thousands of mails. Items without a start time are included."""
+    query = (
+        select(SyncedItemRow.id, SyncedItemRow.starts_at, SyncedItemRow.updated_at)
+        .join(IntegrationRow, IntegrationRow.id == SyncedItemRow.integration_id)
+        .where(
+            IntegrationRow.owner_id == actor.owner_id,
+            SyncedItemRow.owner_id == actor.owner_id,
+            SyncedItemRow.item_type == item_type,
+        )
+    )
+    return [(r[0], r[1], r[2]) for r in session.execute(query)]
+
+
+ITEMS_PER_QUERY = 500  # well under SQLite's bound-parameter limit
+
+
+def items_by_id(session: Session, actor: Actor, ids: list[str]) -> dict[str, SyncedItem]:
+    """Full items for these ids (another owner's ids are ignored)."""
+    found: dict[str, SyncedItem] = {}
+    for start in range(0, len(ids), ITEMS_PER_QUERY):
+        chunk = ids[start : start + ITEMS_PER_QUERY]
+        rows = session.scalars(
+            select(SyncedItemRow)
+            .join(IntegrationRow, IntegrationRow.id == SyncedItemRow.integration_id)
+            .where(
+                IntegrationRow.owner_id == actor.owner_id,
+                SyncedItemRow.owner_id == actor.owner_id,
+                SyncedItemRow.id.in_(chunk),
+            )
+        )
+        for r in rows:
+            found[r.id] = SyncedItem.model_validate(r, from_attributes=True)
+    return found
+
+
 def ensure_schedules(session: Session, actor: Actor, now: datetime) -> None:
     """Give every integration its schedule. Run at startup: if creating one failed after
     the integration was saved, this repairs it; a matching schedule writes nothing."""

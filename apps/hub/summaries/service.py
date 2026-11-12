@@ -6,8 +6,12 @@ A `summaries.email` job run:
    sender, subject or body resets its row to `pending`;
 2. marks, without any model or key, mail that must not be sent (`skipped_sensitive`) or
    cannot be read (`skipped_unreadable`);
-3. summarises at most 20 due `pending` mails, oldest first, within 150 s, and queues a
+3. summarises at most 20 due `pending` mails, newest first, within 150 s, and queues a
    continuation when more are due.
+
+All synced mail is covered, not only recent mail (ADR 0031: the user wants all history
+summarised once). Newest first, so today's mail is ready while history fills in; the
+monthly budget still stops a run before any call that would exceed it.
 
 A missing key, a rejected key, no balance, a rate limit or the monthly budget stops the run
 and leaves mail `pending` without burning attempts: the next run tries again. Runs are
@@ -29,6 +33,7 @@ from typing import Any
 from sqlalchemy import Engine, and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from apps.hub.core.base import utcnow
 from apps.hub.core.domain import Actor
 from apps.hub.credentials import service as credentials
 from apps.hub.integrations import service as integrations
@@ -49,7 +54,6 @@ from packages.contracts.summaries import (
 logger = logging.getLogger(__name__)
 
 JOB = "summaries.email"
-WINDOW = timedelta(days=14)
 PER_RUN = 20
 RUN_DEADLINE_S = 150.0
 MAX_ATTEMPTS = 3
@@ -147,10 +151,18 @@ def request_run(
     return jobs.enqueue(session, actor, JOB, {}, now=now, idempotency_key=idempotency_key).id
 
 
-def _recent_mail(session: Session, actor: Actor, now: datetime) -> list[SyncedItem]:
-    return integrations.items_between(
-        session, actor, now - WINDOW, now + timedelta(days=1), item_type=EMAIL
-    )
+Index = dict[str, datetime | None]  # mail id -> when it was received
+
+
+def _mail_index(session: Session, actor: Actor) -> list[tuple[str, datetime | None, datetime]]:
+    """Every synced mail as (id, received, last change), without bodies."""
+    return integrations.item_index(session, actor, EMAIL)
+
+
+def _order(ids: list[str], index: Index) -> list[str]:
+    """Newest first; mail without a receive time last."""
+    oldest = datetime.min.replace(tzinfo=UTC)
+    return sorted(ids, key=lambda i: (index.get(i) or oldest, i), reverse=True)
 
 
 def _reset(row: EmailSummaryRow, digest: str) -> None:
@@ -180,19 +192,22 @@ def _triage(item: SyncedItem, row: EmailSummaryRow) -> None:
         row.error = why
 
 
-def prepare(session: Session, actor: Actor, now: datetime) -> dict[str, SyncedItem]:
-    """Rows for every recent mail, triaged. Returns the recent mail by id."""
-    items = {i.id: i for i in _recent_mail(session, actor, now)}
+def prepare(session: Session, actor: Actor, now: datetime) -> Index:
+    """Rows for every mail, triaged. Only mail that is new, or changed since its row was
+    written, has its body loaded, so a run over thousands of mails stays cheap."""
+    entries = _mail_index(session, actor)
     rows = {
         r.item_id: r
         for r in session.scalars(
-            select(EmailSummaryRow).where(
-                EmailSummaryRow.owner_id == actor.owner_id,
-                EmailSummaryRow.item_id.in_(list(items)),
-            )
+            select(EmailSummaryRow).where(EmailSummaryRow.owner_id == actor.owner_id)
         )
     }
-    for item_id, item in items.items():
+    stale = [
+        item_id
+        for item_id, _received, changed in entries
+        if item_id not in rows or changed > rows[item_id].updated_at
+    ]
+    for item_id, item in integrations.items_by_id(session, actor, stale).items():
         digest = item_hash(item)
         row = rows.get(item_id)
         if row is None:
@@ -202,17 +217,18 @@ def prepare(session: Session, actor: Actor, now: datetime) -> dict[str, SyncedIt
                 version=1,
                 item_id=item_id,
                 created_at=now,
-                updated_at=now,
+                updated_at=utcnow(),  # wall clock, like the item it is compared with
             )
             _reset(row, digest)
             session.add(row)
         elif row.item_hash != digest:
             _reset(row, digest)
         else:
+            row.updated_at = utcnow()  # checked: unchanged (e.g. only read state moved)
             continue
         _triage(item, row)
     session.commit()
-    return items
+    return {item_id: received for item_id, received, _changed in entries}
 
 
 def _outdated_filter() -> Any:
@@ -231,14 +247,12 @@ def _outdated_filter() -> Any:
     )
 
 
-def _redo_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) -> int:
+def _redo_outdated(session: Session, actor: Actor) -> int:
     """Reset summaries from an older prompt so they are redone. Only called once a model
     client is open: without a key or budget, the old summary stays visible."""
     rows = session.scalars(
         select(EmailSummaryRow).where(
-            EmailSummaryRow.owner_id == actor.owner_id,
-            EmailSummaryRow.item_id.in_(list(items)),
-            _outdated_filter(),
+            EmailSummaryRow.owner_id == actor.owner_id, _outdated_filter()
         )
     ).all()
     for row in rows:
@@ -247,31 +261,35 @@ def _redo_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem])
     return len(rows)
 
 
-def _has_outdated(session: Session, actor: Actor, items: dict[str, SyncedItem]) -> bool:
+def _has_outdated(session: Session, actor: Actor) -> bool:
     return (
         session.scalar(
             select(func.count(EmailSummaryRow.id)).where(
-                EmailSummaryRow.owner_id == actor.owner_id,
-                EmailSummaryRow.item_id.in_(list(items)),
-                _outdated_filter(),
+                EmailSummaryRow.owner_id == actor.owner_id, _outdated_filter()
             )
         )
         or 0
     ) > 0
 
 
-def _due(session: Session, actor: Actor, items: dict[str, SyncedItem], now: datetime) -> list[str]:
+def _pending(session: Session, actor: Actor, index: Index) -> list[EmailSummaryRow]:
     rows = session.scalars(
         select(EmailSummaryRow).where(
             EmailSummaryRow.owner_id == actor.owner_id,
             EmailSummaryRow.status == SummaryStatus.pending.value,
-            EmailSummaryRow.item_id.in_(list(items)),
         )
     ).all()
-    due = [r for r in rows if r.next_try_at is None or r.next_try_at <= now]
-    oldest = datetime.min.replace(tzinfo=UTC)
-    due.sort(key=lambda r: (items[r.item_id].starts_at or oldest, r.item_id))
-    return [r.id for r in due]
+    return [r for r in rows if r.item_id in index]
+
+
+def _due(session: Session, actor: Actor, index: Index, now: datetime) -> list[str]:
+    """Pending summary ids that may run now, newest mail first."""
+    due = {
+        r.item_id: r.id
+        for r in _pending(session, actor, index)
+        if r.next_try_at is None or r.next_try_at <= now
+    }
+    return [due[item_id] for item_id in _order(list(due), index)]
 
 
 def run(
@@ -289,9 +307,9 @@ def run(
     prompt = prompt or models.load_prompt(PROMPT_NAME, PROMPT_VERSION)
     tick = clock or (lambda: now)  # the time of each write; a run can last 150 s
     with Session(engine) as session:
-        items = prepare(session, actor, now)
-        due = _due(session, actor, items, now)
-        outdated = _has_outdated(session, actor, items)
+        index = prepare(session, actor, now)
+        due = _due(session, actor, index, now)
+        outdated = _has_outdated(session, actor)
     if not due and not outdated:
         return False
     try:
@@ -302,8 +320,8 @@ def run(
         return False  # mail stays pending, nothing burnt
     if outdated:
         with Session(engine) as session:
-            _redo_outdated(session, actor, items)
-            due = _due(session, actor, items, now)
+            _redo_outdated(session, actor)
+            due = _due(session, actor, index, now)
     started = time.monotonic()
     handled = 0
     for summary_id in due[:PER_RUN]:
@@ -316,7 +334,10 @@ def run(
             if row is None or row.status != SummaryStatus.pending.value:
                 handled += 1  # settled elsewhere: nothing left to do for it
                 continue
-            item = items[row.item_id]
+            item = integrations.items_by_id(session, actor, [row.item_id]).get(row.item_id)
+            if item is None:  # the mail was deleted meanwhile
+                handled += 1
+                continue
         try:
             out, call_id = client.call_json(
                 prompt,
@@ -415,7 +436,7 @@ def _blocked(
     model: str,
     prompt: models.Prompt,
     pending: list[EmailSummaryRow],
-    items: dict[str, SyncedItem],
+    index: Index,
 ) -> SummaryBlock:
     if not models.has_key(session, actor):
         return SummaryBlock.no_key
@@ -425,10 +446,10 @@ def _blocked(
     if last:
         return SummaryBlock(last)
     remaining = models.remaining_micro_usd(session, actor, now, budget)
-    for row in pending:
-        item = items.get(row.item_id)
-        if item is None:
-            continue
+    # Only the mail the next run would take: estimating thousands on every page load
+    # would be slow, and the run itself stops at the first one over budget.
+    upcoming = _order([r.item_id for r in pending], index)[:PER_RUN]
+    for item in integrations.items_by_id(session, actor, upcoming).values():
         user = prompt.render(variables(item))
         cost = models.estimate_micro_usd(vendor, model, prompt.system, user, MAX_OUTPUT_TOKENS)
         if cost > remaining:
@@ -446,18 +467,9 @@ def status(
     prompt: models.Prompt | None = None,
 ) -> SummariesStatus:
     prompt = prompt or models.load_prompt(PROMPT_NAME, PROMPT_VERSION)
-    # Only mail still inside the window counts: older pending rows will never be sent.
-    items = {i.id: i for i in _recent_mail(session, actor, now)}
-    pending = list(
-        session.scalars(
-            select(EmailSummaryRow).where(
-                EmailSummaryRow.owner_id == actor.owner_id,
-                EmailSummaryRow.status == SummaryStatus.pending.value,
-                EmailSummaryRow.item_id.in_(list(items)),
-            )
-        )
-    )
-    blocked = _blocked(session, actor, now, budget, vendor, model, prompt, pending, items)
+    index: Index = {i: received for i, received, _changed in _mail_index(session, actor)}
+    pending = _pending(session, actor, index)
+    blocked = _blocked(session, actor, now, budget, vendor, model, prompt, pending, index)
     return SummariesStatus(
         pending=len(pending),
         blocked=blocked,
