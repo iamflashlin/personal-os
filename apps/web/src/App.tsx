@@ -12,6 +12,7 @@ import {
 } from "./api";
 import { ConnectionsView } from "./ConnectionsView";
 import { MailView } from "./MailView";
+import { DigestView } from "./DigestView";
 import { GpaView } from "./GpaView";
 import { ScheduleView } from "./ScheduleView";
 import { MemoryView } from "./MemoryView";
@@ -34,6 +35,7 @@ const MODE: Record<ExecutionMode, string> = {
 const VIEW = {
   today: "今日",
   mail: "邮件",
+  digest: "简报",
   gpa: "成绩",
   schedule: "日程",
   tasks: "任务",
@@ -125,6 +127,7 @@ export function App({ api }: { api: Api }) {
       </header>
       {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
       {view === "mail" && <MailView api={api} />}
+      {view === "digest" && <DigestView api={api} />}
       {view === "gpa" && <GpaView api={api} />}
       {view === "schedule" && <ScheduleView api={api} />}
       {view === "memories" && <MemoryView api={api} />}

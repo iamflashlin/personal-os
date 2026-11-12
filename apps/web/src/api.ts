@@ -389,6 +389,47 @@ export interface Agenda {
   day_window: [number, number];
 }
 
+/** The 简报 (ADR 0039). */
+export interface NewDigestItem {
+  channel: "news" | "club" | "group" | "other";
+  source_name: string;
+  title: string;
+  summary?: string;
+  raw_text?: string;
+  url?: string;
+  topics?: string[];
+  published_at?: string | null;
+  happens_at?: string | null;
+  important?: boolean;
+}
+
+export interface DigestItem {
+  id: string;
+  channel: string;
+  source_name: string;
+  title: string;
+  summary: string;
+  raw_text: string;
+  url: string;
+  topics: string[];
+  published_at: string;
+  happens_at: string | null;
+  important: boolean;
+  read: boolean;
+  read_at: string | null;
+  origin: string;
+  created_at: string;
+  version: number;
+}
+
+export interface DigestView {
+  view: "today" | "history";
+  items: DigestItem[];
+  unread_today: number;
+  unread_history: number;
+  channels: Record<string, number>;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -561,6 +602,26 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
     gpa: () => call<GpaView>("/gpa"),
+    digest: (view: "today" | "history", timeZone: string, unreadOnly = false, channel = "") =>
+      call<DigestView>(
+        `/digest?${new URLSearchParams({
+          view,
+          time_zone: timeZone,
+          unread_only: String(unreadOnly),
+          ...(channel ? { channel } : {}),
+        })}`,
+      ),
+    addDigest: (item: NewDigestItem) =>
+      call<DigestItem>("/digest/items", { method: "POST", body: JSON.stringify(item) }),
+    markDigest: (id: string, read: boolean) =>
+      call<DigestItem>(`/digest/items/${encodeURIComponent(id)}/read`, {
+        method: "PUT",
+        body: JSON.stringify({ read }),
+      }),
+    readAllDigest: (view: "today" | "history", timeZone: string) =>
+      call<{ marked: number }>(`/digest/read-all?${new URLSearchParams({ view, time_zone: timeZone })}`, {
+        method: "POST",
+      }),
     agenda: (start: string, end: string, timeZone: string) =>
       call<Agenda>(`/schedule?${new URLSearchParams({ start, end, time_zone: timeZone })}`),
     createEvent: (event: NewEvent, timeZone: string) =>

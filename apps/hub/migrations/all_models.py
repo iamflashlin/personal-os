@@ -9,6 +9,7 @@ import apps.hub.actions.models
 import apps.hub.audit.models
 import apps.hub.credentials.models
 import apps.hub.devices.models
+import apps.hub.digest.models
 import apps.hub.evidence.models
 import apps.hub.integrations.models
 import apps.hub.jobs.models

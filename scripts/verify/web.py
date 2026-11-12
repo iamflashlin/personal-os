@@ -711,6 +711,35 @@ def verify_schedule_view(page: Page, out: Path) -> None:
     check(view.get_by_test_id("sched-entry").count() == 0, "both are deleted again")
 
 
+def verify_digest_view(page: Page, out: Path) -> None:
+    """T-0044: add a group-chat tip to 简报, open it (read), see the original, today count."""
+    open_view(page, "简报")
+    view = page.get_by_test_id("digest")
+    view.get_by_test_id("digest-add").click()
+    form = page.get_by_role("form", name="添加简报")
+    form.get_by_label("类别").select_option("group")
+    form.get_by_label("来源").fill("微信转学群")
+    form.get_by_label("标题").fill("UC 转学：先查 ASSIST 课程对应")
+    form.get_by_label("要点").fill("· ASSIST 查课程对应\n· 11/30 截止")
+    form.get_by_label("原文").fill("A：转学先看 ASSIST\nB：对，11/30 截止")
+    form.get_by_role("button", name="保存").click()
+    item = view.get_by_test_id("digest-item").filter(has_text="UC 转学")
+    item.wait_for(timeout=20_000)
+    check(item.locator(".badge.unread").count() == 1, "a new tip is 未读 in 今天")
+    check(
+        "未读 1" in view.get_by_role("button", name="今天", exact=False).first.inner_text(),
+        "and the 今天 tab counts it",
+    )
+    item.locator(".mail-head").click()
+    item.get_by_test_id("digest-detail").wait_for()
+    page.wait_for_function(
+        "!document.querySelector('[data-testid=digest-item] .badge.unread')", timeout=10_000
+    )
+    check(True, "opening it marks it read")
+    check("ASSIST 查课程对应" in item.inner_text(), "the points show first")
+    shot(page, out, "23-digest")
+
+
 def open_view(page: Page, name: str) -> None:
     page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
 
@@ -811,6 +840,7 @@ def run(out: Path, headed: bool) -> None:
             verify_email_view(page, api, out, service, hub_log)
             verify_summaries_view(page, api, out, service, hub_log, errors)
             verify_schedule_view(page, out)
+            verify_digest_view(page, out)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 

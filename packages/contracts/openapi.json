@@ -808,6 +808,164 @@
         "title": "Device",
         "type": "object"
       },
+      "DigestItem": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "news",
+              "club",
+              "group",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "happens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Happens At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "important": {
+            "title": "Important",
+            "type": "boolean"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "raw_text": {
+            "title": "Raw Text",
+            "type": "string"
+          },
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "source_name",
+          "title",
+          "summary",
+          "raw_text",
+          "url",
+          "topics",
+          "published_at",
+          "happens_at",
+          "important",
+          "read",
+          "read_at",
+          "origin",
+          "created_at",
+          "version"
+        ],
+        "title": "DigestItem",
+        "type": "object"
+      },
+      "DigestView": {
+        "properties": {
+          "channels": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Channels",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DigestItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "unread_history": {
+            "title": "Unread History",
+            "type": "integer"
+          },
+          "unread_today": {
+            "title": "Unread Today",
+            "type": "integer"
+          },
+          "view": {
+            "enum": [
+              "today",
+              "history"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "items",
+          "unread_today",
+          "unread_history",
+          "channels"
+        ],
+        "title": "DigestView",
+        "type": "object"
+      },
       "EmailSummary": {
         "properties": {
           "action": {
@@ -2302,6 +2460,98 @@
         "title": "ModelUsage",
         "type": "object"
       },
+      "NewDigestItem": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "news",
+              "club",
+              "group",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "happens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Happens At"
+          },
+          "important": {
+            "default": false,
+            "title": "Important",
+            "type": "boolean"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "raw_text": {
+            "default": "",
+            "maxLength": 50000,
+            "title": "Raw Text",
+            "type": "string"
+          },
+          "source_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Source Name",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "default": [],
+            "items": {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Topics",
+            "type": "array"
+          },
+          "url": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "source_name",
+          "title"
+        ],
+        "title": "NewDigestItem",
+        "type": "object"
+      },
       "NewEvent": {
         "additionalProperties": false,
         "properties": {
@@ -2678,6 +2928,20 @@
         ],
         "title": "Provenance",
         "type": "string"
+      },
+      "ReadMark": {
+        "additionalProperties": false,
+        "properties": {
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "read"
+        ],
+        "title": "ReadMark",
+        "type": "object"
       },
       "RiskLevel": {
         "enum": [
@@ -4771,6 +5035,251 @@
         "summary": "Revoke Device",
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/digest": {
+      "get": {
+        "operationId": "get_digest_digest_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "today",
+              "enum": [
+                "today",
+                "history"
+              ],
+              "title": "View",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unread_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unread Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "news",
+                    "club",
+                    "group",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Digest",
+        "tags": [
+          "digest"
+        ]
+      }
+    },
+    "/digest/items": {
+      "post": {
+        "operationId": "add_digest_item_digest_items_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDigestItem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Digest Item",
+        "tags": [
+          "digest"
+        ]
+      }
+    },
+    "/digest/items/{item_id}/read": {
+      "put": {
+        "operationId": "mark_digest_read_digest_items__item_id__read_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadMark"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark Digest Read",
+        "tags": [
+          "digest"
+        ]
+      }
+    },
+    "/digest/read-all": {
+      "post": {
+        "operationId": "digest_read_all_digest_read_all_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "today",
+              "enum": [
+                "today",
+                "history"
+              ],
+              "title": "View",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Digest Read All Digest Read All Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Digest Read All",
+        "tags": [
+          "digest"
         ]
       }
     },
