@@ -5136,6 +5136,19 @@
     "/digest/items": {
       "post": {
         "operationId": "add_digest_item_digest_items_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

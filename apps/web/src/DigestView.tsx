@@ -117,7 +117,7 @@ export function DigestView({ api }: { api: Api }) {
         raw_text: String(f.get("raw") ?? ""),
         url: String(f.get("url") ?? ""),
         important: f.get("important") === "on",
-      });
+      }, browserZone());
       setAdding(false);
       await load();
     } catch (err) {

@@ -160,21 +160,33 @@ def test_calendar_events_and_canvas_deadlines_join_and_conflicts_show(hub) -> No
 
 
 def test_free_time_skips_busy_blocks_inside_the_day_window(hub) -> None:
-    client, _ = hub
-    event(client, starts_at=local(2030, 1, 15, 10), ends_at=local(2030, 1, 15, 12))
+    from sqlalchemy.orm import Session as S
+
+    from apps.hub.core.domain import Actor
+    from apps.hub.schedule import service
+
+    client, engine = hub
+    event(client, starts_at=local(2026, 11, 16, 10), ends_at=local(2026, 11, 16, 12))
     event(
-        client, title="短会", starts_at=local(2030, 1, 15, 12, 10), ends_at=local(2030, 1, 15, 13)
+        client, title="短会", starts_at=local(2026, 11, 16, 12, 10), ends_at=local(2026, 11, 16, 13)
     )
-    a = agenda(client, local(2030, 1, 15, 0), local(2030, 1, 16, 0))
-    slots = [
-        (
-            datetime.fromisoformat(f["starts_at"]).astimezone(LA).strftime("%H:%M"),
-            datetime.fromisoformat(f["ends_at"]).astimezone(LA).strftime("%H:%M"),
+    day = datetime(2026, 11, 16, 0, tzinfo=LA)
+    with S(engine) as s:  # a fixed "now" before the day, so the test never ages
+        a = service.agenda(
+            s,
+            Actor(owner_id="local", source="t"),
+            day,
+            day + timedelta(days=1),
+            LA,
+            "America/Los_Angeles",
+            now=day,
         )
-        for f in a["free"]
+    slots = [
+        (f.starts_at.astimezone(LA).strftime("%H:%M"), f.ends_at.astimezone(LA).strftime("%H:%M"))
+        for f in a.free
     ]
     assert slots == [("08:00", "10:00"), ("13:00", "22:00")]  # the 10-minute gap is too short
-    assert a["day_window"] == [8, 22]
+    assert agenda(client, local(2026, 11, 16, 0), local(2026, 11, 17, 0))["day_window"] == [8, 22]
 
 
 def test_edit_and_delete_with_version_checks(hub) -> None:

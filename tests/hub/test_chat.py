@@ -342,6 +342,8 @@ def test_a_promise_without_a_proposal_is_nudged_once(hub) -> None:
         if "系统提示" in str(m.get("content"))
     ]
     assert nudges  # it was reminded
+    final = forgetful.tool_calls[-1].messages
+    assert sum("系统提示" in str(m.get("content")) for m in final) == 1  # exactly once
 
 
 def test_a_plain_answer_is_not_nudged(hub) -> None:
@@ -350,3 +352,28 @@ def test_a_plain_answer_is_not_nudged(hub) -> None:
     summarise(client, fake, engine)
     assert ask(client, "Lab 什么时候交").json()["proposal"] is None
     assert len(fake.tool_calls) == 3  # search, read, answer: no extra turn
+
+
+def test_a_promise_on_the_last_step_is_not_nudged(hub) -> None:
+    from apps.hub.chat.assistant import MAX_STEPS
+
+    client, fake, engine = hub
+    seed(engine, 1)
+    summarise(client, fake, engine)
+
+    class Busy(FakeProvider):
+        """Searches until its tools are taken away, then promises a confirm button."""
+
+        def complete_tools(self, request: ToolRequest, api_key: str) -> ToolReply:
+            self.tool_calls.append(request)
+            if not request.tools:
+                return ToolReply("点确认后执行。", [], Usage(10, 0, 5), "stop", "x")
+            call = ToolCall(f"s{len(self.tool_calls)}", "search_mail", '{"query": "Lab"}')
+            return ToolReply("", [call], Usage(10, 0, 5), "tool_calls", "x")
+
+    busy = Busy()
+    client.app.state.model_provider = busy  # type: ignore[attr-defined]
+    r = ask(client, "把 Lab 的都标为已处理")
+    assert r.status_code == 200
+    assert len(busy.tool_calls) == MAX_STEPS  # no extra call after the last step
+    assert not any("系统提示" in str(m.get("content")) for m in busy.tool_calls[-1].messages)

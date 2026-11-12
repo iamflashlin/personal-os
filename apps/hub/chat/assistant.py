@@ -364,7 +364,8 @@ NUDGE = (
     "（系统提示）你说了“点确认后执行”，但没有调用 propose_mark_handled，所以用户看不到确认按钮。"
     "请现在调用 propose_mark_handled，refs 用你刚才找到的那些邮件。"
 )
-_PROMISE = re.compile(r"确认后执行|点确认|点击确认|请确认")
+# Only phrases that point at the confirm button; "请确认" is also plain advice.
+_PROMISE = re.compile(r"确认后执行|点确认|点击确认")
 
 
 def _promised_a_proposal(text: str) -> bool:

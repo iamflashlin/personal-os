@@ -34,8 +34,11 @@ def build_router() -> APIRouter:
         return service.view(session, actor, which, datetime.now(UTC), zone, unread_only, channel)
 
     @router.post("/items", status_code=201, name="add_digest_item")
-    def add(session: SessionDep, actor: ActorDep, body: NewDigestItem) -> DigestItem:
-        return call(lambda: service.add(session, actor, body, datetime.now(UTC)))
+    def add(
+        session: SessionDep, actor: ActorDep, body: NewDigestItem, time_zone: ZoneQuery = ""
+    ) -> DigestItem:
+        zone = _zone(time_zone)
+        return call(lambda: service.add(session, actor, body, datetime.now(UTC), zone=zone))
 
     @router.put("/items/{item_id}/read", name="mark_digest_read")
     def mark(session: SessionDep, actor: ActorDep, item_id: str, body: ReadMark) -> DigestItem:

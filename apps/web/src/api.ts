@@ -612,8 +612,11 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
           ...(channel ? { channel } : {}),
         })}`,
       ),
-    addDigest: (item: NewDigestItem) =>
-      call<DigestItem>("/digest/items", { method: "POST", body: JSON.stringify(item) }),
+    addDigest: (item: NewDigestItem, timeZone: string) =>
+      call<DigestItem>(`/digest/items?${new URLSearchParams({ time_zone: timeZone })}`, {
+        method: "POST",
+        body: JSON.stringify(item),
+      }),
     markDigest: (id: string, read: boolean) =>
       call<DigestItem>(`/digest/items/${encodeURIComponent(id)}/read`, {
         method: "PUT",
