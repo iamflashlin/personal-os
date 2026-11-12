@@ -319,7 +319,7 @@ class CanvasConnector:
         for course in courses:
             cid = course["id"]
             try:
-                groups = [
+                groups: list[Mapping[str, Any]] = [
                     g
                     for g in _optional(client, f"/api/v1/courses/{cid}/assignment_groups", {})
                     if isinstance(g, dict)
