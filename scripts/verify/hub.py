@@ -1305,6 +1305,92 @@ def verify_summaries(_client: httpx.Client, data_dir: Path, _args: argparse.Name
                 keyring.delete_password(service, f"{owner}:{name}")
 
 
+def verify_history(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace) -> None:
+    """ADR 0031: a mailbox's whole history is read and summarised once, newest first."""
+    import uuid
+
+    import keyring
+
+    from tests.hub.fake_imap import FakeImapServer, Mailbox
+
+    code = f"MAILCODE-{uuid.uuid4().hex[:16]}"
+    box = Mailbox(username="student@example.com", password=code)
+    for days in (400, 120, 45):  # history, far older than the first-sync window
+        box.add(fake_mail(f"旧邮件 {days} 天前", "旧学期通知。"), received=recent(24 * days))
+    box.add(fake_mail("新邮件 今天", "本周作业周五截止。"), received=recent(1))
+    imap = FakeImapServer(box)
+    service = f"personal-os-verify-{uuid.uuid4().hex[:12]}"
+    owner = os.environ.get("POS_OWNER_ID", "local")
+    hub_dir = data_dir.parent / "history-data"
+    saved = {k: os.environ.get(k) for k in ("POS_CREDENTIALS_SERVICE", "POS_MODEL_PROVIDER")}
+    os.environ.update({"POS_CREDENTIALS_SERVICE": service, "POS_MODEL_PROVIDER": "fake"})
+
+    def wait(what: str, done: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 40
+        while not done():
+            if time.monotonic() > deadline:
+                check(False, what)
+            time.sleep(0.3)
+        check(True, what)
+
+    try:
+        with running_hub(hub_dir) as hub:
+            hub.put("/credentials/mail.code", json={"secret": code})
+            hub.put("/credentials/deepseek", json={"secret": f"sk-verify-{uuid.uuid4().hex}"})
+            created = hub.post(
+                "/integrations",
+                json={
+                    "kind": "email",
+                    "name": "163",
+                    "credential_name": "mail.code",
+                    "config": {
+                        "host": "127.0.0.1",
+                        "port": str(imap.port),
+                        "username": "student@example.com",
+                        "tls": "off",
+                    },
+                },
+            )
+            iid = created.json()["id"]
+            items_url = f"/integrations/{iid}/items"
+            wait(
+                "the first sync read today's mail and all three old mails",
+                lambda: len(hub.get(items_url).json()) == 4,
+            )
+
+            def summarised() -> list[str]:
+                items = hub.get(items_url).json()
+                ids = ",".join(i["id"] for i in items)
+                done = {
+                    s["item_id"]
+                    for s in hub.get("/summaries/email", params={"item_ids": ids}).json()
+                    if s["status"] == "ok"
+                }
+                return [i["title"] for i in items if i["id"] in done]
+
+            wait("every mail, old ones included, got one summary", lambda: len(summarised()) == 4)
+            calls = hub.get("/models/usage").json()["calls"]
+            check(calls == 4, f"one model call per mail ({calls})")
+            job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
+            wait(
+                "a second sync finished",
+                lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
+            )
+            check(len(hub.get(items_url).json()) == 4, "history is stored once, not twice")
+            time.sleep(2)
+            check(hub.get("/models/usage").json()["calls"] == 4, "nothing is summarised twice")
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        imap.close()
+        for name in ("mail.code", "deepseek"):
+            with contextlib.suppress(Exception):
+                keyring.delete_password(service, f"{owner}:{name}")
+
+
 COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = {
     "health": verify_health,
     "crud": verify_crud,
@@ -1318,6 +1404,7 @@ COMMANDS: dict[str, Callable[[httpx.Client, Path, argparse.Namespace], None]] = 
     "email": verify_email,
     "today": verify_today,
     "summaries": verify_summaries,
+    "history": verify_history,
 }
 
 

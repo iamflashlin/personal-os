@@ -163,12 +163,12 @@ def test_changed_body_is_summarised_again_but_read_state_is_not(engine, store) -
     assert summaries(engine)[a].status == "ok"
 
 
-def test_sensitive_unreadable_and_old_mail_are_never_sent(engine, store) -> None:
+def test_sensitive_and_unreadable_mail_are_never_sent_but_old_mail_is(engine, store) -> None:
     box = mailbox(engine)
     otp = mail(engine, box, "网易邮箱验证码", "您的验证码是 482913，10分钟内有效。")
     broken = mail(engine, box, "（无法解析的邮件）", "这封邮件读取失败（x），请在邮箱里查看。")
     empty = mail(engine, box, "Only an attachment", "   ")
-    old = mail(engine, box, "Old news", "long ago", at=NOW - timedelta(days=15))
+    old = mail(engine, box, "Old news", "long ago", at=NOW - timedelta(days=400))
     ordinary = mail(engine, box, "Lab 11", "下周一截止。", at=NOW - timedelta(minutes=10))
     fake = FakeProvider()
     run(engine, store, fake)
@@ -176,9 +176,9 @@ def test_sensitive_unreadable_and_old_mail_are_never_sent(engine, store) -> None
     assert rows[otp].status == "skipped_sensitive"
     assert "482913" not in rows[otp].error
     assert rows[broken].status == rows[empty].status == "skipped_unreadable"
-    assert old not in rows
+    assert rows[old].status == "ok"  # all history is summarised once (ADR 0031)
     assert rows[ordinary].status == "ok"
-    assert len(fake.calls) == 1  # only the ordinary mail was sent
+    assert len(fake.calls) == 2  # the ordinary mail and the old one
     assert all("482913" not in c.user and "验证码" not in c.user for c in fake.calls)
 
 
@@ -238,8 +238,8 @@ def test_budget_stops_before_the_call_and_the_next_month_resumes(engine, store) 
 )
 def test_account_errors_stop_the_run_without_burning_attempts(engine, store, marker, block) -> None:
     box = mailbox(engine)
-    a = mail(engine, box, f"Hello {marker}")
-    b = mail(engine, box, "Second", at=NOW - timedelta(minutes=5))
+    a = mail(engine, box, f"Hello {marker}", at=NOW - timedelta(minutes=5))  # newest: first
+    b = mail(engine, box, "Second", at=NOW - timedelta(hours=2))
     fake = FakeProvider()
     run(engine, store, fake)
     rows = summaries(engine)
@@ -419,13 +419,24 @@ def test_an_old_error_is_not_shown_once_nothing_waits(engine, store) -> None:
     assert (s.blocked, s.notice, s.pending) == (SummaryBlock.none, "", 0)
 
 
-def test_pending_counts_only_mail_inside_the_window(engine) -> None:
+def test_pending_counts_all_synced_mail(engine) -> None:
     box = mailbox(engine)
     mail(engine, box, "Recent", at=NOW - timedelta(days=1))
-    mail(engine, box, "Aging", at=NOW - timedelta(days=13))
+    mail(engine, box, "Years ago", at=NOW - timedelta(days=900))
     run(engine, credentials.MemorySecretStore(), FakeProvider())  # no key: both stay pending
     assert status(engine).pending == 2
-    assert status(engine, now=NOW + timedelta(days=2)).pending == 1  # "Aging" left the window
+    assert status(engine, now=NOW + timedelta(days=30)).pending == 2  # nothing ages out
+
+
+def test_newest_mail_is_summarised_first(engine, store, monkeypatch) -> None:
+    monkeypatch.setattr(service, "PER_RUN", 2)
+    box = mailbox(engine)
+    for days in (300, 1, 30, 0):
+        mail(engine, box, f"Mail {days}", at=NOW - timedelta(days=days, minutes=1))
+    fake = FakeProvider()
+    run(engine, store, fake)
+    sent = [c.user for c in fake.calls]
+    assert "Mail 0" in sent[0] and "Mail 1" in sent[1]  # today's mail before history
 
 
 def test_a_mail_cannot_close_the_email_block(engine, store) -> None:
@@ -570,3 +581,41 @@ def test_link_shortening_never_eats_the_following_text(engine, store, body, kept
     [request] = fake.calls
     for piece in kept:
         assert piece in request.user
+
+
+def test_unchanged_mail_bodies_are_not_reloaded_and_status_estimates_only_the_next_run(
+    engine, store, monkeypatch
+) -> None:
+    box = mailbox(engine)
+    for n in range(30):
+        mail(engine, box, f"Mail {n}", at=NOW - timedelta(hours=n + 1))
+    loaded: list[int] = []
+    real = integrations.items_by_id
+
+    def spy(session, actor, ids):  # type: ignore[no-untyped-def]
+        loaded.append(len(ids))
+        return real(session, actor, ids)
+
+    monkeypatch.setattr(integrations, "items_by_id", spy)
+    later = datetime.now(UTC) + timedelta(minutes=1)  # after every item's last change
+    run(engine, store, FakeProvider(), now=later)  # first run: 30 bodies to triage
+    assert loaded[0] == 30
+    loaded.clear()
+    with Session(engine) as session:
+        service.prepare(session, OWNER, later + timedelta(minutes=1))
+    assert loaded == [0]  # nothing changed: no body loaded
+    loaded.clear()
+    status(engine, now=later)
+    assert all(n <= service.PER_RUN for n in loaded)
+
+
+def test_mail_without_a_receive_time_is_summarised_too(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "No date", "正文。")
+    with Session(engine) as session:
+        item = session.get(SyncedItemRow, a)
+        assert item is not None
+        item.starts_at = None
+        session.commit()
+    run(engine, store, FakeProvider())
+    assert summaries(engine)[a].status == "ok"

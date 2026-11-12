@@ -31,6 +31,9 @@ TIMEOUT_S = 30
 DEADLINE_S = 180
 FIRST_SYNC_DAYS = 14
 MAX_PER_SYNC = 200
+# Older mail, newest first, read after the new mail in every sync until none is left
+# (ADR 0031: the user wants all history summarised once).
+MAX_BACKFILL_PER_SYNC = 200
 MAX_MESSAGE_BYTES = 5 * 1024 * 1024
 PARTIAL_TEXT_BYTES = 65536
 MAX_HTML_CHARS = 200_000
@@ -288,6 +291,17 @@ class ImapConnector:
         recent_since = datetime.now(UTC) - timedelta(days=RECENT_DAYS)
         recent = [] if renumbered else _still_recent(cursor.get("recent", []), recent_since)
         stuck: dict[str, int] = {} if renumbered else dict(cursor.get("stuck") or {})
+        # Backfill: everything below `backfill_below` is still unread history. A cursor from
+        # before backfill existed starts at the first UID read; already stored mail that is
+        # read again is recognised by its external id and stored once.
+        backfill_done = bool(cursor.get("backfill_done")) and not renumbered
+        backfill_below = 0 if renumbered else int(cursor.get("backfill_below", 0) or 0)
+        # A cursor from before backfill existed: history starts below `last_uid`, so the
+        # first pass re-reads mail the new-mail path already stored. A refused message in
+        # that range is skipped, not noted, so a stored mail never gains a duplicate note.
+        rereading = int(cursor.get("reread_upto", 0) or 0) if not renumbered else 0
+        if not rereading and last_uid and "backfill_below" not in cursor:
+            rereading = last_uid
 
         if last_uid:
             criteria = f"UID {last_uid + 1}:*"
@@ -333,17 +347,126 @@ class ImapConnector:
                 if lost:
                     break  # the connection may be gone: stop with what was read
 
+        if uids and not backfill_below:
+            backfill_below = uids[0]  # first sync: history is everything before its mail
+        if not backfill_below:
+            # No mail read yet (a quiet mailbox, or renumbered): history is everything the
+            # server has. Without this, `newest + 1` would be 1 and history "done" at once.
+            if last_uid:
+                backfill_below = last_uid + 1
+            else:
+                highest = self._highest_uid(conn)
+                # None: the server refused; leave the bound unset and try next sync.
+                backfill_below = 0 if highest is None else highest + 1
+        backfill_stuck: dict[str, int] = (
+            {} if renumbered else dict(cursor.get("backfill_stuck") or {})
+        )
+        if backfill_below and not backfill_done and not stuck and time.monotonic() < deadline:
+            older, backfill_below, backfill_done, backfill_stuck = self._backfill(
+                conn, uidvalidity, backfill_below, deadline, backfill_stuck, known=rereading
+            )
+            items.extend(older)
+
         recent = recent[-MAX_RECENT:]
         patches, recent = self._read_state(conn, recent, {i.external_id for i in items})
         cursor_out: dict[str, Any] = {
             "uidvalidity": uidvalidity,
             "last_uid": newest,
             "recent": recent,
+            "backfill_below": backfill_below,
+            "backfill_done": backfill_done,
         }
+        if rereading and not backfill_done:
+            cursor_out["reread_upto"] = rereading  # kept until the re-read range is done
         if stuck:
             cursor_out["stuck"] = stuck
+        if backfill_stuck:
+            cursor_out["backfill_stuck"] = backfill_stuck
         # Incremental: only new mail is read, so this batch says nothing about deletions.
         return Batch(items=items, cursor=cursor_out, patches=patches)
+
+    @staticmethod
+    def _highest_uid(conn: imaplib.IMAP4) -> int | None:
+        """The highest UID in the folder: 0 when it is empty, None when the server refused
+        (so history is not wrongly marked done)."""
+        try:
+            status, found = conn.uid("SEARCH", "ALL")
+        except (OSError, imaplib.IMAP4.error):
+            return None
+        if status != "OK":
+            return None
+        words = b" ".join(f for f in found if isinstance(f, bytes)).split()
+        return max((int(u) for u in words if u.isdigit()), default=0)
+
+    def _backfill(
+        self,
+        conn: imaplib.IMAP4,
+        uidvalidity: str,
+        below: int,
+        deadline: float,
+        stuck: dict[str, int],
+        known: int,
+    ) -> tuple[list[ItemIn], int, bool, dict[str, int]]:
+        """Read up to MAX_BACKFILL_PER_SYNC messages with UID < `below`, newest first.
+
+        Returns the items, the new lower bound, whether history is complete, and the
+        stuck counter. A message that fails is retried by later syncs; after MAX_TRIES it
+        becomes a note, so one bad message never stalls history. A UID at or below `known`
+        was already stored by the new-mail path, so it is skipped instead of noted.
+        """
+        if below <= 1:
+            return [], below, True, {}
+        try:
+            status, found = conn.uid("SEARCH", f"UID 1:{below - 1}")
+        except (OSError, imaplib.IMAP4.error):
+            return [], below, False, stuck  # try again next sync
+        if status != "OK":
+            return [], below, False, stuck
+        words = b" ".join(f for f in found if isinstance(f, bytes)).split()
+        # Keep only UIDs strictly below the bound, whatever the server sent.
+        older = sorted({int(u) for u in words if u.isdigit() and int(u) < below}, reverse=True)
+        if not older:
+            return [], below, True, {}
+        batch = older[:MAX_BACKFILL_PER_SYNC]
+        try:
+            status, data = conn.uid(
+                "FETCH", ",".join(map(str, batch)), "(FLAGS RFC822.SIZE INTERNALDATE)"
+            )
+        except (OSError, imaplib.IMAP4.error):
+            return [], below, False, stuck
+        if status != "OK":
+            return [], below, False, stuck
+        metas = _metas(data)
+        items: list[ItemIn] = []
+        lowest = below
+        finished_batch = True
+        for uid in batch:
+            if time.monotonic() > deadline:
+                finished_batch = False
+                break  # the bound stays above it: the next sync continues from here
+            if uid not in metas:
+                lowest = uid  # listed but gone (expunged meanwhile): nothing to read
+                continue
+            try:
+                item = self._message(conn, uidvalidity, metas[uid])
+            except (OSError, imaplib.IMAP4.error):
+                item = None
+            if item is None:
+                tries = stuck.get("tries", 0) + 1 if stuck.get("uid") == uid else 1
+                if tries < MAX_TRIES:
+                    stuck = {"uid": uid, "tries": tries}
+                    finished_batch = False
+                    break  # a later sync retries it
+                stuck = {}
+                if uid > known:  # never a duplicate note beside an already stored mail
+                    items.append(_unreadable(uidvalidity, metas[uid], "the server refused it"))
+                lowest = uid
+                continue
+            stuck = {}
+            items.append(item)
+            lowest = uid
+        done = finished_batch and len(older) <= MAX_BACKFILL_PER_SYNC
+        return items, lowest, done, stuck
 
     def _message(self, conn: imaplib.IMAP4, uidvalidity: str, meta: _Meta) -> ItemIn | None:
         if meta.size > MAX_MESSAGE_BYTES or meta.size < 0:
