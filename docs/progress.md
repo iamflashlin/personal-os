@@ -3,33 +3,30 @@
 <!-- today:start -->
 ## 今天
 
-2026-11-12（通宵做的，早上看这里）
+2026-11-12（上午你睡觉时做的，醒来看这里）
 
-- **做完了**（都已合并并装到你电脑上的 Hub，打开 http://127.0.0.1:8765 就能用）：
-  - **邮件助手**：在“邮件”页顶部直接提问，比如“哪些邮件还没处理”。它会自己搜邮件、读邮件；要把邮件标为“已处理”时，会先给你一个方案，你点确认才会执行。
-  - **成绩**：新增“成绩”页，从 Canvas 读你 4 门课的分数、权重和缺交作业，估算 GPA，并算出想拿 A 还需要多少分（具体分数在“成绩”页里看）。
-  - **日程**：新增“日程”页，按周显示你自己加的课和活动、日历订阅和 Canvas 截止，会提示时间冲突和空闲时段。每周重复的课程删除前会先问你。现在只是功能，没有替你排任何事。
-  - **简报**：新增“简报”页，分“今天”和“历史”两栏，有已读/未读。用来放时事、社团活动和微信群精华；来源还没接，现在可以手动添加。
-  - **数据连接中心**：“连接”页最上面按 6 类数据显示状态：学业和邮件都是“正常”，带着最近同步时间。出错时会写原因，太久没同步会标“可能过期”。
-  - 昨晚到今早合并了 #50 到 #59，每一个都在 Windows 和 Ubuntu 两个系统的检查通过后才合并。
-- **等你拍板**（都不急，想好了告诉我就行）：
-  - **微信群精华要不要用 AI 提炼？** 推荐：先不用。群里是别人的发言，发给 DeepSeek 超出了你之前的同意范围。不用 AI 的话，我可以只按关键词（转学、选课、截止等）在本地筛选。
-  - **每门课几个学分？** 告诉我 4 门课的学分，GPA 就能按学分加权，现在是平均算的。
-  - **课程大纲里的分数线**（比如 93 分以上算 A）：如果和默认的不一样，把大纲发我，我按大纲算。
-  - **文件放哪里？** 推荐：Google Drive。你以后要接 Gmail 和 Google 日历，放在同一个账号里最省事；WPS 本地文件也能接，只是要多做一套读取。
-  - Gmail 接好以后，要不要删掉 Hub 里保存的 163 邮件数据？到时候我再问你。
-  - 有个临时文件夹 `D:\dev-cache\t0032-copy` 我删不掉（没有权限），你可以自己删：在资源管理器里打开 `D:\dev-cache`，删掉 `t0032-copy` 文件夹。
+- **做完了**（都已合并并装到 Hub 上，打开 http://127.0.0.1:8765）：
+  - **整套页面重新设计**：左边是分组导航（今天 / 学业 / 信息 / 系统），每页顶部有标题和一句说明；颜色只用来表示状态；卡片分层次；会跟随系统切换深色模式。手机上，导航变成顶部可以横滑的一条。
+  - **成绩按课程大纲计算**（Academic OS 第 1 步）：我把 4 门课的大纲都读了一遍，每门课有一张“规则卡”，写着学分、分数线、权重，以及“不收迟交”“缺考用期末顶替”“作品集审核”这类规则，每条都附上大纲原文。GPA 按学分和加减号算。和 Canvas 不一致的地方直接写出来，比如 CIS 在 Canvas 里没设权重，英语有合班课的重复作业。
+  - **课程知识地图**（第 2、3 步，先做 MATH 1A）：新增“课程”页，按章列出每一节，带讲义页码、老师给这一节的资料、对应的小测和得分，以及掌握状态（根据什么判断的会写清楚，你也可以自己改）。每场考试有复习地图：先复习什么、为什么、范围外要补的前置知识、考前检查清单（附老师原文），以及复习题和答案的链接。
+  - “今日”页不再把英语那两份重复作业算成缺交。
+  - 学分是我自己在网上查的：MATH 1A 5 学分（De Anza 2026 年的 MATH 1A 大纲），英语 5 学分（De Anza 老师的课程页，官方目录没核实），ECON 4 学分、CIS 4.5 学分（你的大纲里写的）。
+- **等你**：
+  - 打开“成绩”，每门课点开“规则卡”对照一下；没问题就点“我对照过大纲，没问题”。每张卡里“待确认”的几条（比如英语的 A 线大纲没写），有机会问一下老师。
+  - 打开“课程” → MATH 1A，看看知识地图对不对；有不对的地方告诉我。
+  - 说明一下：你让我读的课程资料，是由我（Claude，一个云端 AI）读的，所以内容经过了 Anthropic 的服务器。Hub 本身不调用任何 AI，也没有发给 DeepSeek。
 - **下一步**：
-  - 按路线图做第 3 阶段：Canvas 作业变动提醒和 Google 日历（Google 日历要你登录授权，到时会先问你）。
-  - 小修：“连接”页里有个标签会折成两行。
+  - 给 ECON、CIS、英语也做知识地图（ECON 期中二在 11/16，先做 ECON）。
+  - 考后错题分析：需要你上传批改后的试卷照片，系统才知道是哪一题、为什么丢分，不会自己编原因。
+  - 跨课程“今天先学什么”的建议。
 <!-- today:end -->
 
 > 由 `uv run python -m tools.report --today 2026-11-12` 生成，「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。
-> 统计依据：origin/main @ bf992b5（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
+> 统计依据：origin/main @ 6aa7b24（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
 
 ## 现在做到哪
 
-共 58 张任务卡：已完成 56，进行中 0，待审核 0，卡住 0，未开始 2。
+共 63 张任务卡：已完成 61，进行中 0，待审核 0，卡住 0，未开始 2。
 
 ### 已完成
 
@@ -89,6 +86,11 @@
 - **T-0045** Schedule follow-ups - overnight events, kept zone on edit, confirm deleting a weekly series, free time from now
 - **T-0046** Data connection center - the six data kinds and each one's status on 连接
 - **T-0047** Review leftovers - promise pattern, GPA contract comments, local-day digest dedup, test hardening, graded fake Canvas item
+- **T-0048** Data kinds overview - status badges do not wrap
+- **T-0049** Academic OS step 1 - course profiles from the syllabus; grade engine follows them (scale, units, own weights)
+- **T-0050** Redesign - grouped sidebar, page headers, design tokens, distinct cards, dark mode
+- **T-0051** Academic OS step 2 - course knowledge map, assessment links, inferred mastery, exam maps (Hub)
+- **T-0052** Academic OS step 3 - 课程 page (knowledge map, mastery) and the exam center; 今日 agrees with 成绩 on missing copies
 
 ## 下一步
 
@@ -102,8 +104,14 @@
 
 ## 本周合并（2026-11-09 至 2026-11-15）
 
-本周合并了 56 张任务卡：D0-01, D0-03, D0-05, D0-06, D0-07, D0-08, D0-10, D0-12, D0-13, T-0001, T-0002, T-0003, T-0004, T-0005, T-0006, T-0007, T-0008, T-0009, T-0010, T-0011, T-0012, T-0013, T-0014, T-0015, T-0016, T-0017, T-0018, T-0019, T-0020, T-0021, T-0022, T-0023, T-0024, T-0025, T-0026, T-0027, T-0028, T-0029, T-0030, T-0031, T-0032, T-0033, T-0034, T-0035, T-0036, T-0037, T-0038, T-0039, T-0040, T-0041, T-0042, T-0043, T-0044, T-0045, T-0046, T-0047。
+本周合并了 61 张任务卡：D0-01, D0-03, D0-05, D0-06, D0-07, D0-08, D0-10, D0-12, D0-13, T-0001, T-0002, T-0003, T-0004, T-0005, T-0006, T-0007, T-0008, T-0009, T-0010, T-0011, T-0012, T-0013, T-0014, T-0015, T-0016, T-0017, T-0018, T-0019, T-0020, T-0021, T-0022, T-0023, T-0024, T-0025, T-0026, T-0027, T-0028, T-0029, T-0030, T-0031, T-0032, T-0033, T-0034, T-0035, T-0036, T-0037, T-0038, T-0039, T-0040, T-0041, T-0042, T-0043, T-0044, T-0045, T-0046, T-0047, T-0048, T-0049, T-0050, T-0051, T-0052。
 
+- 2026-11-12 feat(web,hub): 课程 page - knowledge map, mastery, exam center (T-0052) (#65)
+- 2026-11-12 feat(hub): Academic OS step 2 - course knowledge map, mastery, exam maps (T-0051) (#64)
+- 2026-11-12 feat(web): redesign - grouped sidebar, page headers, design tokens (T-0050) (#63)
+- 2026-11-12 feat(hub,web): Academic OS step 1 - course profiles from the syllabus (T-0049) (#62)
+- 2026-11-12 fix(web): data kinds status badges stay on one line (T-0048) (#61)
+- 2026-11-12 docs: progress 2026-11-12 - night summary (#60)
 - 2026-11-12 feat(web): data connection center - six data kinds and their status (T-0046) (#58)
 - 2026-11-12 fix(hub,web): review leftovers - promise pattern, GPA comments, local-day digest dedup, tests (T-0047) (#59)
 - 2026-11-12 fix(hub,web): schedule follow-ups - overnight events, kept zone, confirm series delete, free time from now (T-0045) (#57)
@@ -199,3 +207,8 @@
 - `docs/tasks/T-0045.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0046.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0047.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0048.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0049.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0050.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0051.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0052.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
