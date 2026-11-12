@@ -23,6 +23,9 @@ reviews are all on Canvas.
     order. Nothing is guessed from content.
   - Exams are matched by their own title pattern (as in ADR 0040, at most three wildcards).
     The pattern is required, so an exam is shown on the exam and never counted as practice.
+  - A course that does not number its work (ECON: "Homework - Monetary Policy") gives each
+    section whole-title patterns instead (`match`, T-0053). They follow the same rules as
+    grade-category patterns and link assignments and module items alike.
   - A range covers every section of the map that falls inside it by number ("3.8 to 3.10"
     covers 3.9 and 3.10 when 3.8 is not taught). Exam resources match the exam's name as a
     whole word ("Exam 1" never matches "Exam 10").
@@ -51,4 +54,5 @@ reviews are all on Canvas.
 - The web pages: 课程 (the map), 考试中心 (exam maps).
 - Practice generation and error analysis by question. These need the user's graded papers;
   the system asks for them and never invents causes.
-- Maps for the other three courses.
+- Maps for ENGL (ECON is imported; the user does not want maps for MATH beyond this one
+  or for CIS: they know that material. Their homework and GPA stay).

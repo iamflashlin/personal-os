@@ -656,6 +656,14 @@
             "title": "Kind",
             "type": "string"
           },
+          "match": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Match",
+            "type": "array"
+          },
           "origin": {
             "default": "teacher",
             "enum": [

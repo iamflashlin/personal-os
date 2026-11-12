@@ -2,12 +2,14 @@
 """The course knowledge map (ADR 0041): structure, assessment links, mastery, exam maps.
 
 Assessments are linked to sections by the section numbers in their Canvas titles
-("Quiz #4 (3.2 to 3.4)", "Sections 3.5 to 3.11, and 4.1"); exams by their own title
-pattern. Mastery the user did not set is inferred from those scores and says so; with no
-score it is "not tested", never a guess."""
+("Quiz #4 (3.2 to 3.4)", "Sections 3.5 to 3.11, and 4.1"), or by the section's own title
+patterns when the course does not number its work; exams by their own title pattern.
+Mastery the user did not set is inferred from those scores and says so; with no score it
+is "not tested", never a guess."""
 
 import math
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -139,6 +141,20 @@ def sections_in(title: str, order: list[str]) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def _linker(concepts: list[ConceptIn]) -> Callable[[str], list[str]]:
+    """title -> the section keys it belongs to: by number, then by the sections' patterns."""
+    order = [c.key for c in concepts if c.kind == "section"]
+    patterns = [(c.key, [title_pattern(p) for p in c.match]) for c in concepts if c.match]
+
+    def keys(title: str) -> list[str]:
+        title = " ".join(title.split())[:TITLE_MAX]
+        found = sections_in(title, order)
+        found.extend(k for k, ps in patterns if any(p.fullmatch(title) for p in ps))
+        return list(dict.fromkeys(found))
+
+    return keys
+
+
 def _user_view(row: ConceptMasteryRow) -> MasteryView:
     return MasteryView.model_validate(
         {"state": row.state, "source": "user", "note": row.note, "updated_at": row.updated_at}
@@ -202,15 +218,16 @@ def _build(
     exam_titles = [title_pattern(e.match) for e in exams if e.match]
     linked: dict[str, list[AssessmentEvidence]] = {k: [] for k in order}
     resources: dict[str, list[Resource]] = {k: [] for k in order}
+    keys_of = _linker(concepts)
     for m in materials:
         res = Resource(title=m.title, kind=str(m.data.get("kind") or ""), url=m.url)
-        for key in sections_in(m.title, order):
+        for key in keys_of(m.title):
             resources[key].append(res)
     for a in assignments:
         title = a.title.strip()[:TITLE_MAX]
         if any(p.fullmatch(title) for p in exam_titles):
             continue  # an exam covers its scope; it is shown on the exam, not as practice
-        for key in sections_in(title, order):
+        for key in keys_of(title):
             linked[key].append(_evidence(a))
     mastery = {
         m.key: m

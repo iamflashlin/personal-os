@@ -37,6 +37,7 @@ def flatten(raw: dict[str, Any]) -> MapIn:
                 "prereq": c.get("prereq", []),
                 "prereq_origin": c.get("prereq_origin", "ai"),
                 "origin": c.get("origin", "teacher"),
+                "match": c.get("match", []),
             }
         )
         for entry in nested:
