@@ -70,3 +70,9 @@ wrong — root cause — the check/test/hook/skill that now prevents it.
   501 and was never recorded, and a missing request looked like a refused redirect — stubs
   used to prove that something did not happen must record every method and path, and a
   negative test must be shown to fail when the protection is removed.
+- 2026-11-11 — Summaries failed on real mail although every test passed (T-0025 → T-0026):
+  DeepSeek reasoned on its own and spent all max_tokens, which ADR 0025 had listed as
+  未验证 but nobody ran a live check before shipping a new prompt — the stub never models
+  hidden reasoning — before switching a live prompt, run one live call on a realistic,
+  link-heavy fake email and check finish_reason and token use; switch vendor reasoning off
+  unless a task needs it.

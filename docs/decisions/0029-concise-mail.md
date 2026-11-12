@@ -60,3 +60,16 @@ completely). Batch handling and chat come later (T-0027) and stay inside Persona
   list.
 - `deadline_date` and the rules the user can give the AI arrive with the chat (T-0027).
   Backfilling all history is T-0026.
+
+## Amendment 2026-11-11: prompt v3 and DeepSeek thinking off (T-0026)
+
+Prompt v2 failed on 32 real mails: DeepSeek reasoned on its own and used up all
+600 output tokens, leaving no answer. The fix:
+- DeepSeek requests send `thinking: disabled`, unless a task sets `reasoning=True`;
+- prompt v3 never copies URLs (it says 「链接见原文」 instead) and includes an example
+  answer;
+- links of 40 characters or more are replaced by 「[链接]」 before sending; the original
+  text keeps them;
+- a newer prompt redoes v1 summaries and older failures once. A good v2 summary is kept,
+  and any v2+ gist counts as a title;
+- a failure is stamped with its prompt version, so it never loops.

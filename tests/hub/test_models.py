@@ -22,7 +22,7 @@ from apps.hub.models.fake import FakeProvider
 from apps.hub.models.litellm_adapter import LiteLLMProvider, check_base_url
 from apps.hub.models.models import ModelCallRow
 from apps.hub.models.prompts import Prompt, load_prompt
-from apps.hub.models.provider import ModelProvider, ProviderErrorKind, Usage
+from apps.hub.models.provider import JsonRequest, ModelProvider, ProviderErrorKind, Usage
 from tests.hub.fake_openai import FakeOpenAI, Reply
 
 KEY = "sk-test-0123456789abcdef0123456789abcdef"
@@ -530,3 +530,15 @@ with FakeOpenAI() as stub:
     )
     assert done.returncode == 0, done.stderr[-2000:]
     assert "requests 1 outside []" in done.stdout
+
+
+def test_deepseek_thinking_is_switched_off_unless_asked(engine, store, stub) -> None:
+    # DeepSeek reasons on its own for harder inputs and can spend all of max_tokens on it.
+    call(client(engine, store, LiteLLMProvider("deepseek", stub.url)))
+    assert stub.requests[-1].get("thinking") == {"type": "disabled"}
+    provider = LiteLLMProvider("deepseek", stub.url)
+    provider.complete_json(JsonRequest("deepseek-flash", "json", "hi", 50, reasoning=True), KEY)
+    assert "thinking" not in stub.requests[-1]
+    # other vendors never get the DeepSeek-only parameter (only DeepSeek is wired up today)
+    other = LiteLLMProvider("openai", stub.url)
+    assert other._reasoning_params(JsonRequest("gpt-test", "json", "hi", 50)) == {}  # pyright: ignore[reportPrivateUsage]

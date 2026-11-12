@@ -157,6 +157,12 @@ class LiteLLMProvider:
             http.close()
         return _reply(response)
 
+    def _reasoning_params(self, request: JsonRequest) -> dict[str, Any]:
+        """DeepSeek reasons on its own for harder inputs; switch it off unless asked for."""
+        if self.vendor == "deepseek" and not request.reasoning:
+            return {"thinking": {"type": "disabled"}}
+        return {}
+
     def _send(self, litellm: Any, http: Any, request: JsonRequest, api_key: str) -> Any:
         return litellm.completion(
             model=f"{self.vendor}/{request.model}",
@@ -169,6 +175,7 @@ class LiteLLMProvider:
             response_format={"type": "json_object"},
             max_tokens=request.max_output_tokens,
             temperature=request.temperature,
+            **self._reasoning_params(request),
             timeout=self.timeout_s,
             num_retries=0,
             max_retries=0,

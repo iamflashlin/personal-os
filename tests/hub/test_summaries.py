@@ -135,7 +135,7 @@ def test_each_mail_is_summarised_once(engine, store) -> None:
     rows = summaries(engine)
     assert {rows[a].status, rows[b].status} == {"ok"}
     assert rows[a].action_needed and "CIS 22A Lab 5" in rows[a].gist
-    assert rows[a].model_call_id and rows[a].prompt_version == 2
+    assert rows[a].model_call_id and rows[a].prompt_version == service.PROMPT_VERSION
     assert len(fake.calls) == 2
     assert run(engine, store, fake) is False
     assert len(fake.calls) == 2  # nothing new
@@ -481,7 +481,7 @@ def test_a_v1_summary_is_redone_once_with_v2(engine, store) -> None:
         session.commit()
     run(engine, store, fake)
     assert len(fake.calls) == 2
-    assert summaries(engine)[a].prompt_version == 2
+    assert summaries(engine)[a].prompt_version == service.PROMPT_VERSION
     run(engine, store, fake)
     assert len(fake.calls) == 2  # never again
 
@@ -498,3 +498,75 @@ def test_without_a_key_old_summaries_stay_visible(engine, store) -> None:
     run(engine, no_key, FakeProvider())
     row = summaries(engine)[a]
     assert (row.status, row.prompt_version) == ("ok", 1)  # kept until a model can redo it
+
+
+def test_a_failed_row_is_retried_once_by_a_newer_prompt_and_never_loops(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "Broken [fake:500]")
+    fake = FakeProvider()
+    for minutes in (0, 5, 15):  # three attempts -> failed, stamped with the current prompt
+        run(engine, store, fake, now=NOW + timedelta(minutes=minutes))
+    row = summaries(engine)[a]
+    assert (row.status, row.prompt_version) == ("failed", service.PROMPT_VERSION)
+    calls_before = len(fake.calls)
+    for minutes in (30, 60):
+        run(engine, store, fake, now=NOW + timedelta(minutes=minutes))
+    assert len(fake.calls) == calls_before  # the same prompt never retries a failure
+    with Session(engine) as session:  # pretend it failed under an older prompt
+        r = session.scalars(select(EmailSummaryRow).where(EmailSummaryRow.item_id == a)).one()
+        r.prompt_version = service.PROMPT_VERSION - 1
+        session.commit()
+    run(engine, store, fake, now=NOW + timedelta(minutes=90))
+    assert len(fake.calls) == calls_before + 1  # one more try under the newer prompt
+
+
+def test_long_links_are_shortened_before_sending(engine, store) -> None:
+    box = mailbox(engine)
+    link = "https://click.example.com/ls/click?upn=" + "x" * 300
+    mail(engine, box, "Aid documents", f"Upload here {link} and https://short.io/a by Nov 20")
+    fake = FakeProvider()
+    run(engine, store, fake)
+    [request] = fake.calls
+    assert link not in request.user and "[链接]" in request.user
+    assert "https://short.io/a" in request.user  # short links stay
+
+
+def test_a_good_v2_summary_is_not_redone_by_a_newer_prompt(engine, store) -> None:
+    box = mailbox(engine)
+    a = mail(engine, box, "Lab 5", "周五截止。")
+    fake = FakeProvider()
+    run(engine, store, fake)
+    with Session(engine) as session:
+        r = session.scalars(select(EmailSummaryRow).where(EmailSummaryRow.item_id == a)).one()
+        r.prompt_version = 2  # a v2 title is already short: keep it
+        session.commit()
+    run(engine, store, fake)
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "kept"),
+    [
+        (
+            "请点击https://short.io/a，然后在11月20日前提交材料",
+            ["，然后在11月20日前提交材料", "https://short.io/a"],
+        ),
+        (
+            "登录 https://portal.example.edu/aid/upload?token=" + "z" * 60 + "。截止11月20日",
+            ["[链接]。截止11月20日"],
+        ),
+        (
+            "link:https://x.io/abcdefghijklmnopqrstuvwxyz0123456789ABCD.Due Nov 20",
+            ["[链接]", "Nov 20"],  # ".Due" is valid URL text; the deadline must survive
+        ),
+        ("(see https://example.com/" + "p" * 50 + ") then reply", ["[链接]) then reply"]),
+    ],
+)
+def test_link_shortening_never_eats_the_following_text(engine, store, body, kept) -> None:
+    box = mailbox(engine)
+    mail(engine, box, "Aid", body)
+    fake = FakeProvider()
+    run(engine, store, fake)
+    [request] = fake.calls
+    for piece in kept:
+        assert piece in request.user
