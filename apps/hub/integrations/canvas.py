@@ -104,6 +104,10 @@ def _id(value: Any) -> int | None:
         return None
 
 
+class _Missing(SyncError):
+    """HTTP 404. For an optional list (groups, modules) it means "none", not a failure."""
+
+
 class _Denied(Exception):
     """Canvas refused one resource (e.g. a course whose assignments are hidden)."""
 
@@ -153,6 +157,8 @@ class _Client:
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise _Denied(exc.code) from None
+            if exc.code == 404:
+                raise _Missing("Canvas answered HTTP 404") from None
             raise SyncError(f"Canvas answered HTTP {exc.code}") from None
         except urllib.error.URLError as exc:
             raise SyncError(f"Canvas could not be reached ({type(exc.reason).__name__})") from None
@@ -304,6 +310,8 @@ class CanvasConnector:
                     if isinstance(g, dict)
                 ]
                 items.append(_course(course, groups))
+            except _Missing:
+                items.append(_course(course, []))
             except _Denied:
                 skipped += 1
             try:
@@ -320,6 +328,8 @@ class CanvasConnector:
                             and _id(m.get("id")) is not None
                         ):
                             items.append(_material(course, module, m))
+            except _Missing:
+                pass  # no modules in this course
             except _Denied:
                 skipped += 1  # modules can be hidden from students
             try:

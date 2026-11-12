@@ -94,11 +94,73 @@ class FakeCanvas:
             if self.mode == "relative-next":
                 nxt = ""
             link = f'<{nxt}/api/v1/courses?page=2&per_page=100>; rel="next"'
-            first = [{"id": 101, "name": "CIS 22A", "course_code": "CIS-22A"}]
+            assert query.get("include[]") == ["total_scores"]
+            first = [
+                {
+                    "id": 101,
+                    "name": "CIS 22A",
+                    "course_code": "CIS-22A",
+                    "apply_assignment_group_weights": True,
+                    "enrollments": [
+                        {
+                            "type": "student",
+                            "computed_current_score": 93.5,
+                            "computed_current_grade": "A",
+                            "computed_final_score": 41.0,
+                        }
+                    ],
+                }
+            ]
             if self.mode == "hidden-course":
                 first.append({"id": 303, "name": "Hidden"})
             first += [{"id": "not-a-number", "name": "Broken"}, {"id": 404, "course_code": "PE-1"}]
             return 200, {"Link": link}, first
+        if url.path == "/api/v1/courses/101/assignment_groups":
+            return (
+                200,
+                {},
+                [
+                    {"id": 11, "name": " Labs ", "group_weight": 60},
+                    {"id": 12, "name": "Exams", "group_weight": 40.0},
+                    {"id": "bad", "name": "Broken"},
+                ],
+            )
+        if url.path == "/api/v1/courses/101/modules":
+            assert query.get("include[]") == ["items"]
+            return (
+                200,
+                {},
+                [
+                    {
+                        "id": 1,
+                        "name": "Week 1",
+                        "position": 1,
+                        "items": [
+                            {
+                                "id": 501,
+                                "type": "File",
+                                "title": "Syllabus.pdf",
+                                "position": 1,
+                                "html_url": "https://school.instructure.com/courses/101/modules/items/501",
+                            },
+                            {
+                                "id": 502,
+                                "type": "Page",
+                                "title": "Notes",
+                                "position": 2,
+                                "html_url": "https://school.instructure.com/courses/101/modules/items/502",
+                            },
+                            {"id": 503, "type": "Assignment", "title": "Lab 1"},
+                            {"id": 504, "type": "SubHeader", "title": "Readings"},
+                            "not-an-item",
+                        ],
+                    }
+                ],
+            )
+        if url.path == "/api/v1/courses/202/modules":
+            if self.mode == "hidden-modules":
+                return 403, {}, {"errors": [{"message": "unauthorized"}]}
+            return 200, {}, []
         if url.path == "/api/v1/courses/101/assignments":
             assert query.get("include[]") == ["submission"]
             return (
@@ -111,6 +173,7 @@ class FakeCanvas:
                         "due_at": "2026-11-01T07:59:00Z",
                         "points_possible": 20,
                         "html_url": "https://school.instructure.com/courses/101/assignments/1",
+                        "assignment_group_id": 11,
                         "submission": {"workflow_state": "unsubmitted", "missing": True},
                     },
                     *(
@@ -223,6 +286,11 @@ def test_courses_assignments_and_announcements_are_read(canvas: FakeCanvas) -> N
         "canvas_assignment/101:2",
         "canvas_assignment/202:9",
         "canvas_assignment/404:5",  # a course with only a code; a non-numeric id is skipped
+        "canvas_course/101",
+        "canvas_course/202",
+        "canvas_course/404",  # no groups (404): still a course, with none
+        "canvas_material/101:501",
+        "canvas_material/101:502",
     ]
     assert items["canvas_assignment/404:5"].data["course"] == "PE-1"
     assert items["canvas_assignment/404:5"].data["submission_state"] == ""  # odd shape
@@ -296,7 +364,7 @@ def test_through_the_hub_a_resync_updates_without_duplicates(
     integration = connect(client, canvas)
     assert integration["config"] == {"base_url": canvas.base}
     assert sync(client, store, integration) == {
-        "added": 5,
+        "added": 10,
         "updated": 0,
         "unchanged": 0,
         "removed": 0,
@@ -305,11 +373,11 @@ def test_through_the_hub_a_resync_updates_without_duplicates(
     assert sync(client, store, integration) == {
         "added": 0,
         "updated": 1,
-        "unchanged": 4,
+        "unchanged": 9,
         "removed": 0,
     }
     titles = {i["title"] for i in client.get(f"/integrations/{integration['id']}/items").json()}
-    assert "Lab 3 实验报告 - 延期" in titles and len(titles) == 5
+    assert "Lab 3 实验报告 - 延期" in titles and len(titles) == 10
 
 
 @pytest.mark.parametrize(
@@ -430,3 +498,27 @@ def test_migration_0009_keeps_existing_integrations_working(tmp_path: Path) -> N
     with hub_client(Settings(data_dir=tmp_path, jobs_enabled=False)) as client:
         (old,) = client.get("/integrations").json()
     assert old["name"] == "old feed" and old["config"] == {}
+
+
+def test_courses_groups_scores_and_materials_are_read(canvas: FakeCanvas) -> None:
+    canvas.mode = "hidden-modules"
+    batch = CanvasConnector().fetch(TOKEN, {}, {"base_url": canvas.base})
+    by_type: dict[str, list[Any]] = {}
+    for item in batch.items:
+        by_type.setdefault(item.item_type, []).append(item)
+    course = next(c for c in by_type["canvas_course"] if c.external_id == "101")
+    assert course.title == "CIS 22A"
+    assert course.data["current_score"] == 93.5 and course.data["current_grade"] == "A"
+    assert course.data["final_score"] == 41.0 and course.data["weighted"] is True
+    assert course.data["groups"] == [
+        {"id": 11, "name": "Labs", "weight": 60.0},
+        {"id": 12, "name": "Exams", "weight": 40.0},
+    ]
+    materials = {m.title: m for m in by_type["canvas_material"]}
+    assert set(materials) == {"Syllabus.pdf", "Notes"}  # assignments and headers are not materials
+    assert materials["Syllabus.pdf"].data["module"] == "Week 1"
+    assert materials["Syllabus.pdf"].data["kind"] == "File"
+    lab = next(a for a in by_type["canvas_assignment"] if a.external_id == "101:1")
+    assert lab.data["group_id"] == 11 and lab.data["missing"] is True
+    # course 202 hides its modules: its materials are unknown, so nothing is pruned
+    assert batch.complete is False
