@@ -456,7 +456,12 @@ def verify_summaries_view(
         fake_mail("CIS 22A Lab 5 截止提醒", "Lab 5 截止 周五 23:59，请在 Canvas 提交。"),
         received=recent(3),
     )
-    box.add(fake_mail("网易邮箱验证码", "您的验证码是 482913，10分钟内有效。"), received=recent(2))
+    # Read already, so the 未读 filter and count have something to leave out.
+    box.add(
+        fake_mail("网易邮箱验证码", "您的验证码是 482913，10分钟内有效。"),
+        seen=True,
+        received=recent(2),
+    )
     box.add(fake_mail("The Weekly Digest", "Campus news this week."), received=recent(1))
     imap = FakeImapServer(box)
     owner = os.environ.get("POS_OWNER_ID", "local")
@@ -523,7 +528,7 @@ def verify_summaries_view(
             f"mail is in time order, newest first ({lines})",
         )
         check(
-            "共 3 封，未读 3 封" in mail.locator("h2").first.inner_text(),
+            "共 3 封，未读 2 封" in mail.locator("h2").first.inner_text(),
             "the heading counts every mail and the unread ones",
         )
         mail.get_by_test_id("mail-filter-action").click()
@@ -533,7 +538,11 @@ def verify_summaries_view(
             f"需处理 shows only the mail that needs action ({acting})",
         )
         mail.get_by_test_id("mail-filter-unread").click()
-        check(mail.get_by_test_id("mail-line").count() == 3, "未读 shows the three unread mails")
+        unread = mail.get_by_test_id("mail-title").all_inner_texts()
+        check(
+            len(unread) == 2 and not any("验证码" in t for t in unread),
+            f"未读 shows the two unread mails, not the read one ({unread})",
+        )
         mail.get_by_test_id("mail-filter-all").click()
         lab.locator(".mail-head").click()
         detail = lab.get_by_test_id("mail-detail")

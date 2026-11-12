@@ -2,7 +2,15 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EmailSummary, SyncedItem } from "./api";
-import { countMail, filterMail, MailDetail, MailLine, type MailRow, mailTitle } from "./MailView";
+import {
+  countMail,
+  filterMail,
+  MailDetail,
+  MailLine,
+  type MailRow,
+  mailTitle,
+  summariesFor,
+} from "./MailView";
 
 function item(id: string, title: string, body = "原文内容"): SyncedItem {
   return {
@@ -39,6 +47,8 @@ function summary(over: Partial<EmailSummary> = {}): EmailSummary {
     deadline_date: "2026-11-13",
     error: "",
     prompt_version: 2,
+    updated_at: "2026-11-11T08:00:00Z",
+    version: 1,
     ...over,
   };
 }
@@ -115,10 +125,27 @@ describe("邮件 page", () => {
       { item: read("b"), source: "163", summary: summary({ action_needed: true }) },
       { item: item("c", "C"), source: "163", summary: summary({ action_needed: true, low_value: true }) },
       { item: read("d"), source: "163" },
+      { item: read("e"), source: "163", summary: summary({ action_needed: true, status: "failed" }) },
     ];
-    expect(filterMail(rows, "all").map((r) => r.item.id)).toEqual(["a", "b", "c", "d"]);
+    expect(filterMail(rows, "all").map((r) => r.item.id)).toEqual(["a", "b", "c", "d", "e"]);
     expect(filterMail(rows, "unread").map((r) => r.item.id)).toEqual(["a", "c"]);
     expect(filterMail(rows, "action").map((r) => r.item.id)).toEqual(["a", "b"]);
-    expect(countMail(rows)).toEqual({ all: 4, unread: 2, action: 2 });
+    expect(countMail(rows)).toEqual({ all: 5, unread: 2, action: 2 });
+  });
+
+  it("asks for summaries in chunks of 200 and fails as a whole", async () => {
+    const sizes: number[] = [];
+    const ids = Array.from({ length: 450 }, (_, i) => `id${i}`);
+    const ok = { emailSummaries: async (c: string[]) => (sizes.push(c.length), []) };
+    await summariesFor(ok, ids);
+    expect(sizes).toEqual([200, 200, 50]);
+    const failing = {
+      emailSummaries: async (c: string[]) => {
+        if (c[0] === "id200") throw new Error("down");
+        return [];
+      },
+    };
+    await expect(summariesFor(failing, ids)).rejects.toThrow("down");
+    expect(await summariesFor(ok, [])).toEqual([]);
   });
 });
