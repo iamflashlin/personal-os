@@ -1,7 +1,9 @@
-"""Canvas LMS through its REST API (ADR 0020).
+"""Canvas LMS through its REST API (ADR 0020, ADR 0037).
 
-Reads active courses, their assignments (due date, points, submission state) and recent
-announcements, with a personal access token the user created in Canvas. The token goes
+Reads active courses with their current score and assignment groups (weights), their
+assignments (due date, points, group, submission state and score), the course materials
+listed in modules (files, pages, links: names and Canvas links only, nothing downloaded)
+and recent announcements, with a personal access token the user created in Canvas. The token goes
 only to the configured Canvas origin (scheme, host and port): every request, every
 `Link: rel="next"` page and every redirect is checked against it, because urllib would
 otherwise carry the Authorization header along, even over plain http.
@@ -102,6 +104,10 @@ def _id(value: Any) -> int | None:
         return None
 
 
+class _Missing(SyncError):
+    """HTTP 404. For an optional list (groups, modules) it means "none", not a failure."""
+
+
 class _Denied(Exception):
     """Canvas refused one resource (e.g. a course whose assignments are hidden)."""
 
@@ -151,6 +157,8 @@ class _Client:
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise _Denied(exc.code) from None
+            if exc.code == 404:
+                raise _Missing("Canvas answered HTTP 404") from None
             raise SyncError(f"Canvas answered HTTP {exc.code}") from None
         except urllib.error.URLError as exc:
             raise SyncError(f"Canvas could not be reached ({type(exc.reason).__name__})") from None
@@ -168,6 +176,65 @@ def _course_label(course: Mapping[str, Any]) -> str:
     return str(course.get("name") or course.get("course_code") or "")
 
 
+MATERIAL_TYPES = {"File", "Page", "ExternalUrl", "ExternalTool"}
+
+
+def _number(value: Any) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _course(base: str, course: Mapping[str, Any], groups: list[Mapping[str, Any]] | None) -> ItemIn:
+    """The course itself: its current grade as Canvas computes it, and its groups."""
+    enrollments = course.get("enrollments")
+    first = enrollments[0] if isinstance(enrollments, list) and enrollments else {}
+    enrollment: Mapping[str, Any] = first if isinstance(first, dict) else {}
+    data: dict[str, Any] = {
+        "course_code": str(course.get("course_code") or ""),
+        # Canvas's "current" score counts only graded work; its "final" score counts every
+        # ungraded assignment as 0, so it is far below what the student has earned so far.
+        "current_score": _number(enrollment.get("computed_current_score")),
+        "current_grade": str(enrollment.get("computed_current_grade") or ""),
+        "final_score": _number(enrollment.get("computed_final_score")),
+        "weighted": bool(course.get("apply_assignment_group_weights")),
+        # None: Canvas would not show the groups (unknown), not "no groups".
+        "groups": None
+        if groups is None
+        else [
+            {
+                "id": _id(g.get("id")),
+                "name": str(g.get("name") or "").strip(),
+                "weight": _number(g.get("group_weight")) or 0.0,
+            }
+            for g in groups
+            if _id(g.get("id")) is not None
+        ],
+    }
+    return ItemIn(
+        item_type="canvas_course",
+        external_id=str(course["id"]),
+        title=_course_label(course),
+        url=f"{base}/courses/{course['id']}",
+        data=data,
+    )
+
+
+def _material(course: Mapping[str, Any], module: Mapping[str, Any], m: Mapping[str, Any]) -> ItemIn:
+    return ItemIn(
+        item_type="canvas_material",
+        external_id=f"{course['id']}:{_id(m.get('id'))}",
+        title=str(m.get("title") or ""),
+        url=str(m.get("html_url") or ""),
+        data={
+            "course": _course_label(course),
+            "course_code": str(course.get("course_code") or ""),
+            "module": str(module.get("name") or "").strip(),
+            "module_position": _id(module.get("position")),
+            "kind": str(m.get("type") or ""),
+            "position": _id(m.get("position")),
+        },
+    )
+
+
 def _assignment(course: Mapping[str, Any], a: Mapping[str, Any]) -> ItemIn:
     raw_submission = a.get("submission")
     submission: Mapping[str, Any] = raw_submission if isinstance(raw_submission, dict) else {}
@@ -178,8 +245,13 @@ def _assignment(course: Mapping[str, Any], a: Mapping[str, Any]) -> ItemIn:
         "submission_state": str(submission.get("workflow_state") or ""),
         "submitted_at": submission.get("submitted_at"),
         "score": submission.get("score"),
+        "grade": str(submission.get("grade") or ""),
+        "graded_at": submission.get("graded_at"),
+        "excused": bool(submission.get("excused")),
         "missing": bool(submission.get("missing")),
         "late": bool(submission.get("late")),
+        "group_id": _id(a.get("assignment_group_id")),
+        "omit_from_final": bool(a.get("omit_from_final_grade")),
     }
     return ItemIn(
         item_type="canvas_assignment",
@@ -203,6 +275,20 @@ def _announcement(course: Mapping[str, Any], n: Mapping[str, Any]) -> ItemIn:
     )
 
 
+def _optional(client: "_Client", path: str, params: Mapping[str, Any]) -> list[Any]:
+    """A list that may not exist: 404 on its first page means none. A 404 after some pages
+    came back is a failure (part of a list must never read as the whole list)."""
+    got: list[Any] = []
+    try:
+        for x in client.pages(path, {"per_page": 100, **params}):
+            got.append(x)
+    except _Missing:
+        if got:
+            raise SyncError("Canvas lost a list part-way (HTTP 404)") from None
+        return []
+    return got
+
+
 class CanvasConnector:
     def fetch(self, secret: str, cursor: Mapping[str, Any], config: Mapping[str, Any]) -> Batch:
         try:
@@ -212,7 +298,10 @@ class CanvasConnector:
         client = _Client(base, secret.strip())
         try:
             listed = list(
-                client.pages("/api/v1/courses", {"enrollment_state": "active", "per_page": 100})
+                client.pages(
+                    "/api/v1/courses",
+                    {"enrollment_state": "active", "per_page": 100, "include[]": "total_scores"},
+                )
             )
         except _Denied as denied:
             # Refusing the course list itself means the token is not accepted.
@@ -228,6 +317,43 @@ class CanvasConnector:
         items: list[ItemIn] = []
         skipped = 0
         for course in courses:
+            cid = course["id"]
+            try:
+                groups: list[Mapping[str, Any]] = [
+                    g
+                    for g in _optional(client, f"/api/v1/courses/{cid}/assignment_groups", {})
+                    if isinstance(g, dict)
+                ]
+                items.append(_course(base, course, groups))
+            except _Denied:
+                # The score came with the course list; only the groups are unknown.
+                items.append(_course(base, course, None))
+                skipped += 1
+            try:
+                for module in _optional(
+                    client, f"/api/v1/courses/{cid}/modules", {"include[]": "items"}
+                ):
+                    if not isinstance(module, dict):
+                        continue
+                    module_items = module.get("items")
+                    if not isinstance(module_items, list):
+                        # Canvas inlines items only "if possible": a big module sends just
+                        # items_url, so read its items rather than take it as empty.
+                        module_id = _id(module.get("id"))
+                        if module_id is None:
+                            continue
+                        path = f"/api/v1/courses/{cid}/modules/{module_id}/items"
+                        # A 404 here means the module went away between the two calls.
+                        module_items = _optional(client, path, {})
+                    for m in module_items:
+                        if (
+                            isinstance(m, dict)
+                            and m.get("type") in MATERIAL_TYPES
+                            and _id(m.get("id")) is not None
+                        ):
+                            items.append(_material(course, module, m))
+            except _Denied:
+                skipped += 1  # modules can be hidden from students
             try:
                 for a in client.pages(
                     f"/api/v1/courses/{course['id']}/assignments",
