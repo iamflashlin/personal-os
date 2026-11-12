@@ -27,6 +27,7 @@ from apps.hub.triage import service as triage
 from packages.contracts.chat import MAX_CITED, ChatAnswer, ChatAsk, ChatProposal, CitedMail
 from packages.contracts.integrations import SyncedItem
 from packages.contracts.summaries import EmailSummary, SummaryStatus
+from packages.contracts.triage import MAX_BATCH
 
 PROMPT_NAME, PROMPT_VERSION = "mail_assistant", 1
 PURPOSE = "mail_assistant"
@@ -111,16 +112,15 @@ class _Run:
     today: date
     zone: tzinfo
     refs: dict[str, str] = field(default_factory=dict[str, str])  # ref -> item id
+    by_id: dict[str, str] = field(default_factory=dict[str, str])  # item id -> ref
     read: list[str] = field(default_factory=list[str])  # item ids read, in order
     proposal: list[str] | None = None
 
     def ref(self, item_id: str) -> str:
-        for r, i in self.refs.items():
-            if i == item_id:
-                return r
-        r = f"m{len(self.refs) + 1}"
-        self.refs[r] = item_id
-        return r
+        if item_id not in self.by_id:
+            r = f"m{len(self.refs) + 1}"
+            self.refs[r], self.by_id[item_id] = item_id, r
+        return self.by_id[item_id]
 
     def head(self, m: _Mail) -> dict[str, Any]:
         s, item = m.summary, m.item
@@ -201,7 +201,7 @@ class _Run:
         self, refs: list[str] | None = None, reason: str = ""
     ) -> dict[str, Any]:
         ids = [self.refs[r] for r in (refs or []) if r in self.refs]
-        open_ids = [i for i in dict.fromkeys(ids) if not self.mails[i].handled]
+        open_ids = [i for i in dict.fromkeys(ids) if not self.mails[i].handled][:MAX_BATCH]
         self.proposal = open_ids
         return {"status": "proposed; waiting for the user to click 确认", "count": len(open_ids)}
 
@@ -219,7 +219,7 @@ class _Run:
             if fn is None:
                 return {"error": f"unknown tool {name}"}
             return fn(**args)
-        except (TypeError, ValueError) as exc:
+        except Exception as exc:
             return {"error": f"bad arguments: {type(exc).__name__}"}
 
 
@@ -234,10 +234,14 @@ def _mails(session: Session, actor: Actor, today: date) -> dict[str, _Mail]:
     out: dict[str, _Mail] = {}
     for h in heads:
         s = statuses.get(h.id)
-        if s is not None and s.status is SummaryStatus.skipped_sensitive:
-            continue  # one-time codes and reset links are never shown to the model
         item = items.get(h.id)
-        if item is None:
+        if item is None or not item.body.strip():
+            continue  # unreadable: nothing to search or read
+        if (
+            s is not None and s.status is SummaryStatus.skipped_sensitive
+        ) or summaries.is_sensitive(item):
+            # One-time codes and reset links are never shown to the model, checked on the
+            # mail itself too: it may not be summarised yet, or may have changed since.
             continue
         fresh = (
             s
@@ -282,11 +286,12 @@ def ask(
     messages.append({"role": "user", "content": request.question})
     client = models.open_client(engine, actor, store, provider, model, budget, lambda: now)
     answer = ""
-    for _ in range(MAX_STEPS):
+    for step in range(MAX_STEPS):
+        last = step == MAX_STEPS - 1
         reply = client.call_tools(
             models.Prompt(prompt.name, prompt.version, system, "", prompt.sha256),
             messages,
-            TOOLS,
+            [] if last else TOOLS,  # the last turn gets no tools: it must answer
             purpose=PURPOSE,
             ref="",
             max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -324,7 +329,7 @@ def ask(
 
 def _answer(run: _Run, text: str, unsummarised: int) -> ChatAnswer:
     """Cited mails: those it read, then those whose ref it wrote; never more than MAX_CITED."""
-    named = [run.refs[r] for r in re.findall(r"\bm\d+\b", text) if r in run.refs]
+    named = [run.refs[r] for r in _REF.findall(text) if r in run.refs]
     ids = list(dict.fromkeys([*run.read, *named]))[:MAX_CITED]
     cited = [_cited(run.mails[i]) for i in ids]
     proposal = None
@@ -337,8 +342,7 @@ def _answer(run: _Run, text: str, unsummarised: int) -> ChatAnswer:
             description=f"把 {len(ids)} 封邮件标为已处理",  # written by code, not the model
             sample=[_cited(run.mails[i]) for i in ids[:5]],
         )
-    # Refs mean nothing to the user: drop them from the text.
-    clean = re.sub(r"\s*[（(]?\bm\d+\b[）)]?", "", text).strip()
+    clean = _strip_refs(text, run.refs)
     return ChatAnswer(
         answer=clean or text,
         cited=cited,
@@ -346,6 +350,24 @@ def _answer(run: _Run, text: str, unsummarised: int) -> ChatAnswer:
         unsummarised=unsummarised,
         proposal=proposal,
     )
+
+
+_REF = re.compile(r"(?<![A-Za-z0-9])m\d+(?![0-9])")
+_REF_GROUP = re.compile(r"[（(]\s*m\d+(?:\s*[,，、]\s*m\d+)*\s*[）)]")
+
+
+def _strip_refs(text: str, refs: dict[str, str]) -> str:
+    """Refs mean nothing to the user. Remove those this run handed out, with brackets that
+    hold only refs; leave other text (like "m2 芯片") and line breaks alone."""
+
+    def group(m: re.Match[str]) -> str:
+        inside = _REF.findall(m.group(0))
+        return "" if all(r in refs for r in inside) else m.group(0)
+
+    text = _REF_GROUP.sub(group, text)
+    text = _REF.sub(lambda m: "" if m.group(0) in refs else m.group(0), text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"(?m)^[ \t]+", "", text).strip()
 
 
 def _cited(m: _Mail) -> CitedMail:

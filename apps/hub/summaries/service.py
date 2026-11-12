@@ -489,6 +489,12 @@ def ok_summaries(session: Session, actor: Actor) -> list[EmailSummary]:
     return [_read(r) for r in rows]
 
 
+def is_sensitive(item: SyncedItem) -> bool:
+    """The same check the summary job applies (one-time codes, reset links), usable on any
+    mail at any time: a mail may not have a summary row yet, or may have changed since."""
+    return sensitive.reason(item.title, item.body) is not None
+
+
 def count(session: Session, actor: Actor, status_: SummaryStatus) -> int:
     return int(
         session.scalar(

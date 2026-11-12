@@ -22,7 +22,15 @@ from apps.hub.models.fake import FakeProvider
 from apps.hub.models.litellm_adapter import LiteLLMProvider, check_base_url
 from apps.hub.models.models import ModelCallRow
 from apps.hub.models.prompts import Prompt, load_prompt
-from apps.hub.models.provider import JsonRequest, ModelProvider, ProviderErrorKind, Usage
+from apps.hub.models.provider import (
+    JsonRequest,
+    ModelProvider,
+    ProviderError,
+    ProviderErrorKind,
+    Tool,
+    ToolRequest,
+    Usage,
+)
 from tests.hub.fake_openai import FakeOpenAI, Reply
 
 KEY = "sk-test-0123456789abcdef0123456789abcdef"
@@ -542,3 +550,95 @@ def test_deepseek_thinking_is_switched_off_unless_asked(engine, store, stub) -> 
     # other vendors never get the DeepSeek-only parameter (only DeepSeek is wired up today)
     other = LiteLLMProvider("openai", stub.url)
     assert other._reasoning_params(JsonRequest("gpt-test", "json", "hi", 50)) == {}  # pyright: ignore[reportPrivateUsage]
+
+
+TOOL = Tool("search_mail", "search", {"type": "object", "properties": {}})
+
+
+def tool_request() -> ToolRequest:
+    return ToolRequest(MODEL, "system text", [{"role": "user", "content": "hi"}], [TOOL], 100)
+
+
+def tool_reply_body(**extra: object) -> bytes:
+    import json as _json
+
+    message = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "search_mail", "arguments": '{"query": "x"}'},
+            }
+        ],
+    }
+    return _json.dumps(
+        {
+            "id": "req-9",
+            "choices": [{"message": message, "finish_reason": "tool_calls"}],
+            "usage": {"prompt_tokens": 50, "prompt_cache_hit_tokens": 80, "completion_tokens": 7},
+            **extra,
+        }
+    ).encode()
+
+
+def test_tool_calls_are_sent_and_read(stub) -> None:
+    stub.replies.append(Reply(raw=tool_reply_body()))
+    reply = LiteLLMProvider("deepseek", stub.url).complete_tools(tool_request(), KEY)
+    [sent] = stub.requests
+    assert sent["tools"][0]["function"]["name"] == "search_mail"
+    assert sent["messages"][0] == {"role": "system", "content": "system text"}
+    assert sent["thinking"] == {"type": "disabled"}
+    assert reply.tool_calls[0].name == "search_mail" and reply.request_id == "req-9"
+    assert reply.usage == Usage(50, 50, 7)  # cached capped at the prompt count
+    assert stub.headers[0]["Authorization"] == f"Bearer {KEY}"
+
+
+def test_no_tools_means_no_tools_key(stub) -> None:
+    stub.replies.append(Reply(content="answer"))
+    r = ToolRequest(MODEL, "s", [{"role": "user", "content": "hi"}], [], 100)
+    reply = LiteLLMProvider("deepseek", stub.url).complete_tools(r, KEY)
+    assert "tools" not in stub.requests[0] and reply.content == "answer"
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    [
+        (401, ProviderErrorKind.auth),
+        (402, ProviderErrorKind.no_balance),
+        (429, ProviderErrorKind.rate_limit),
+        (500, ProviderErrorKind.transient),
+        (400, ProviderErrorKind.bad_request),
+    ],
+)
+def test_tool_http_errors_map(stub, status: int, kind: ProviderErrorKind) -> None:
+    stub.replies.append(Reply(status=status))
+    with pytest.raises(ProviderError) as caught:
+        LiteLLMProvider("deepseek", stub.url).complete_tools(tool_request(), KEY)
+    assert caught.value.kind == kind and KEY not in str(caught.value)
+
+
+def test_tool_redirects_are_not_followed(stub) -> None:
+    stub.replies.append(
+        Reply(status=307, raw=b"", headers={"Location": "http://example.invalid/x"})
+    )
+    with pytest.raises(ProviderError) as caught:
+        LiteLLMProvider("deepseek", stub.url).complete_tools(tool_request(), KEY)
+    assert caught.value.kind == ProviderErrorKind.bad_request
+    assert len(stub.requests) == 1
+
+
+def test_tool_unreadable_body_is_bad_output(stub) -> None:
+    stub.replies.append(Reply(raw=b"<html>gateway</html>"))
+    with pytest.raises(ProviderError) as caught:
+        LiteLLMProvider("deepseek", stub.url).complete_tools(tool_request(), KEY)
+    assert caught.value.kind == ProviderErrorKind.bad_output and caught.value.maybe_billed
+
+
+def test_tool_stall_hits_the_deadline(stub) -> None:
+    stub.replies.append(Reply(delay_s=1.5))
+    slow = LiteLLMProvider("deepseek", stub.url, timeout_s=5, deadline_s=0.3)
+    with pytest.raises(ProviderError) as caught:
+        slow.complete_tools(tool_request(), KEY)
+    assert caught.value.kind == ProviderErrorKind.transient and caught.value.maybe_billed

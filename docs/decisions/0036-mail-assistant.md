@@ -21,15 +21,22 @@ tools gives ChatGPT-level answers, at about US$0.002 and 4–7 s per question.
   checked, open mail only, with a description written by code. The web shows it with
   确认, which calls `POST /triage/handle`: owner-scoped, audited, and undoable.
 - **Privacy.**
-  - Sensitive mail (one-time codes, reset links) is never searched, listed or read.
+  - Sensitive mail (one-time codes, reset links) is never searched, listed or read. This is
+    checked on the mail itself, not only on its summary row, because a new or changed mail
+    may not be summarised yet. Mail with an empty body is left out.
   - The question and the conversation are stored nowhere: `model_call.ref` is "", and the
     browser keeps the turns.
   - The full body of a mail the model reads is sent to DeepSeek.
 - **Transport.** `ModelProvider.complete_tools` sends plain OpenAI-compatible HTTP over
-  httpx. litellm-core imports its MCP handler whenever `tools` is passed, and that needs
+  httpx, with per-read timeouts plus one total deadline, as in the JSON path. litellm-core imports its MCP handler whenever `tools` is passed, and that needs
   the `mcp` package, which we do not add. The timeouts, the error mapping and
   `ModelClient` accounting (reservation, the monthly cap, `model_call` rows) are the same
   as for JSON calls.
+- **Prompt injection.** A mail body could steer the model into proposing an action the
+  user did not ask for. That is accepted: a proposal only shows a card with a description
+  written by code, nothing happens without the user's click, and it can be undone.
+- **Steps.** The last of the 6 turns is sent without tools, so the model must answer with
+  what it has instead of ending on an unanswered tool call.
 - **Prompt `mail_assistant` v1:**
   - answers only from mail it has read;
   - shows no refs;

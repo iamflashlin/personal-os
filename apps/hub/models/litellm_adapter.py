@@ -169,35 +169,55 @@ class LiteLLMProvider:
         body: dict[str, Any] = {
             "model": request.model,
             "messages": [{"role": "system", "content": request.system}, *request.messages],
-            "tools": [
+            **(
                 {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    },
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": t.name,
+                                "description": t.description,
+                                "parameters": t.parameters,
+                            },
+                        }
+                        for t in request.tools
+                    ]
                 }
-                for t in request.tools
-            ],
+                if request.tools
+                else {}
+            ),
             "max_tokens": request.max_output_tokens,
             "temperature": request.temperature,
         }
         if self.vendor == "deepseek":
             body["thinking"] = {"type": "disabled"}
         url = self.base_url.rstrip("/") + "/chat/completions"
+        # Same guard as complete_json: per-read timeouts, plus one total deadline (a server
+        # trickling bytes cannot hold the call, and its budget reservation, forever).
+        http = httpx.Client(timeout=httpx.Timeout(self.timeout_s), follow_redirects=False)
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            with httpx.Client(
-                timeout=httpx.Timeout(self.timeout_s, read=self.deadline_s),
-                follow_redirects=False,
-            ) as http:
-                response = http.post(url, json=body, headers={"Authorization": f"Bearer {api_key}"})
-        except httpx.TimeoutException:
-            raise ProviderError(ProviderErrorKind.transient, "timeout", maybe_billed=True) from None
-        except httpx.HTTPError as exc:
-            raise ProviderError(
-                ProviderErrorKind.transient, type(exc).__name__, maybe_billed=True
-            ) from None
+            future = pool.submit(
+                http.post, url, json=body, headers={"Authorization": f"Bearer {api_key}"}
+            )
+            try:
+                response = future.result(timeout=self.deadline_s)
+            except concurrent.futures.TimeoutError:
+                http.close()
+                raise ProviderError(
+                    ProviderErrorKind.transient, "deadline", maybe_billed=True
+                ) from None
+            except httpx.TimeoutException:
+                raise ProviderError(
+                    ProviderErrorKind.transient, "timeout", maybe_billed=True
+                ) from None
+            except httpx.HTTPError as exc:
+                raise ProviderError(
+                    ProviderErrorKind.transient, type(exc).__name__, maybe_billed=True
+                ) from None
+        finally:
+            pool.shutdown(wait=False)
+            http.close()
         return _tool_reply(response.status_code, response)
 
     def _reasoning_params(self, request: JsonRequest) -> dict[str, Any]:
@@ -239,6 +259,22 @@ def _http_error(status: int) -> ProviderError:
     return ProviderError(ProviderErrorKind.bad_request, label, status=status)
 
 
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _usage_dict(raw: Any) -> Usage | None:
+    """Usage from a plain JSON reply, checked: no negative or odd counts, cached <= prompt."""
+    if not isinstance(raw, dict):
+        return None
+    prompt = _count(raw.get("prompt_tokens"))
+    return Usage(
+        prompt,
+        min(_count(raw.get("prompt_cache_hit_tokens")), prompt),
+        _count(raw.get("completion_tokens")),
+    )
+
+
 def _tool_reply(status: int, response: Any) -> ToolReply:
     if status != 200:
         raise _http_error(status)
@@ -250,12 +286,7 @@ def _tool_reply(status: int, response: Any) -> ToolReply:
         raise ProviderError(
             ProviderErrorKind.bad_output, "unreadable reply", maybe_billed=True
         ) from None
-    raw = data.get("usage") or {}
-    usage = Usage(
-        int(raw.get("prompt_tokens") or 0),
-        int(raw.get("prompt_cache_hit_tokens") or 0),
-        int(raw.get("completion_tokens") or 0),
-    )
+    usage = _usage_dict(data.get("usage"))
     calls: list[ToolCall] = []
     for c in message.get("tool_calls") or []:
         fn = (c or {}).get("function") or {}

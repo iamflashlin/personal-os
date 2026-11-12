@@ -114,6 +114,8 @@ class FakeProvider:
                 "fake",
             )
 
+        if not request.tools:  # the last turn: answer with what it has
+            return ToolReply(f"（测试回答）{question}（查了很久）", [], usage, "stop", "fake")
         if last.get("role") != "tool":
             return call("search_mail", {"query": question.replace("[fake:clear]", "").strip()})
         result = json.loads(str(last.get("content") or "null"))
