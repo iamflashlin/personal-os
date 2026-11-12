@@ -139,4 +139,24 @@ def confirm(
     return audit.audited(session, actor, "course_profile", "confirm", row.id, {}, op)
 
 
-__all__ = ["confirm", "profile", "profiles", "put"]
+from apps.hub.academic.maps import (  # noqa: E402  (re-exported: the module's public face)
+    clear_mastery,
+    course_map,
+    exam_map,
+    map_codes,
+    put_map,
+    set_mastery,
+)
+
+__all__ = [
+    "clear_mastery",
+    "confirm",
+    "course_map",
+    "exam_map",
+    "map_codes",
+    "profile",
+    "profiles",
+    "put",
+    "put_map",
+    "set_mastery",
+]

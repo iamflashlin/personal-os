@@ -57,6 +57,24 @@ def title_pattern(match: str) -> re.Pattern[str]:
     return re.compile("".join(parts), re.IGNORECASE)
 
 
+_CANVAS_CODE = re.compile(r"\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b")
+
+
+def canvas_course_code(raw: str) -> str:
+    """'F26 MATH D001A 49 Calculus I' -> 'MATH D001A' ("" when there is none)."""
+    m = _CANVAS_CODE.search(raw or "")
+    return f"{m.group(1)} {m.group(2)}" if m else ""
+
+
+def check_pattern(v: str) -> str:
+    """A title pattern stays cheap to match: no doubled wildcard, at most three of them."""
+    if "**" in v or "##" in v:
+        raise ValueError("write * or # once")
+    if v.count("*") + v.count("#") > 3:
+        raise ValueError("at most three * or # in a pattern")
+    return v
+
+
 def normal_code(code: str) -> str:
     """'math  d001a' and 'MATH D001A' name the same course."""
     return " ".join(code.upper().split())
@@ -76,9 +94,7 @@ class GradeCategory(BaseModel):
     @field_validator("match")
     @classmethod
     def _pattern(cls, v: str) -> str:
-        if "**" in v or "##" in v:
-            raise ValueError("write * or # once")
-        return v
+        return check_pattern(v)
 
 
 class CourseRule(BaseModel):

@@ -352,6 +352,74 @@
         "title": "AgentStatus",
         "type": "object"
       },
+      "AssessmentEvidence": {
+        "description": "A graded Canvas assessment that covers a section.",
+        "properties": {
+          "due": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "score",
+          "points",
+          "percent",
+          "due",
+          "url"
+        ],
+        "title": "AssessmentEvidence",
+        "type": "object"
+      },
       "BatchStatus": {
         "enum": [
           "applied",
@@ -498,6 +566,28 @@
         "title": "ChatTurn",
         "type": "object"
       },
+      "CheckItem": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "default": "",
+            "maxLength": 400,
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "CheckItem",
+        "type": "object"
+      },
       "CitedMail": {
         "properties": {
           "item": {
@@ -546,6 +636,245 @@
           "late"
         ],
         "title": "Completion",
+        "type": "object"
+      },
+      "ConceptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "chapter",
+              "section",
+              "concept"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "origin": {
+            "default": "teacher",
+            "enum": [
+              "teacher",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "maximum": 5000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "parent": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Parent",
+            "type": "string"
+          },
+          "prereq": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Prereq",
+            "type": "array"
+          },
+          "prereq_origin": {
+            "default": "ai",
+            "enum": [
+              "teacher",
+              "ai"
+            ],
+            "title": "Prereq Origin",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "title_zh": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Title Zh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "title"
+        ],
+        "title": "ConceptIn",
+        "type": "object"
+      },
+      "ConceptView": {
+        "properties": {
+          "assessments": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentEvidence"
+            },
+            "title": "Assessments",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "chapter",
+              "section",
+              "concept"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mastery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MasteryView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "material_url": {
+            "title": "Material Url",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "teacher",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "prereq": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prereq",
+            "type": "array"
+          },
+          "prereq_origin": {
+            "enum": [
+              "teacher",
+              "ai"
+            ],
+            "title": "Prereq Origin",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/Resource"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "title_zh": {
+            "title": "Title Zh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "parent",
+          "title",
+          "title_zh",
+          "page",
+          "material_url",
+          "prereq",
+          "prereq_origin",
+          "origin",
+          "assessments",
+          "resources",
+          "mastery"
+        ],
+        "title": "ConceptView",
+        "type": "object"
+      },
+      "CourseMap": {
+        "properties": {
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/CheckItem"
+            },
+            "title": "Checklist",
+            "type": "array"
+          },
+          "concepts": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptView"
+            },
+            "title": "Concepts",
+            "type": "array"
+          },
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "exams": {
+            "items": {
+              "$ref": "#/components/schemas/ExamView"
+            },
+            "title": "Exams",
+            "type": "array"
+          },
+          "material": {
+            "title": "Material",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_code",
+          "material",
+          "note",
+          "concepts",
+          "exams",
+          "checklist"
+        ],
+        "title": "CourseMap",
         "type": "object"
       },
       "CourseProfile": {
@@ -1539,6 +1868,201 @@
         "title": "EvidenceKind",
         "type": "string"
       },
+      "ExamIn": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "match": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Match",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "review": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Review",
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "minItems": 1,
+            "title": "Scope",
+            "type": "array"
+          },
+          "scope_source": {
+            "default": "",
+            "maxLength": 400,
+            "title": "Scope Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "match"
+        ],
+        "title": "ExamIn",
+        "type": "object"
+      },
+      "ExamMap": {
+        "description": "One exam's review map: its sections, the prerequisites outside its scope, and the\norder the assistant suggests (weakest evidence first).",
+        "properties": {
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/CheckItem"
+            },
+            "title": "Checklist",
+            "type": "array"
+          },
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "exam": {
+            "$ref": "#/components/schemas/ExamView"
+          },
+          "prerequisites": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptView"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptView"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "suggested": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested",
+            "type": "array"
+          },
+          "why": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Why",
+            "type": "object"
+          }
+        },
+        "required": [
+          "course_code",
+          "exam",
+          "sections",
+          "prerequisites",
+          "suggested",
+          "why",
+          "checklist"
+        ],
+        "title": "ExamMap",
+        "type": "object"
+      },
+      "ExamView": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "days_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Left"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssessmentEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/Resource"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "review": {
+            "title": "Review",
+            "type": "string"
+          },
+          "review_url": {
+            "title": "Review Url",
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          },
+          "scope_source": {
+            "title": "Scope Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "at",
+          "days_left",
+          "scope",
+          "scope_source",
+          "review",
+          "review_url",
+          "resources",
+          "grade"
+        ],
+        "title": "ExamView",
+        "type": "object"
+      },
       "ExecutionMode": {
         "enum": [
           "delegate",
@@ -2387,6 +2911,136 @@
         ],
         "title": "JobStatus",
         "type": "string"
+      },
+      "MapIn": {
+        "additionalProperties": false,
+        "description": "One course's whole map, as an import writes it (replaces the previous one).",
+        "properties": {
+          "concepts": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptIn"
+            },
+            "maxItems": 600,
+            "minItems": 1,
+            "title": "Concepts",
+            "type": "array"
+          },
+          "course_code": {
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Course Code",
+            "type": "string"
+          },
+          "exam_checklist": {
+            "items": {
+              "$ref": "#/components/schemas/CheckItem"
+            },
+            "maxItems": 20,
+            "title": "Exam Checklist",
+            "type": "array"
+          },
+          "exams": {
+            "items": {
+              "$ref": "#/components/schemas/ExamIn"
+            },
+            "maxItems": 20,
+            "title": "Exams",
+            "type": "array"
+          },
+          "material": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Material",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_code",
+          "concepts"
+        ],
+        "title": "MapIn",
+        "type": "object"
+      },
+      "MasteryView": {
+        "properties": {
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "user",
+              "quiz",
+              "none"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "not_tested",
+              "seen",
+              "practicing",
+              "verified",
+              "needs_review"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "state",
+          "source",
+          "note",
+          "updated_at"
+        ],
+        "title": "MasteryView",
+        "type": "object"
+      },
+      "MasteryWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 400,
+            "title": "Note",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "not_tested",
+              "seen",
+              "practicing",
+              "verified",
+              "needs_review"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "MasteryWrite",
+        "type": "object"
       },
       "Material": {
         "properties": {
@@ -3359,6 +4013,30 @@
           "read"
         ],
         "title": "ReadMark",
+        "type": "object"
+      },
+      "Resource": {
+        "description": "A Canvas module item for a section or an exam (the teacher's link).",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "kind",
+          "url"
+        ],
+        "title": "Resource",
         "type": "object"
       },
       "RiskLevel": {
@@ -5010,6 +5688,281 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/academic/maps": {
+      "get": {
+        "operationId": "list_course_maps_academic_maps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response List Course Maps Academic Maps Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Course Maps",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
+    "/academic/maps/{code}": {
+      "get": {
+        "operationId": "get_course_map_academic_maps__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseMap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Course Map",
+        "tags": [
+          "academic"
+        ]
+      },
+      "put": {
+        "operationId": "put_course_map_academic_maps__code__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Put Course Map Academic Maps  Code  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Course Map",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
+    "/academic/maps/{code}/exams/{name}": {
+      "get": {
+        "operationId": "get_exam_map_academic_maps__code__exams__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExamMap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Exam Map",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
+    "/academic/maps/{code}/mastery/{key}": {
+      "delete": {
+        "operationId": "clear_concept_mastery_academic_maps__code__mastery__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Concept Mastery",
+        "tags": [
+          "academic"
+        ]
+      },
+      "put": {
+        "operationId": "set_concept_mastery_academic_maps__code__mastery__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasteryWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasteryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Concept Mastery",
+        "tags": [
+          "academic"
+        ]
+      }
+    },
     "/academic/profiles": {
       "get": {
         "operationId": "list_course_profiles_academic_profiles_get",
