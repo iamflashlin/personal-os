@@ -26,7 +26,9 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $taskName = "PersonalOS Hub"
 
 function Step([string]$text) { Write-Output "== $text" }
-function Fail([string]$text) { Write-Output "FAILED: $text"; exit 1 }
+function Fail([string]$text) { Unlock-Update $DataDir; Write-Output "FAILED: $text"; exit 1 }
+
+. (Join-Path $PSScriptRoot "update-lock.ps1")  # Lock-Update / Unlock-Update (T-0029)
 
 function Get-Listener {
     $conn = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
@@ -91,11 +93,13 @@ if ($Check) {
 }
 
 Step "stop the running Hub"
+Lock-Update $DataDir
 Stop-ScheduledTask -TaskName $taskName
 & (Join-Path $PSScriptRoot "stop-hub.ps1") -CopyDir $CopyDir -DataDir $DataDir
 $blocker = Get-Listener
 if ($blocker) {
     # Something not provably ours holds the port; the Hub could never start. Change nothing.
+    Unlock-Update $DataDir
     Start-ScheduledTask -TaskName $taskName
     Fail "port 8765 is in use by pid $($blocker.Proc.ProcessId) $($blocker.Proc.ExecutablePath); stop it first"
 }
@@ -110,6 +114,7 @@ if (-not $ok) {
 }
 
 Step "start the Hub again"
+Unlock-Update $DataDir
 Start-ScheduledTask -TaskName $taskName
 $deadline = (Get-Date).AddSeconds(90)
 while ((Get-Date) -lt $deadline) {

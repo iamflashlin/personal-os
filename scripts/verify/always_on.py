@@ -5,7 +5,9 @@
 Checks: /health answers on 127.0.0.1:8765 and the page loads; the supervisor log says the
 Hub runs from the runtime copy with the expected data dir; after the Hub process is killed
 the supervisor brings it back within 60 s. With --expect-task, also checks that the
-"PersonalOS Hub" scheduled task exists with a logon trigger. Exit code 0 only if all pass.
+"PersonalOS Hub" scheduled task exists with a logon trigger that repeats every 5 minutes.
+With --watchdog, also kills the supervisor and the Hub and waits (up to 6 min) for the task
+to start them again. Exit code 0 only if all pass.
 """
 
 from __future__ import annotations
@@ -82,7 +84,21 @@ def supervisor_log(data_dir: Path) -> str:
     )
 
 
-def run(data_dir: Path, copy_dir: Path, expect_task: bool) -> None:
+def supervisors(copy_dir: Path) -> list[int]:
+    """Process ids of run-hub.ps1 supervisors for this copy, never the listing shell itself."""
+    out = powershell(
+        "Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe' OR Name = 'pwsh.exe'\" "
+        "| Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*run-hub.ps1*' "
+        f"-and $_.CommandLine -like '*{copy_dir}*' }} | ForEach-Object {{ $_.ProcessId }}"
+    )
+    return [int(line) for line in out.split() if line.isdigit()]
+
+
+def supervisor_starts(data_dir: Path) -> list[str]:
+    return [line for line in supervisor_log(data_dir).splitlines() if "supervisor started" in line]
+
+
+def run(data_dir: Path, copy_dir: Path, expect_task: bool, watchdog: bool) -> None:
     up = wait_until(healthy, 60)
     check(up is not None, "GET /health answers ok on 127.0.0.1:8765")
     page = httpx.get(f"{HUB}/", timeout=5)
@@ -120,6 +136,37 @@ def run(data_dir: Path, copy_dir: Path, expect_task: bool) -> None:
             "ForEach-Object { $_.CimClass.CimClassName }"
         )
         check("MSFT_TaskLogonTrigger" in triggers, "the scheduled task starts it at logon")
+        repeat = powershell(
+            "$r = (Get-ScheduledTask -TaskName 'PersonalOS Hub').Triggers[0].Repetition; "
+            '"$($r.Interval)|$($r.Duration)"'
+        )
+        interval, _, duration = repeat.partition("|")
+        check(interval == "PT5M", f"and checks every 5 minutes that it runs ({interval!r})")
+        check(duration == "", f"forever: the repetition has no end ({duration!r})")
+
+    if watchdog:
+        before = supervisors(copy_dir)
+        check(len(before) == 1, f"one supervisor runs from the copy (pids {before})")
+        starts_before = supervisor_starts(data_dir)
+        subprocess.run(["taskkill", "/PID", str(before[0]), "/F"], capture_output=True, check=False)
+        gone = wait_until(lambda: before[0] not in supervisors(copy_dir), 15)
+        check(gone is not None, f"the supervisor (pid {before[0]}) is killed")
+        pid = int((data_dir / "hub.pid").read_text().strip())
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
+        down = wait_until(lambda: not healthy(), 15)
+        check(down is not None, "and the Hub is down with nobody to restart it")
+        back = wait_until(healthy, 6 * 60)
+        check(back is not None, f"the watchdog brought it back ({back or 0:.0f} s, at most 5 min)")
+        after = supervisors(copy_dir)
+        check(
+            len(after) == 1 and after[0] != before[0],
+            f"by a new supervisor (pid {after}, was {before[0]})",
+        )
+        new = supervisor_starts(data_dir)[len(starts_before) :]
+        check(
+            any(f"(pid {after[0]})" in line for line in new),
+            f"the supervisor log records that new start ({new[-1:]})",
+        )
 
 
 def main() -> int:
@@ -127,9 +174,12 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path, default=Path(r"D:\dev\personal-os-data"))
     parser.add_argument("--copy-dir", type=Path, default=Path(r"D:\dev\personal-os-run"))
     parser.add_argument("--expect-task", action="store_true")
+    parser.add_argument(
+        "--watchdog", action="store_true", help="also kill the supervisor (up to 6 min)"
+    )
     args = parser.parse_args()
     try:
-        run(args.data_dir, args.copy_dir, args.expect_task)
+        run(args.data_dir, args.copy_dir, args.expect_task, args.watchdog)
     except CheckFailed as exc:
         print(f"\nRESULT: FAIL ({exc})")
         return 1

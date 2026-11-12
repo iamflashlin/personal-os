@@ -25,7 +25,9 @@ $taskName = "PersonalOS Hub"
 $user = "$env:USERDOMAIN\$env:USERNAME"
 
 function Step([string]$text) { Write-Output "== $text" }
-function Fail([string]$text) { Write-Output "FAILED: $text"; exit 1 }
+function Fail([string]$text) { Unlock-Update $DataDir; Write-Output "FAILED: $text"; exit 1 }
+
+. (Join-Path $PSScriptRoot "update-lock.ps1")  # Lock-Update / Unlock-Update (T-0029)
 
 function Get-Listener {
     # The process listening on 8765 and its parent, or $null.
@@ -70,6 +72,7 @@ if ($PrepareOnly -and $running) {
 }
 if (-not $PrepareOnly) {
     Step "stop the running Hub, if any"
+    Lock-Update $DataDir
     if ($hadTask) { Stop-ScheduledTask -TaskName $taskName }
     & (Join-Path $PSScriptRoot "stop-hub.ps1") -CopyDir $CopyDir -DataDir $DataDir
 }
@@ -77,12 +80,14 @@ if (-not $PrepareOnly) {
 $blocker = Get-Listener
 if (-not $PrepareOnly -and $blocker) {
     # Something we could not prove ours still holds the port; the new Hub could never start.
+    Unlock-Update $DataDir
     if ($hadTask) { Start-ScheduledTask -TaskName $taskName }
     Fail "port 8765 is in use by $(Describe-Listener $blocker); stop it first"
 }
 
 function Restore-And-Fail([string]$text) {
     # A failed update must not leave the site down: start the previous setup again.
+    Unlock-Update $DataDir
     if ($hadTask -and -not $PrepareOnly) { Start-ScheduledTask -TaskName $taskName }
     Fail $text
 }
@@ -127,8 +132,12 @@ $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ru
     "-CopyDir `"$CopyDir`" -DataDir `"$DataDir`" -Uv `"$uv`""
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments -WorkingDirectory $CopyDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
-# The supervisor restarts the Hub itself; Task Scheduler only restarts the supervisor if
-# powershell.exe exits with an error (3 times, then until the next logon).
+# Watchdog (T-0029): the logon trigger repeats every 5 minutes, forever (no duration). With
+# -MultipleInstances IgnoreNew a running supervisor is left alone; one that was killed
+# (2026-11-11: it stopped with 0xC000013A and nothing started it again) is back within
+# 5 minutes. The supervisor itself restarts the Hub within 10 s.
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)).Repetition
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew `
     -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 5
@@ -140,6 +149,7 @@ if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 
 }
 
 Step "start it now"
+Unlock-Update $DataDir
 Start-ScheduledTask -TaskName $taskName
 $deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $deadline) {
