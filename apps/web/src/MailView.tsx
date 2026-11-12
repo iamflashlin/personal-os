@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatBox } from "./ChatBox";
 import { type Api, ApiError, type EmailSummary, type SyncedItem } from "./api";
 import { SUMMARY_LABEL } from "./Summary";
 
@@ -161,6 +162,7 @@ export function MailView({ api }: { api: Api }) {
   return (
     <section data-testid="mail-view">
       {alert}
+      <ChatBox api={api} />
       <h2>邮件（最新 {MAIL_LIMIT} 封）</h2>
       <p className="muted">每行是 AI 写的一句话：什么事、什么时候截止。点开先看要点，再看原文。</p>
       <ul className="memories">

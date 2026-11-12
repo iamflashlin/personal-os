@@ -444,7 +444,7 @@ def verify_email_view(
 
 
 def verify_summaries_view(
-    page: Page, api: httpx.Client, out: Path, service: str, hub_log: Path
+    page: Page, api: httpx.Client, out: Path, service: str, hub_log: Path, errors: list[str]
 ) -> None:
     """T-0023: the DeepSeek key form, summaries on 最近邮件 and 今日 (FakeProvider)."""
     from tests.hub.fake_imap import FakeImapServer, Mailbox
@@ -530,6 +530,30 @@ def verify_summaries_view(
             "opening a mail shows the points first, then the original",
         )
         shot(page, out, "16-ai-summaries")
+
+        chat = page.get_by_test_id("chat")
+        chat.get_by_test_id("chat-input").fill("Lab 5 什么时候交")
+        chat.get_by_test_id("chat-send").click()
+        answer = chat.get_by_test_id("chat-answer").first
+        answer.wait_for(timeout=30_000)
+        check("（测试回答）Lab 5 什么时候交" in answer.inner_text(), "the chat box shows an answer")
+        cited = chat.get_by_test_id("chat-cited").get_by_test_id("mail-line")
+        check(cited.count() >= 1, f"with the mails it used ({cited.count()})")
+        cited.first.locator(".mail-head").click()
+        check(chat.get_by_test_id("mail-detail").count() == 1, "a cited mail opens like any other")
+        shot(page, out, "18-mail-chat")
+        chat.get_by_test_id("chat-input").fill("[fake:500] 再问")
+        chat.get_by_test_id("chat-send").click()
+        chat.get_by_test_id("chat-error").first.wait_for(timeout=30_000)
+        check(
+            "请再问一次" in chat.get_by_test_id("chat-error").first.inner_text(),
+            "a failed answer shows the Hub's sentence",
+        )
+        # That 502 was asked for ([fake:500]); only it may appear among the console errors.
+        expected = [e for e in errors if "/chat/ask" in e or "502 (Bad Gateway)" in e]
+        check(len(expected) == 2, f"the asked-for 502 is the only new error ({expected})")
+        for line in expected:
+            errors.remove(line)
 
         open_view(page, "今日")
         actions = page.get_by_test_id("today-mail-actions")
@@ -650,7 +674,7 @@ def run(out: Path, headed: bool) -> None:
             verify_connections_view(page, api, out, errors, service, hub_log)
             verify_canvas_view(page, api, out, service, hub_log)
             verify_email_view(page, api, out, service, hub_log)
-            verify_summaries_view(page, api, out, service, hub_log)
+            verify_summaries_view(page, api, out, service, hub_log, errors)
             check(not errors, f"no browser console errors ({errors})")
             browser.close()
 
