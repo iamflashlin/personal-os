@@ -31,11 +31,23 @@ class ChatAsk(BaseModel):
 
 class CitedMail(BaseModel):
     item: SyncedItem
-    summary: EmailSummary
+    summary: EmailSummary | None = None  # None until the mail is summarised
+
+
+class ChatProposal(BaseModel):
+    """An action the assistant proposes; nothing happens until the user confirms it
+    (the web then calls POST /triage/handle with these ids)."""
+
+    action: Literal["mark_handled"]
+    item_ids: list[str]
+    count: int
+    description: str  # written by the Hub, never by the model
+    sample: list[CitedMail]  # up to 5 of the mails, to check before confirming
 
 
 class ChatAnswer(BaseModel):
     answer: str
     cited: list[CitedMail]  # at most MAX_CITED, only mails that were given to the model
-    considered: int  # mails given to the model
-    unsummarised: int  # mails not summarised yet, so not searchable
+    considered: int  # mails the assistant could search
+    unsummarised: int  # mails not summarised yet (still searchable by their text)
+    proposal: ChatProposal | None = None

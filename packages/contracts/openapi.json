@@ -226,6 +226,16 @@
             "title": "Considered",
             "type": "integer"
           },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatProposal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "unsummarised": {
             "title": "Unsummarised",
             "type": "integer"
@@ -271,6 +281,47 @@
         "title": "ChatAsk",
         "type": "object"
       },
+      "ChatProposal": {
+        "description": "An action the assistant proposes; nothing happens until the user confirms it\n(the web then calls POST /triage/handle with these ids).",
+        "properties": {
+          "action": {
+            "const": "mark_handled",
+            "title": "Action",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/CitedMail"
+            },
+            "title": "Sample",
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "item_ids",
+          "count",
+          "description",
+          "sample"
+        ],
+        "title": "ChatProposal",
+        "type": "object"
+      },
       "ChatTurn": {
         "additionalProperties": false,
         "properties": {
@@ -302,12 +353,18 @@
             "$ref": "#/components/schemas/SyncedItem"
           },
           "summary": {
-            "$ref": "#/components/schemas/EmailSummary"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmailSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "item",
-          "summary"
+          "item"
         ],
         "title": "CitedMail",
         "type": "object"

@@ -1476,7 +1476,7 @@ def verify_chat(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace
             r = hub.post(
                 "/chat/ask",
                 json={
-                    "question": f"Canvas 作业什么时候交 {question_sentinel}",
+                    "question": f"Lab 5 截止提醒 什么时候交 {question_sentinel}",
                     "time_zone": "America/Los_Angeles",
                 },
                 timeout=60,
@@ -1493,11 +1493,29 @@ def verify_chat(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace
             )
             check(
                 answer["considered"] == 2,
-                f"two summarised mails considered ({answer['considered']})",
+                f"two mails searchable, the code mail left out ({answer['considered']})",
             )
             check(
-                hub.get("/models/usage").json()["calls"] == calls_before + 1,
-                "exactly one model call for the question",
+                hub.get("/models/usage").json()["calls"] == calls_before + 3,
+                "one model call per step: search, read, answer",
+            )
+            r = hub.post("/chat/ask", json={"question": "[fake:clear] Lab"}, timeout=60)
+            proposal = r.json().get("proposal") or {}
+            check(
+                r.status_code == 200 and proposal.get("count") == 1,
+                f"asked to clear, it proposes ({proposal.get('description')})",
+            )
+            open_before = hub.get("/triage").json()["open_count"]
+            again = hub.post("/chat/ask", json={"question": "[fake:clear] Lab"}, timeout=60)
+            check(
+                again.status_code == 200 and hub.get("/triage").json()["open_count"] == open_before,
+                f"and nothing changes before the user confirms (未处理 {open_before})",
+            )
+            done = hub.post("/triage/handle", json={"item_ids": proposal["item_ids"]})
+            check(
+                done.status_code == 200
+                and hub.get("/triage").json()["open_count"] == open_before - 1,
+                "confirming the proposal marks the mail handled",
             )
             r = hub.post("/chat/ask", json={"question": "[fake:500] 问"}, timeout=60)
             check(r.status_code == 502, f"a failed call -> {r.status_code} {r.json()['detail']}")
@@ -1509,11 +1527,15 @@ def verify_chat(_client: httpx.Client, data_dir: Path, _args: argparse.Namespace
             )
 
         sent = model_log.read_text(encoding="utf-8").split("\n---\n")
-        chats = [c for c in sent if "<mails>" in c]
-        check(len(chats) == 2, f"the fake model got two questions ({len(chats)})")
-        check("CIS 22A Lab 5" in chats[0], "the Lab mail's subject was sent")
-        check(otp not in chats[0] and "验证码" not in chats[0], "nothing of the code mail was sent")
-        check(body_sentinel not in chats[0], "no mail body was sent")
+        chats = [c for c in sent if "今天：" in c]
+        everything = "\n".join(chats)
+        check(len(chats) >= 5, f"the fake assistant got every step ({len(chats)})")
+        check("CIS 22A Lab 5" in everything, "the Lab mail's subject was sent")
+        check(body_sentinel in everything, "the mail it read was sent in full (ADR 0036)")
+        check(
+            otp not in everything and "验证码" not in everything,
+            "nothing of the code mail was sent",
+        )
         with contextlib.closing(sqlite3.connect(hub_dir / DB_FILENAME)) as db:
             tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
             holders = [

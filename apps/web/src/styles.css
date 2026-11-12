@@ -441,3 +441,10 @@ input.masked {
   margin: 0.25rem 0 0.5rem;
 }
 
+.chat-proposal {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+

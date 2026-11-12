@@ -13,6 +13,7 @@
 6. validate the output against a Pydantic model.
 """
 
+import json
 import logging
 import math
 import threading
@@ -20,7 +21,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import Engine, func, select
@@ -40,6 +41,10 @@ from apps.hub.models.provider import (
     ModelProvider,
     ProviderError,
     ProviderErrorKind,
+    Tool,
+    ToolCall,
+    ToolReply,
+    ToolRequest,
     Usage,
 )
 from packages.contracts.models import ModelUsage
@@ -254,6 +259,50 @@ class ModelClient:
         )
         return parsed, call_id
 
+    def call_tools(
+        self,
+        prompt: Prompt,
+        messages: list[dict[str, Any]],
+        tools: list[Tool],
+        *,
+        purpose: str,
+        ref: str,
+        max_output_tokens: int,
+    ) -> ToolReply:
+        """One tool-calling turn under the same reservation, budget and audit as call_json.
+        The prompt's system text is the instructions; `messages` are the turns so far."""
+        vendor = self.provider.vendor
+        sent = json.dumps(
+            [messages, [(t.name, t.description, t.parameters) for t in tools]],
+            ensure_ascii=False,
+        )
+        estimate = estimate_micro_usd(vendor, self.model, prompt.system, sent, max_output_tokens)
+        call_id = self._reserve(prompt, purpose, ref, estimate)
+        started = time.monotonic()
+
+        def latency() -> int:
+            return int((time.monotonic() - started) * 1000)
+
+        # A copy: the caller keeps appending turns after this call returns.
+        request = ToolRequest(self.model, prompt.system, list(messages), tools, max_output_tokens)
+        try:
+            reply = self.provider.complete_tools(request, self._key)
+        except ProviderError as exc:
+            self._settle_error(call_id, exc, estimate, latency())
+            if exc.kind in _UNAVAILABLE:
+                raise ModelUnavailable(_UNAVAILABLE[exc.kind]) from None
+            raise ModelFailed(exc.kind, str(exc)) from None
+        except Exception as exc:
+            failure = ProviderError(
+                ProviderErrorKind.transient, type(exc).__name__, maybe_billed=True
+            )
+            self._settle_error(call_id, failure, estimate, latency())
+            raise ModelFailed(ProviderErrorKind.transient, str(failure)) from None
+        self._settle_ok(
+            call_id, reply.usage, estimate, latency(), reply.finish_reason, reply.request_id
+        )
+        return reply
+
     def _reserve(self, prompt: Prompt, purpose: str, ref: str, estimate: int) -> str:
         """Insert first, then check: the INSERT takes SQLite's write lock, so a second
         writer (this process or another) waits and then sees this row in its sum.
@@ -408,6 +457,9 @@ __all__ = [
     "ModelProvider",
     "ModelUnavailable",
     "Prompt",
+    "Tool",
+    "ToolCall",
+    "ToolReply",
     "budget_micro_usd",
     "estimate_micro_usd",
     "has_key",

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { type ChatAnswer, createApi } from "./api";
 import { ChatBox, historyFor, MAX_HISTORY } from "./ChatBox";
 
-const answer = (text: string): ChatAnswer => ({ answer: text, cited: [], considered: 1, unsummarised: 0 });
+const answer = (text: string): ChatAnswer => ({ answer: text, cited: [], considered: 1, unsummarised: 0, proposal: null });
 
 describe("historyFor", () => {
   it("sends answered turns only, newest last, at most six", () => {

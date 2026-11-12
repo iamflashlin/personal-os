@@ -34,6 +34,9 @@ from apps.hub.models.provider import (
     JsonRequest,
     ProviderError,
     ProviderErrorKind,
+    ToolCall,
+    ToolReply,
+    ToolRequest,
     Usage,
 )
 
@@ -157,6 +160,46 @@ class LiteLLMProvider:
             http.close()
         return _reply(response)
 
+    def complete_tools(self, request: ToolRequest, api_key: str) -> ToolReply:
+        """One tool-calling turn, sent as plain OpenAI-compatible HTTP with httpx (ADR 0036):
+        litellm-core imports its MCP handler whenever `tools` is passed, and that needs the
+        `mcp` package, which is not installed. Same timeouts, no redirects, same mapping."""
+        import httpx
+
+        body: dict[str, Any] = {
+            "model": request.model,
+            "messages": [{"role": "system", "content": request.system}, *request.messages],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                }
+                for t in request.tools
+            ],
+            "max_tokens": request.max_output_tokens,
+            "temperature": request.temperature,
+        }
+        if self.vendor == "deepseek":
+            body["thinking"] = {"type": "disabled"}
+        url = self.base_url.rstrip("/") + "/chat/completions"
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(self.timeout_s, read=self.deadline_s),
+                follow_redirects=False,
+            ) as http:
+                response = http.post(url, json=body, headers={"Authorization": f"Bearer {api_key}"})
+        except httpx.TimeoutException:
+            raise ProviderError(ProviderErrorKind.transient, "timeout", maybe_billed=True) from None
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                ProviderErrorKind.transient, type(exc).__name__, maybe_billed=True
+            ) from None
+        return _tool_reply(response.status_code, response)
+
     def _reasoning_params(self, request: JsonRequest) -> dict[str, Any]:
         """DeepSeek reasons on its own for harder inputs; switch it off unless asked for."""
         if self.vendor == "deepseek" and not request.reasoning:
@@ -181,6 +224,52 @@ class LiteLLMProvider:
             max_retries=0,
             client=http,
         )
+
+
+def _http_error(status: int) -> ProviderError:
+    label = f"HTTP {status}"
+    if status in (401, 403):
+        return ProviderError(ProviderErrorKind.auth, label, status=status)
+    if status == 402:
+        return ProviderError(ProviderErrorKind.no_balance, label, status=status)
+    if status == 429:
+        return ProviderError(ProviderErrorKind.rate_limit, label, status=status)
+    if status >= 500:
+        return ProviderError(ProviderErrorKind.transient, label, status=status)
+    return ProviderError(ProviderErrorKind.bad_request, label, status=status)
+
+
+def _tool_reply(status: int, response: Any) -> ToolReply:
+    if status != 200:
+        raise _http_error(status)
+    try:
+        data = response.json()
+        first = data["choices"][0]
+        message = first["message"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise ProviderError(
+            ProviderErrorKind.bad_output, "unreadable reply", maybe_billed=True
+        ) from None
+    raw = data.get("usage") or {}
+    usage = Usage(
+        int(raw.get("prompt_tokens") or 0),
+        int(raw.get("prompt_cache_hit_tokens") or 0),
+        int(raw.get("completion_tokens") or 0),
+    )
+    calls: list[ToolCall] = []
+    for c in message.get("tool_calls") or []:
+        fn = (c or {}).get("function") or {}
+        if isinstance(fn.get("name"), str) and isinstance(c.get("id"), str):
+            calls.append(ToolCall(c["id"], fn["name"], str(fn.get("arguments") or "{}")))
+    content = message.get("content")
+    request_id = data.get("id")
+    return ToolReply(
+        content=content if isinstance(content, str) else "",
+        tool_calls=calls,
+        usage=usage,
+        finish_reason=str(first.get("finish_reason") or ""),
+        request_id=request_id[:100] if isinstance(request_id, str) else "",
+    )
 
 
 def _reply(response: Any) -> JsonReply:

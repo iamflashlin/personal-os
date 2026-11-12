@@ -229,7 +229,16 @@ export interface ChatAsk {
 
 export interface CitedMail {
   item: SyncedItem;
-  summary: EmailSummary;
+  summary: EmailSummary | null;
+}
+
+/** An action the assistant proposes; nothing happens until the user clicks 确认. */
+export interface ChatProposal {
+  action: "mark_handled";
+  item_ids: string[];
+  count: number;
+  description: string; // written by the Hub, not the model
+  sample: CitedMail[];
 }
 
 export interface ChatAnswer {
@@ -237,6 +246,7 @@ export interface ChatAnswer {
   cited: CitedMail[];
   considered: number;
   unsummarised: number;
+  proposal: ChatProposal | null;
 }
 
 /** In-app mail triage (ADR 0034): 已处理 marks, groups, batches with undo, rules. */

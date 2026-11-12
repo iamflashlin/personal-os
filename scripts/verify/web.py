@@ -605,6 +605,21 @@ def verify_summaries_view(
         cited.first.locator(".mail-head").click()
         check(chat.get_by_test_id("mail-detail").count() == 1, "a cited mail opens like any other")
         shot(page, out, "18-mail-chat")
+        chat.get_by_test_id("chat-input").fill("[fake:clear] Lab")
+        chat.get_by_test_id("chat-send").click()
+        card = chat.get_by_test_id("chat-proposal").last
+        card.wait_for(timeout=30_000)
+        check(
+            "标为已处理" in card.inner_text(),
+            f"asked to clear, it proposes ({card.inner_text()[:40]})",
+        )
+        card.get_by_test_id("chat-confirm").click()
+        card.get_by_test_id("chat-done").wait_for()
+        check("已处理 1 封" in card.inner_text(), "确认 marks it handled")
+        shot(page, out, "20-chat-proposal")
+        card.get_by_test_id("chat-undo").click()
+        card.get_by_text("已撤销").wait_for()
+        check(True, "and 撤销 puts it back")
         chat.get_by_test_id("chat-input").fill("[fake:500] 再问")
         chat.get_by_test_id("chat-send").click()
         chat.get_by_test_id("chat-error").first.wait_for(timeout=30_000)
