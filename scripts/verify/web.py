@@ -512,12 +512,16 @@ def verify_summaries_view(
             lab.get_by_text("重要").count() == 1 and lab.get_by_text("需处理").count() == 1,
             "the Lab mail is marked 重要 and 需处理",
         )
-        collapsed = mail.get_by_test_id("mail-collapsed")
+        digest = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）The Weekly")
+        check(digest.count() == 1, "the newsletter is listed with the rest, not collapsed")
+        check(digest.get_by_text("次要").count() == 1, "and it is marked 次要")
+        lines = mail.get_by_test_id("mail-title").all_inner_texts()
+        news = next((i for i, t in enumerate(lines) if "The Weekly" in t), None)
+        lab_at = next((i for i, t in enumerate(lines) if "CIS 22A" in t), None)
         check(
-            collapsed.inner_text() == "已收起 1 封没有价值的邮件",
-            f"the newsletter is collapsed: {collapsed.inner_text()}",
+            news is not None and lab_at is not None and news < lab_at,
+            f"mail is in time order, newest first ({lines})",
         )
-        check(mail.get_by_text("The Weekly Digest").count() == 0, "until expanded it is hidden")
         lab.locator(".mail-head").click()
         detail = lab.get_by_test_id("mail-detail")
         text = detail.inner_text()
@@ -526,18 +530,14 @@ def verify_summaries_view(
             "opening a mail shows the points first, then the original",
         )
         shot(page, out, "16-ai-summaries")
-        collapsed.click()
-        mail.get_by_text("（测试摘要）The Weekly").wait_for()  # title cut to 20 chars
-        check(True, "expanding shows the collapsed newsletter")
 
         open_view(page, "今日")
         actions = page.get_by_test_id("today-mail-actions")
         actions.get_by_text("（测试摘要）CIS 22A Lab 5").first.wait_for()
         check(True, "需要处理的邮件 lists the Canvas mail by its AI title")
         check(
-            "另有 1 封没有价值的未读邮件已收起"
-            in page.get_by_test_id("today-low-value").inner_text(),
-            "今日 collapses the newsletter",
+            page.get_by_test_id("today-mail").get_by_text("次要").count() == 1,
+            "今日 lists the newsletter too, marked 次要",
         )
         check(model_key not in page.content(), "the key is nowhere on 今日 either")
         shot(page, out, "17-today-ai")

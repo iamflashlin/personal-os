@@ -411,17 +411,17 @@ def test_mail_actions_without_a_deadline_are_newest_first(session: Session) -> N
     assert shown == ["Newest", "Middle", "Older"]
 
 
-def test_low_value_mail_is_collapsed_on_today(session: Session) -> None:
+def test_low_value_mail_is_listed_in_time_order_like_any_other(session: Session) -> None:
     box = source(session, "email", "163")
-    item(session, box, "email_message", "Lab 7", NOW - timedelta(hours=1))
-    item(session, box, "email_message", "Sale 50% off", NOW - timedelta(hours=2))
+    item(session, box, "email_message", "Lab 7", NOW - timedelta(hours=2))
+    item(session, box, "email_message", "Sale 50% off", NOW - timedelta(hours=1))
     summarise(session, "Lab 7", action="提交")
     summarise(session, "Sale 50% off", action="买", low_value=True)
     today = view(session)
-    assert titles(today.mail) == ["摘要：Lab 7"]
-    assert today.low_value_mail == 1
-    assert today.unread_mail == 1
-    assert "Sale" not in " ".join(titles(today.mail_actions))
+    assert titles(today.mail) == ["摘要：Sale 50% off", "摘要：Lab 7"]  # newest first
+    assert today.mail[0].summary is not None and today.mail[0].summary.low_value
+    assert today.unread_mail == 2 and today.low_value_mail == 0
+    assert "Sale" not in " ".join(titles(today.mail_actions))  # never asked to act on ads
 
 
 def test_an_old_prompt_gist_is_not_used_as_the_title(session: Session) -> None:

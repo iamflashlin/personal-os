@@ -29,17 +29,6 @@ export function mailTitle(row: MailRow): string {
   return row.item.title || "（无主题）";
 }
 
-/** Valuable mail first-class; mail the AI found worthless goes behind one line. */
-export function splitMail(rows: MailRow[]): { shown: MailRow[]; collapsed: MailRow[] } {
-  const shown: MailRow[] = [];
-  const collapsed: MailRow[] = [];
-  for (const row of rows) {
-    const s = row.summary;
-    (s && s.status === "ok" && s.low_value ? collapsed : shown).push(row);
-  }
-  return { shown, collapsed };
-}
-
 function errorText(err: unknown): string {
   if (err instanceof ApiError) return `（${err.status}）${err.detail}`;
   return String(err);
@@ -91,7 +80,7 @@ export function MailLine({ row, initiallyOpen = false }: { row: MailRow; initial
   const { item, summary } = row;
   const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
   const ok = summary?.status === "ok";
-  const level = ok ? IMPORTANCE[summary.importance] : null;
+  const level = ok ? (summary.low_value ? IMPORTANCE.low : IMPORTANCE[summary.importance]) : null;
   return (
     <li className={`memory mail-line${data.seen ? "" : " unread"}`} data-testid="mail-line">
       <button
@@ -121,7 +110,6 @@ export function MailLine({ row, initiallyOpen = false }: { row: MailRow; initial
 export function MailView({ api }: { api: Api }) {
   const [rows, setRows] = useState<MailRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showCollapsed, setShowCollapsed] = useState(false);
   const latest = useRef(0);
 
   const reload = useCallback(async () => {
@@ -168,36 +156,18 @@ export function MailView({ api }: { api: Api }) {
   if (rows === null) return alert || <p>加载中…</p>;
   if (rows.length === 0) return <p className="muted">还没有邮件。在“连接”页接入邮箱后，这里会列出整理好的邮件。</p>;
 
-  const { shown, collapsed } = splitMail(rows);
+  // All mail in time order, newest first; low-value mail is only marked 次要 (the user,
+  // 2026-11-11: "不要把那些无用的折叠起来，就跟正常的邮件按时间顺序放好").
   return (
     <section data-testid="mail-view">
       {alert}
       <h2>邮件（最新 {MAIL_LIMIT} 封）</h2>
       <p className="muted">每行是 AI 写的一句话：什么事、什么时候截止。点开先看要点，再看原文。</p>
       <ul className="memories">
-        {shown.map((r) => (
+        {rows.map((r) => (
           <MailLine key={r.item.id} row={r} />
         ))}
       </ul>
-      {collapsed.length > 0 && (
-        <>
-          <button
-            type="button"
-            className="collapsed-toggle"
-            data-testid="mail-collapsed"
-            onClick={() => setShowCollapsed((v) => !v)}
-          >
-            {showCollapsed ? "收起" : `已收起 ${collapsed.length} 封没有价值的邮件`}
-          </button>
-          {showCollapsed && (
-            <ul className="memories muted">
-              {collapsed.map((r) => (
-                <MailLine key={r.item.id} row={r} />
-              ))}
-            </ul>
-          )}
-        </>
-      )}
     </section>
   );
 }
