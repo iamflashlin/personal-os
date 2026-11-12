@@ -54,10 +54,26 @@ yourself (the user, 2026-11-11: "接下来都你自己合并", no exceptions) wi
 head commit:
 - every check in `gh pr checks <n>` passed on windows-latest and ubuntu-latest (none
   pending, failed or cancelled);
-- the `reviewer` subagent's latest verdict on that exact diff is APPROVE;
+- the `reviewer` subagent's latest verdict on that exact diff is APPROVE (or, in the
+  fast lane below, its one review's findings are all fixed);
 - the PR targets `main` (not stacked on an unmerged branch).
-This includes migrations, new dependencies, CI and rule changes. For those, the PR's
+The full rule includes migrations, new dependencies, CI and rule changes. For those, the PR's
 「给 Flash 看的」 says plainly what changed, so the user can still object afterwards.
+
+**Fast lane (ADR 0035, the user 2026-11-11: "同意").** It applies only when every changed
+file is under `apps/web/src/`, is `scripts/verify/web.py`, or is the PR's own
+`docs/tasks/<id>.md`. Even then the full rule applies if the diff changes
+`apps/web/src/api.ts`, adds or changes a Hub endpoint call, renders HTML
+(`innerHTML`/`dangerouslySetInnerHTML`), or adds browser storage or third-party requests.
+For a fast-lane PR:
+- the reviewer reviews once;
+- you fix every blocking and should-fix finding, re-run the gate and `verify/web.py`, and
+  merge without a second review round, only when CI is green on the new head sha;
+- nits go to the next card.
+
+Always, in either lane: before asking the user to try a page, walk the user's real task on
+the live Hub and look at a screenshot.
+
 Never use `--admin`, never delete branches when merging, never merge with a red check.
 
 After merging, update the always-on Hub with exactly
