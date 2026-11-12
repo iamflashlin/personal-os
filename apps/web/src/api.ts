@@ -239,6 +239,60 @@ export interface ChatAnswer {
   unsummarised: number;
 }
 
+/** In-app mail triage (ADR 0034): 已处理 marks, groups, batches with undo, rules. */
+export type HandledBy = "batch" | "manual" | "rule";
+
+export interface TriageGroup {
+  key: string;
+  kind: string;
+  label: string;
+  count: number;
+  item_ids: string[];
+  rule: unknown | null;
+  rule_description: string;
+}
+
+export interface HandledMark {
+  item_id: string;
+  by: HandledBy;
+  batch_id: string | null;
+  rule_id: string | null;
+}
+
+export interface TriageBatch {
+  id: string;
+  kind: string;
+  status: "applied" | "undone";
+  label: string;
+  description: string;
+  count: number;
+  item_ids: string[];
+  rule_id: string | null;
+  applied_at: string | null;
+  undone_at: string | null;
+  version: number;
+}
+
+export interface TriageRule {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  matched: number;
+  created_at: string;
+  version: number;
+}
+
+export interface TriageView {
+  open_count: number;
+  unread_count: number;
+  unsummarised: number;
+  groups: TriageGroup[];
+  handled: HandledMark[];
+  recent: TriageBatch[];
+  rules: TriageRule[];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -410,6 +464,25 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
             `/summaries/email?${new URLSearchParams({ item_ids: itemIds.slice(0, 200).join(",") })}`,
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
+    triage: (timeZone: string) =>
+      call<TriageView>(`/triage?${new URLSearchParams({ time_zone: timeZone })}`),
+    handleMail: (itemIds: string[], groupKey = "", saveRule = false) =>
+      call<TriageBatch>("/triage/handle", {
+        method: "POST",
+        body: JSON.stringify({ item_ids: itemIds, group_key: groupKey, save_rule: saveRule }),
+      }),
+    undoBatch: (batchId: string) =>
+      call<TriageBatch>(`/triage/batches/${encodeURIComponent(batchId)}/undo`, { method: "POST" }),
+    setMailHandled: (itemId: string, handled: boolean) =>
+      call<HandledMark>(`/triage/items/${encodeURIComponent(itemId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ handled }),
+      }),
+    setRule: (ruleId: string, enabled: boolean) =>
+      call<TriageRule>(`/triage/rules/${encodeURIComponent(ruleId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      }),
     askMail: (ask: ChatAsk) =>
       call<ChatAnswer>("/chat/ask", { method: "POST", body: JSON.stringify(ask) }),
     /** Sent once to the credential store (ADR 0025); the Hub never returns it. */

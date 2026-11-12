@@ -388,3 +388,45 @@ input.masked {
   color: #fff;
 }
 
+.triage {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.triage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.triage-groups {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.triage-group {
+  border-top: 1px solid var(--line);
+  padding: 0.5rem 0;
+}
+
+.triage-preview {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.mail-toggle {
+  margin: 0.25rem 0 0.5rem;
+}
+
