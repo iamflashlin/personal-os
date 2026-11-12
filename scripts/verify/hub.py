@@ -730,7 +730,40 @@ class FakeCanvas:
             yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
             route = urlsplit(path).path
             if route == "/api/v1/courses":
-                return 200, [{"id": 1, "name": "CIS 22A"}, {"id": 2, "name": "MATH 1B"}]
+                return 200, [
+                    {
+                        "id": 1,
+                        "name": "CIS 22A",
+                        "course_code": "F26 CIS D022A 54Y Beg Prog Method C++",
+                        "enrollments": [
+                            {
+                                "computed_current_score": 93.5,
+                                "computed_current_grade": "A",
+                                "computed_final_score": 40.0,
+                            }
+                        ],
+                    },
+                    {"id": 2, "name": "MATH 1B"},
+                ]
+            if route == "/api/v1/courses/1/assignment_groups":
+                return 200, [{"id": 5, "name": "Labs", "group_weight": 0}]
+            if route == "/api/v1/courses/1/modules":
+                return 200, [
+                    {
+                        "id": 1,
+                        "name": "Week 1",
+                        "position": 1,
+                        "items": [
+                            {
+                                "id": 91,
+                                "type": "File",
+                                "title": "Syllabus.pdf",
+                                "position": 1,
+                                "html_url": "https://canvas.example.edu/courses/1/modules/items/91",
+                            }
+                        ],
+                    }
+                ]
             if route == "/api/v1/courses/1/assignments":
                 return 200, [
                     {
@@ -738,6 +771,7 @@ class FakeCanvas:
                         "name": fake.title,
                         "due_at": overdue,
                         "points_possible": 20,
+                        "assignment_group_id": 5,
                         "html_url": "https://canvas.example.edu/courses/1/assignments/11",
                         "submission": {"workflow_state": "unsubmitted", "missing": True},
                     }
@@ -824,11 +858,22 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
             check(created.status_code == 201, "POST /integrations (canvas) -> 201")
             iid = created.json()["id"]
             items_url = f"/integrations/{iid}/items"
+
+            def work() -> list[dict[str, Any]]:
+                """Assignments and announcements (courses and materials are counted apart)."""
+                kinds = ("canvas_assignment", "canvas_announcement")
+                return [i for i in hub.get(items_url).json() if i["item_type"] in kinds]
+
             wait(
                 "the background sync read 2 assignments and 1 announcement",
-                lambda: len(hub.get(items_url).json()) == 3,
+                lambda: len(work()) == 3,
             )
-            items = {i["title"]: i for i in hub.get(items_url).json()}
+            kinds = sorted(i["item_type"] for i in hub.get(items_url).json())
+            check(
+                kinds.count("canvas_course") == 2 and kinds.count("canvas_material") == 1,
+                f"and the 2 courses and 1 course material ({kinds})",
+            )
+            items = {i["title"]: i for i in work()}
             lab = items["Lab 3 实验报告"]
             check(
                 lab["data"]["missing"] is True and lab["data"]["course"] == "CIS 22A",
@@ -842,21 +887,21 @@ def verify_canvas(_client: httpx.Client, data_dir: Path, _args: argparse.Namespa
                 "a manual sync finished",
                 lambda: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
             )
-            titles = sorted(i["title"] for i in hub.get(items_url).json())
+            titles = sorted(i["title"] for i in work())
             check(
                 titles == ["Lab 3 实验报告 - 延期", "Midterm moved", "Quiz 5"],
                 "updated, no duplicate",
             )
 
             canvas.quiz_deleted = True
-            before = len(hub.get(items_url).json())
+            before = len(work())
             for attempt in ("first", "second"):  # removal needs two complete syncs in a row
                 job = hub.post(f"/integrations/{iid}/sync").json()["job_id"]
                 wait(
                     f"the {attempt} sync after the deletion finished",
                     lambda job=job: hub.get(f"/jobs/{job}").json()["status"] == "succeeded",
                 )
-                titles = sorted(i["title"] for i in hub.get(items_url).json())
+                titles = sorted(i["title"] for i in work())
                 if attempt == "first":
                     check("Quiz 5" in titles, "missing once: kept for now")
             check("Quiz 5" not in titles, "missing twice: the deleted quiz was removed here too")

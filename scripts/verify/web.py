@@ -352,6 +352,25 @@ def verify_canvas_view(
         key = f"{owner}:{name}"
         check(keyring.get_password(service, key) == token, "the token is in Credential Manager")
         shot(page, out, "12-canvas")
+        open_view(page, "成绩")
+        card = page.get_by_test_id("gpa-course").filter(has_text="CIS D022A")
+        card.wait_for(timeout=30_000)
+        text = card.inner_text()
+        check(
+            "93.5" in text and card.locator(".gpa-grade").inner_text() == "A",
+            f"成绩 shows the Canvas score and letter ({text[:60]!r})",
+        )
+        check(card.get_by_test_id("gpa-missing").count() == 1, "and the missing lab")
+        card.get_by_text("课件").click()
+        check(card.get_by_text("Syllabus.pdf").count() == 1, "and the course materials")
+        shot(page, out, "21-gpa")
+        page.set_viewport_size({"width": 390, "height": 900})
+        overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not overflow, "成绩 fits a phone screen (no sideways scrolling)")
+        shot(page, out, "21b-gpa-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
+        open_view(page, "连接")
+        page.get_by_test_id("integrations").get_by_text("Canvas").first.wait_for()
         (row,) = [
             r
             for r in page.get_by_test_id("integrations").get_by_role("listitem").all()

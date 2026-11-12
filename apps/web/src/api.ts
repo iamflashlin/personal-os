@@ -303,6 +303,53 @@ export interface TriageView {
   rules: TriageRule[];
 }
 
+/** GPA management from Canvas (ADR 0037). */
+export interface GroupStatus {
+  name: string;
+  weight: number;
+  earned: number;
+  possible: number;
+  percent: number | null;
+  graded: number;
+  total: number;
+}
+
+export interface WorkItem {
+  item_id: string;
+  title: string;
+  due: string | null;
+  points: number | null;
+  group: string;
+  state: string;
+  score: number | null;
+  url: string;
+}
+
+export interface CourseGpa {
+  integration_item_id: string;
+  code: string;
+  name: string;
+  url: string;
+  current_score: number | null;
+  current_grade: string;
+  grade_points: number | null;
+  weighted: boolean;
+  groups: GroupStatus[];
+  completion: { due_so_far: number; done: number; missing: number; late: number };
+  missing: WorkItem[];
+  upcoming: WorkItem[];
+  recent: WorkItem[];
+  lines: { label: string; target: number; needed: number | null; status: string }[];
+  materials: { title: string; module: string; kind: string; url: string }[];
+}
+
+export interface GpaView {
+  courses: CourseGpa[];
+  gpa: number | null;
+  gpa_note: string;
+  generated_at: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -474,6 +521,7 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
             `/summaries/email?${new URLSearchParams({ item_ids: itemIds.slice(0, 200).join(",") })}`,
           ),
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
+    gpa: () => call<GpaView>("/gpa"),
     triage: (timeZone: string) =>
       call<TriageView>(`/triage?${new URLSearchParams({ time_zone: timeZone })}`),
     handleMail: (itemIds: string[], groupKey = "", saveRule = false) =>

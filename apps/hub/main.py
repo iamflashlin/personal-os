@@ -22,6 +22,7 @@ from apps.hub.credentials import api as credentials_api
 from apps.hub.credentials import service as credentials
 from apps.hub.devices import api as devices_api
 from apps.hub.devices import service as devices
+from apps.hub.gpa import api as gpa_api
 from apps.hub.integrations import api as integrations_api
 from apps.hub.integrations import service as integrations
 from apps.hub.jobs import api as jobs_api
@@ -182,6 +183,7 @@ def create_app(
     app.include_router(models_api.build_router())
     app.include_router(summaries_api.build_router())
     app.include_router(chat_api.build_router())
+    app.include_router(gpa_api.build_router())
     app.include_router(triage_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
