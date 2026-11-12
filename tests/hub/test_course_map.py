@@ -1,6 +1,7 @@
 # ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation)
 """The course knowledge map (ADR 0041): structure, assessment links, mastery, exam maps."""
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 
 from apps.hub.academic.maps import sections_in
 from apps.hub.core.settings import Settings
@@ -314,7 +315,8 @@ def test_sections_without_numbers_link_their_work_by_title(hub) -> None:
     for ext, title, pts, score in [
         ("h1", "Homework - Monetary  Policy", 10, 9),  # Canvas titles keep stray spaces
         ("h2", "Homework - Financial Crisis, Panics, and Unconventional Monetary Policy", 10, 6),
-        ("e2", "Exam #2 - Please don't forget to use a Chrome web browser.", 30, None),
+        # a stray double space: still the exam, never practice for a broad section pattern
+        ("e2", "Exam #2 - Please  don't forget to use a Chrome web browser. Monetary", 30, 12),
     ]:
         item(
             engine,
@@ -336,14 +338,14 @@ def test_sections_without_numbers_link_their_work_by_title(hub) -> None:
                 "kind": "section",
                 "parent": "p2",
                 "title": "Monetary Policy",
-                "match": ["Homework - Monetary Policy", "Monetary Policy.doc", "Intro: Monetary*"],
+                "match": ["Homework -  Monetary Policy", "Monetary Policy.doc", "Intro: Monetary*"],
             },
             {
                 "key": "U8",
                 "kind": "section",
                 "parent": "p2",
                 "title": "Financial Crisis",
-                "match": ["*Financial Crisis, Panics*"],
+                "match": ["*Financial Crisis, Panics*", "*Monetary"],
             },
         ],
         "exams": [{"name": "Exam 2", "scope": ["p2"], "match": "Exam *2 - Please*"}],
@@ -361,6 +363,22 @@ def test_sections_without_numbers_link_their_work_by_title(hub) -> None:
     e = client.get("/academic/maps/ECON C2002/exams/Exam 2").json()
     assert e["suggested"] == ["U8", "U7"]
     assert [r["title"] for r in e["exam"]["resources"]] == ["Exam #2 Study Guide with video"]
+    assert e["exam"]["grade"]["percent"] == 40.0  # found despite the double space
+
+
+def test_a_map_saved_before_title_patterns_still_reads(hub) -> None:
+    client, engine = hub
+    seed(engine)
+    client.put("/academic/maps/MATH D001A", json=course_map())
+    with engine.begin() as con:
+        row = con.execute(text("select id, concepts from course_map")).one()
+        old = [{k: v for k, v in c.items() if k != "match"} for c in json.loads(row.concepts)]
+        con.execute(
+            text("update course_map set concepts = :c where id = :i"),
+            {"c": json.dumps(old), "i": row.id},
+        )
+    by = {c["key"]: c for c in client.get("/academic/maps/MATH D001A").json()["concepts"]}
+    assert by["3.4"]["mastery"]["state"] == "needs_review"
 
 
 def test_title_patterns_are_checked(hub) -> None:

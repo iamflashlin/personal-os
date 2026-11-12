@@ -141,13 +141,18 @@ def sections_in(title: str, order: list[str]) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def _norm(title: str) -> str:
+    """The form every title pattern is matched on: Canvas titles keep stray spaces."""
+    return " ".join(title.split())[:TITLE_MAX]
+
+
 def _linker(concepts: list[ConceptIn]) -> Callable[[str], list[str]]:
     """title -> the section keys it belongs to: by number, then by the sections' patterns."""
     order = [c.key for c in concepts if c.kind == "section"]
     patterns = [(c.key, [title_pattern(p) for p in c.match]) for c in concepts if c.match]
 
     def keys(title: str) -> list[str]:
-        title = " ".join(title.split())[:TITLE_MAX]
+        title = _norm(title)
         found = sections_in(title, order)
         found.extend(k for k, ps in patterns if any(p.fullmatch(title) for p in ps))
         return list(dict.fromkeys(found))
@@ -215,7 +220,7 @@ def _build(
     order = [c.key for c in concepts if c.kind == "section"]
     assignments = _canvas(session, actor, "canvas_assignment", row.code)
     materials = _canvas(session, actor, "canvas_material", row.code)
-    exam_titles = [title_pattern(e.match) for e in exams if e.match]
+    exam_titles = [title_pattern(_norm(e.match)) for e in exams if e.match]
     linked: dict[str, list[AssessmentEvidence]] = {k: [] for k in order}
     resources: dict[str, list[Resource]] = {k: [] for k in order}
     keys_of = _linker(concepts)
@@ -224,7 +229,7 @@ def _build(
         for key in keys_of(m.title):
             resources[key].append(res)
     for a in assignments:
-        title = a.title.strip()[:TITLE_MAX]
+        title = _norm(a.title)
         if any(p.fullmatch(title) for p in exam_titles):
             continue  # an exam covers its scope; it is shown on the exam, not as practice
         for key in keys_of(title):
@@ -270,8 +275,8 @@ def _build(
         scope = [k for k in dict.fromkeys(scope) if k in order]
         grade = None
         if e.match:
-            p = title_pattern(e.match)
-            graded = [_evidence(a) for a in assignments if p.fullmatch(a.title.strip()[:TITLE_MAX])]
+            p = title_pattern(_norm(e.match))
+            graded = [_evidence(a) for a in assignments if p.fullmatch(_norm(a.title))]
             grade = next((g for g in graded if g.score is not None), None)
         days = None
         if e.at is not None:

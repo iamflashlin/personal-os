@@ -37,8 +37,9 @@ class ConceptIn(BaseModel):
     @field_validator("match")
     @classmethod
     def _patterns(cls, v: list[str]) -> list[str]:
+        v = [" ".join(p.split()) for p in v]  # titles are matched with single spaces
         for p in v:
-            if not p.strip() or len(p) > 120:
+            if not p or len(p) > 120:
                 raise ValueError("a title pattern has 1 to 120 characters")
             check_pattern(p)
         return v
@@ -100,6 +101,8 @@ class MapIn(BaseModel):
                 if p not in known:
                     raise ValueError(f"{c.key}: unknown prerequisite {p}")
         kinds = {c.key: c.kind for c in self.concepts}
+        if sum(len(c.match) for c in self.concepts) > 200:
+            raise ValueError("at most 200 title patterns in a map")
         names = [e.name for e in self.exams]
         if len(set(names)) != len(names):
             raise ValueError("an exam name appears twice")
