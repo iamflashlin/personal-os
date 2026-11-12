@@ -83,7 +83,9 @@ class _Assignment:
             return "late" if d.get("late") else "submitted"
         due = self.item.starts_at
         if due is not None and due < now:
-            return "missing"  # past due, nothing handed in
+            # Past due with nothing handed in, but Canvas does not call it missing: in-class,
+            # paper or no-submission work (exams, participation) that is not graded yet.
+            return "awaiting_grade"
         return "upcoming" if due is not None else "open"
 
 
@@ -110,9 +112,10 @@ def _graded_at(a: _Assignment) -> datetime | None:
     if not isinstance(raw, str):
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
+    return at if at.tzinfo is not None else at.replace(tzinfo=UTC)
 
 
 def _line(
@@ -127,14 +130,15 @@ def _line(
             else "out_of_reach"
         )
         return GradeLine(label=label, target=target, needed=None, status=status)
-    needed = (target * (done_weight + left) / 100 - done_value) / left * 100
+    # Rounded first, so the status agrees with the number shown (100.0 is reachable).
+    needed = round((target * (done_weight + left) / 100 - done_value) / left * 100, 1)
     if needed <= 0:
         status = "safe"
     elif needed <= 100:
         status = "reachable"
     else:
         status = "out_of_reach"
-    return GradeLine(label=label, target=target, needed=round(needed, 1), status=status)
+    return GradeLine(label=label, target=target, needed=needed, status=status)
 
 
 def _course_view(
@@ -147,13 +151,24 @@ def _course_view(
     ]
     names = {int(g["id"]): str(g.get("name") or "") for g in raw_groups}
     groups: list[GroupStatus] = []
-    done_value = done_weight = left = 0.0  # in "percent of the course" units
+    # In "percent of the course" units: graded and missing work (missing counts as 0, as
+    # Canvas usually scores it), and what is still open to be graded.
+    graded_w = missing_w = left = computed = 0.0
     for g in raw_groups:
         members = [a for a in assignments if a.data.get("group_id") == g["id"] and a.counts]
         graded = [a for a in members if a.score is not None and a.points]
         earned = sum(a.score or 0.0 for a in graded)
         possible = sum(a.points or 0.0 for a in graded)
-        pending = [a for a in members if a.score is None and a.points]
+        missing_pts = sum(
+            a.points or 0.0
+            for a in members
+            if a.score is None and a.data.get("missing") and a.points
+        )
+        open_pts = sum(
+            a.points or 0.0
+            for a in members
+            if a.score is None and not a.data.get("missing") and a.points
+        )
         percent = round(earned / possible * 100, 2) if possible else None
         weight = float(g.get("weight") or 0.0)
         groups.append(
@@ -167,36 +182,43 @@ def _course_view(
                 total=len(members),
             )
         )
-        if weighted:
-            if percent is not None:
-                # graded share of the group counts now; the ungraded share is still open
-                share = possible / (possible + sum(a.points or 0.0 for a in pending))
-                done_value += weight * share * percent / 100
-                done_weight += weight * share
-                left += weight * (1 - share)
-            elif weight > 0:
-                left += weight
+        group_pts = possible + missing_pts + open_pts
+        if weighted and weight > 0:
+            if group_pts:
+                graded_w += weight * possible / group_pts
+                missing_w += weight * missing_pts / group_pts
+                left += weight * open_pts / group_pts
+                computed += weight * earned / group_pts
+            else:
+                left += weight  # nothing listed yet (e.g. the final exam): all still open
     if not weighted:
         counted = [a for a in assignments if a.counts and a.points]
-        graded_points = sum(a.points or 0.0 for a in counted if a.score is not None)
-        earned_points = sum(a.score or 0.0 for a in counted if a.score is not None)
-        pending_points = sum(a.points or 0.0 for a in counted if a.score is None)
-        total = graded_points + pending_points
+        graded_pts = sum(a.points or 0.0 for a in counted if a.score is not None)
+        earned_pts = sum(a.score or 0.0 for a in counted if a.score is not None)
+        missing_pts = sum(
+            a.points or 0.0 for a in counted if a.score is None and a.data.get("missing")
+        )
+        open_pts = sum(
+            a.points or 0.0 for a in counted if a.score is None and not a.data.get("missing")
+        )
+        total = graded_pts + missing_pts + open_pts
         if total:
-            done_value = earned_points / total * 100
-            done_weight = graded_points / total * 100
-            left = pending_points / total * 100
-    # Canvas's current score is the authority for "so far" (it applies the course's own
-    # rules, such as dropped or muted work); our sums only say how much is still ungraded.
+            graded_w, missing_w = graded_pts / total * 100, missing_pts / total * 100
+            left, computed = open_pts / total * 100, earned_pts / total * 100
+    # Canvas's current score is the authority for the graded part: it applies the course's
+    # own rules (dropped or muted work). It re-weights over the groups with graded work, so
+    # scaling it by our graded share is an approximation. Missing work adds 0.
     canvas_score = data.get("current_score")
-    if isinstance(canvas_score, int | float) and not isinstance(canvas_score, bool) and done_weight:
-        done_value = float(canvas_score) * done_weight / 100
+    if isinstance(canvas_score, int | float) and not isinstance(canvas_score, bool) and graded_w:
+        computed = float(canvas_score) * graded_w / 100
+    done_value, done_weight = computed, graded_w + missing_w
     due_so_far = [
         a for a in assignments if a.counts and a.item.starts_at and a.item.starts_at < now
     ]
     states = [a.state(now) for a in due_so_far]
+    states = [st for st in states if st != "awaiting_grade"]  # neither done nor missing
     completion = Completion(
-        due_so_far=len(due_so_far),
+        due_so_far=len(states),
         done=sum(1 for s in states if s in ("graded", "submitted", "late")),
         missing=sum(1 for s in states if s == "missing"),
         late=sum(1 for s in states if s == "late"),
@@ -238,7 +260,9 @@ def _course_view(
         missing=missing,
         upcoming=upcoming,
         recent=recent,
-        lines=[
+        lines=[]
+        if done_weight + left <= 0
+        else [
             _line(f"{letter}（{int(t)}%）", t, done_value, done_weight, left) for letter, t in LINES
         ],
         materials=[

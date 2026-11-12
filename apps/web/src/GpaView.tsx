@@ -10,6 +10,7 @@ const STATE_LABEL: Record<string, string> = {
   excused: "免做",
   upcoming: "未交",
   open: "未交",
+  awaiting_grade: "待评分",
 };
 
 const LINE_STATUS: Record<string, string> = {
@@ -87,8 +88,8 @@ function Course({ c }: { c: CourseGpa }) {
           <tbody>
             {c.groups
               .filter((g) => g.total > 0 || g.weight > 0)
-              .map((g) => (
-                <tr key={g.name}>
+              .map((g, i) => (
+                <tr key={`${i}-${g.name}`}>
                   <td>{g.name}</td>
                   <td>{c.weighted ? `${g.weight}%` : ""}</td>
                   <td>{g.percent !== null ? `${g.percent}%` : "—"}</td>
@@ -198,11 +199,11 @@ export function GpaView({ api }: { api: Api }) {
   return (
     <div className="gpa" data-testid="gpa">
       <p className="headline">
-        <strong>本学期 GPA 估算：{view.gpa ?? "—"}</strong>
+        <strong>本学期 GPA 估算：{view.gpa !== null ? view.gpa.toFixed(2) : "—"}</strong>
         <span className="muted"> {view.gpa_note}</span>
       </p>
       <p className="muted">
-        分数是 Canvas 的“当前分”（只算已评分的作业）。分数线（A 90% 等）是常见标准，以教学大纲为准。
+        分数是 Canvas 的“当前分”（只算已评分的作业）。“剩下的平均要多少”是估算：缺交的作业按 0 分算，分数线（A 90% 等）是常见标准，以教学大纲为准。
       </p>
       {view.courses.map((c) => (
         <Course key={c.integration_item_id} c={c} />
