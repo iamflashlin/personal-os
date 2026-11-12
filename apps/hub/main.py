@@ -184,11 +184,8 @@ def create_app(
     app.include_router(models_api.build_router())
     app.include_router(summaries_api.build_router())
     app.include_router(chat_api.build_router())
-<<<<<<< HEAD
     app.include_router(gpa_api.build_router())
-=======
     app.include_router(schedule_api.build_router())
->>>>>>> 6579f25 (wip: schedule hub (T-0043))
     app.include_router(triage_api.build_router())
     if web_dist is not None and (web_dist / "index.html").is_file():
         # Mounted last, so every API route above wins over a same-named static path. A wrong
