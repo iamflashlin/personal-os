@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { type CourseGpa, createApi } from "./api";
-import { byModule, GpaView } from "./GpaView";
+import { byModule, GpaView, keepLine, needText, shortCode } from "./GpaView";
 
 const course: CourseGpa = {
   integration_item_id: "c1",
@@ -50,6 +50,33 @@ describe("GpaView", () => {
     await api.gpa();
     expect(paths).toEqual(["/gpa"]);
     expect(renderToStaticMarkup(createElement(GpaView, { api }))).toContain("加载中");
+  });
+});
+
+describe("the course line", () => {
+  it("shortens course codes", () => {
+    expect(shortCode("MATH D001A")).toBe("MATH 1A");
+    expect(shortCode("CIS D022A")).toBe("CIS 22A");
+    expect(shortCode("ECON C2002")).toBe("ECON 2002");
+    expect(shortCode("Something else")).toBe("Something else");
+  });
+
+  it("says what the rest must average to keep the letter", () => {
+    const lines = [
+      { label: "A（94%）", target: 94, needed: 89.1, status: "reachable" },
+      { label: "A-（90%）", target: 90, needed: 81.8, status: "reachable" },
+    ];
+    expect(keepLine({ letter: "A", lines })).toBe("89.1%");
+    expect(keepLine({ letter: "A-", lines })).toBe("81.8%");
+    expect(keepLine({ letter: "A", lines: [{ ...lines[0], status: "safe" }] })).toBe("已稳");
+    expect(keepLine({ letter: "A", lines: [{ ...lines[0], status: "out_of_reach" }] })).toBe(
+      "89.1%，很难",
+    );
+    expect(needText({ ...lines[0], needed: -12.3, status: "safe" })).toBe("已稳"); // no negative %
+    expect(needText({ ...lines[0], needed: null, status: "done" })).toBe("已稳");
+    expect(needText({ ...lines[0], needed: null, status: "out_of_reach" })).toBe("达不到");
+    expect(keepLine({ letter: "B", lines })).toBe("");
+    expect(keepLine({ letter: "", lines })).toBe("");
   });
 });
 
