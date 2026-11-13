@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from apps.hub.briefing import service as briefing
+from apps.hub.triage import service as triage
 from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
 from apps.hub.integrations.models import IntegrationRow, SyncedItemRow
@@ -494,8 +495,6 @@ def test_mail_whose_deadline_passed_needs_no_action(session: Session) -> None:
 
 
 def test_mail_marked_handled_leaves_today(session: Session) -> None:
-    from apps.hub.triage import service as triage
-
     box = source(session, "email", "163")
     for n, title in enumerate(["Done", "Still to do"]):
         item(session, box, "email_message", title, NOW - timedelta(hours=2, minutes=n))
@@ -510,3 +509,54 @@ def test_mail_marked_handled_leaves_today(session: Session) -> None:
     assert after.unread_mail == 1 and "1 封未读邮件" in after.headline
     triage.set_item(session, OWNER, done.ref, False)  # back to 未处理: it returns
     assert len(view(session).mail_actions) == 2
+
+
+def test_the_deadline_is_judged_on_the_users_own_date(session: Session) -> None:
+    # 20:00 in LA on 11/11 is already 11/12 in UTC: a deadline of 11/11 is still today.
+    box = source(session, "email", "163")
+    item(session, box, "email_message", "Due tonight", NOW - timedelta(hours=2), seen=True)
+    summarise(session, "Due tonight", action="交作业", deadline=date(2026, 11, 11))
+    late = datetime(2026, 11, 11, 20, 0, tzinfo=LA).astimezone(UTC)
+    assert late.date() == date(2026, 11, 12)
+    actions = briefing.today(session, OWNER, late, LA).mail_actions
+    assert titles(actions) == ["摘要：Due tonight"]
+
+
+def test_mail_a_rule_handles_leaves_today_until_the_rule_is_off(session: Session) -> None:
+    from apps.hub.triage.models import TriageRuleRow
+
+    box = source(session, "email", "163")
+    for n, title in enumerate(["Newsletter weekly", "Lab due"]):
+        item(session, box, "email_message", title, NOW - timedelta(hours=2, minutes=n))
+        summarise(session, title, action="看看")
+    rule = TriageRuleRow(
+        owner_id="local",
+        source="test",
+        version=1,
+        name="newsletters",
+        selector={"all_of": [{"kind": "text", "field": "subject", "value": "Newsletter"}]},
+        enabled=True,
+    )
+    session.add(rule)
+    session.flush()
+    on = view(session)
+    assert titles(on.mail_actions) == ["摘要：Lab due"] and on.unread_mail == 1
+    triage.set_rule_enabled(session, OWNER, rule.id, False, date(2026, 11, 11))
+    off = view(session)
+    assert len(off.mail_actions) == 2 and off.unread_mail == 2
+
+
+def test_another_owners_handled_mark_changes_nothing_here(session: Session) -> None:
+    from apps.hub.triage.models import MailTriageStateRow
+
+    box = source(session, "email", "163")
+    item(session, box, "email_message", "Mine", NOW - timedelta(hours=1))
+    summarise(session, "Mine", action="回复")
+    mine = view(session).mail[0].ref
+    session.add(
+        MailTriageStateRow(
+            owner_id="other", source="test", version=1, item_id=mine, state="handled"
+        )
+    )
+    session.flush()
+    assert len(view(session).mail_actions) == 1 and view(session).unread_mail == 1
