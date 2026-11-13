@@ -27,11 +27,17 @@ export interface MailRow {
   handled?: HandledBy; // in-app 已处理 (ADR 0034); the mailbox itself is not changed
 }
 
-const IMPORTANCE: Record<EmailSummary["importance"], { text: string; className: string }> = {
-  high: { text: "重要", className: "badge submission-缺交" },
-  normal: { text: "", className: "" },
-  low: { text: "次要", className: "badge" },
-};
+/** The one word at the end of a mail's row, most telling first: done, to do, how much it
+ * matters. Unread is the bold title, so it needs no word of its own. */
+export function stateWord(row: MailRow): { text: string; tone: "" | "bad" | "faint" } {
+  const s = row.summary;
+  if (row.handled) return { text: row.handled === "rule" ? "已处理·规则" : "已处理", tone: "faint" };
+  if (!s || s.status !== "ok") return { text: "", tone: "" };
+  if (s.action_needed && !s.low_value) return { text: "需处理", tone: "bad" };
+  if (s.low_value || s.importance === "low") return { text: "次要", tone: "faint" };
+  if (s.importance === "high") return { text: "重要", tone: "bad" };
+  return { text: "", tone: "" };
+}
 
 export type MailFilter = "all" | "open" | "unread" | "action";
 
@@ -147,45 +153,48 @@ function MailLineView({
 }) {
   const [open, setOpen] = useState(initiallyOpen);
   const { item, summary } = row;
-  const data = item.data as { from_name?: string; from_address?: string; seen?: boolean };
   const ok = summary?.status === "ok";
-  const level = ok ? (summary.low_value ? IMPORTANCE.low : IMPORTANCE[summary.importance]) : null;
+  const state = stateWord(row);
+  const todo = needsAction(row) ? (summary?.action ?? "") : "";
   return (
-    <li className={`memory mail-line${data.seen ? "" : " unread"}`} data-testid="mail-line">
-      <button
-        type="button"
-        className="mail-head"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        {level?.text && <span className={level.className}>{level.text}</span>}
-        <span className="memory-body" data-testid="mail-title">
-          {mailTitle(row)}
-        </span>
-        {ok && summary.action_needed && <span className="badge submission-缺交">需处理</span>}
-        {!data.seen && !row.handled && <span className="badge unread">未读</span>}
-        {row.handled && (
-          <span className="badge" data-testid="mail-handled">
-            {row.handled === "rule" ? "已处理·规则" : "已处理"}
+    <li className={`mail-line${isUnread(row) ? " unread" : ""}${open ? " open" : ""}`} data-testid="mail-line">
+      <button type="button" className="mail-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="m-when">{when(item)}</span>
+        <span className="m-what">
+          <span className="m-title" data-testid="mail-title">
+            {mailTitle(row)}
           </span>
-        )}
-        <span className="muted">{when(item)}</span>
+          {isUnread(row) && <span className="sr-only">，未读</span>}
+          {todo && (
+            <span className="m-todo">
+              {todo}
+              {summary?.deadline_text && `，截止 ${summary.deadline_text}`}
+            </span>
+          )}
+          {summary && !ok && (
+            <span className="m-todo" data-testid="summary-state">
+              {SUMMARY_LABEL[summary.status]}
+            </span>
+          )}
+        </span>
+        <span className={`m-state ${state.tone}`} data-testid={row.handled ? "mail-handled" : undefined}>
+          {state.text}
+        </span>
       </button>
-      {summary && !ok && (
-        <p className="muted summary" data-testid="summary-state">
-          {SUMMARY_LABEL[summary.status]}
-        </p>
-      )}
-      {open && <MailDetail row={row} />}
-      {open && onHandled && (
-        <button
-          type="button"
-          className="mail-toggle"
-          data-testid="mail-toggle-handled"
-          onClick={() => onHandled(item.id, !row.handled)}
-        >
-          {row.handled ? "改回未处理" : "标为已处理"}
-        </button>
+      {open && (
+        <div className="m-open">
+          <MailDetail row={row} />
+          {onHandled && (
+            <button
+              type="button"
+              className="g-more"
+              data-testid="mail-toggle-handled"
+              onClick={() => onHandled(item.id, !row.handled)}
+            >
+              {row.handled ? "改回未处理" : "标为已处理"}
+            </button>
+          )}
+        </div>
       )}
     </li>
   );
@@ -308,7 +317,7 @@ export function MailView({ api }: { api: Api }) {
   // All mail in time order, newest first; low-value mail is only marked 次要 (the user,
   // 2026-11-11: "不要把那些无用的折叠起来，就跟正常的邮件按时间顺序放好").
   return (
-    <section data-testid="mail-view">
+    <div className="mail" data-testid="mail-view">
       {alert}
       <ChatBox
         api={api}
@@ -335,11 +344,7 @@ export function MailView({ api }: { api: Api }) {
           {triageError}
         </p>
       )}
-      <h2>
-        邮件（共 {capped ? "至少 " : ""}
-        {counts.all} 封，未读 {counts.unread} 封）
-      </h2>
-      <div className="mail-filters" role="group" aria-label="筛选邮件">
+      <div className="seg" role="group" aria-label="筛选邮件">
         {FILTERS.map((f) => (
           <button
             key={f.key}
@@ -349,18 +354,17 @@ export function MailView({ api }: { api: Api }) {
             data-testid={`mail-filter-${f.key}`}
             onClick={() => setFilter(f.key)}
           >
-            {f.label} {counts[f.key]}
+            {f.label} {f.key === "all" && capped ? `${counts[f.key]}+` : counts[f.key]}
           </button>
         ))}
       </div>
-      <p className="muted">每行是 AI 写的一句话：什么事、什么时候截止。点开先看要点，再看原文。</p>
       {shown.length === 0 && <p className="muted">这里没有邮件。</p>}
-      <ul className="memories">
+      <ul className="m-list">
         {shown.map((r) => (
           <MailLine key={r.item.id} row={r} onHandled={onHandled} />
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
 

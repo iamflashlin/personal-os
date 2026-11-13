@@ -669,11 +669,6 @@ ul.memories {
 
 /* ---------- mail ---------- */
 
-.summary {
-  margin: 0.25rem 0 0;
-  flex-basis: 100%;
-  text-align: left;
-}
 
 .mail-head {
   all: unset;
@@ -722,8 +717,123 @@ ul.memories {
   color: var(--primary);
 }
 
-.mail-toggle {
-  margin: 0.25rem 0 0.5rem;
+
+/* ---------- mail page (T-0059) ----------
+   One row per mail: when, what (with what it asks for), one state word. Unread is bold.
+   Keyed on .mail-line (also used by the chat box); 简报's rows are .digest-item. */
+
+.mail {
+  max-width: 880px;
+}
+
+.mail .seg {
+  margin-top: 18px;
+}
+
+.m-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.mail-line + .mail-line {
+  border-top: 1px solid var(--border);
+}
+
+.mail-line > .mail-head {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) 5.5rem;
+  align-items: baseline;
+  gap: 0 16px;
+  box-sizing: border-box;
+  padding: 12px 20px;
+}
+
+.mail-line > .mail-head:hover,
+.mail-line.open > .mail-head {
+  background: var(--surface-2);
+}
+
+.mail-line > .mail-head:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.m-when {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mail-line.unread .m-title {
+  font-weight: 650;
+}
+
+.m-todo {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 0.88rem;
+}
+
+.m-state {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.m-state.bad {
+  color: var(--danger);
+}
+
+.m-state.faint {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.m-open {
+  padding: 4px 20px 16px calc(20px + 6.5rem + 16px);
+  background: var(--surface-2);
+}
+
+.memories .m-open {
+  padding-left: 20px;
+}
+
+.memories .mail-line {
+  list-style: none;
+}
+
+.m-open .mail-detail {
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+
+@media (max-width: 720px) {
+  .mail-line > .mail-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .m-when {
+    grid-column: 1 / -1;
+  }
+
+  .m-open {
+    padding-left: 20px;
+  }
 }
 
 /* ---------- chat ---------- */

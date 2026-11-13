@@ -625,7 +625,7 @@ def verify_email_view(
         mail = page.get_by_test_id("mail-view")
         mail.get_by_text("作业提醒 Lab 3 明天截止").wait_for(timeout=40_000)
         check(True, "the mail shows on the 邮件 page")
-        check(mail.locator(".badge.unread").count() == 1, "unread mail is marked 未读")
+        check(mail.locator(".mail-line.unread").count() == 1, "unread mail is shown bold (未读)")
         check(code not in page.content(), "the code is nowhere in the page")
         shot(page, out, "13-email")
         open_view(page, "今日")
@@ -731,8 +731,8 @@ def verify_summaries_view(
             "the AI title is cut to 20 characters and replaces the subject",
         )
         check(
-            lab.get_by_text("重要").count() == 1 and lab.get_by_text("需处理").count() == 1,
-            "the Lab mail is marked 重要 and 需处理",
+            lab.locator(".m-state").inner_text() == "需处理",
+            "the Lab mail ends with one word: 需处理",
         )
         digest = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）The Weekly")
         check(digest.count() == 1, "the newsletter is listed with the rest, not collapsed")
@@ -745,9 +745,15 @@ def verify_summaries_view(
             f"mail is in time order, newest first ({lines})",
         )
         check(
-            "共 3 封，未读 2 封" in mail.locator("h2").first.inner_text(),
-            "the heading counts every mail and the unread ones",
+            "全部 3" in mail.get_by_test_id("mail-filter-all").inner_text()
+            and "未读 2" in mail.get_by_test_id("mail-filter-unread").inner_text(),
+            "the filters count every mail and the unread ones",
         )
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "邮件 fits a phone screen")
+        shot(page, out, "13b-email-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
         mail.get_by_test_id("mail-filter-action").click()
         acting = mail.get_by_test_id("mail-title").all_inner_texts()
         check(
@@ -795,7 +801,7 @@ def verify_summaries_view(
         digest_line = mail.get_by_test_id("mail-line").filter(has_text="（测试摘要）The Weekly")
         check(
             digest_line.get_by_test_id("mail-handled").count() == 1
-            and digest_line.locator(".badge.unread").count() == 0,
+            and "unread" not in (digest_line.get_attribute("class") or ""),
             "the mail shows 已处理 instead of 未读",
         )
         shot(page, out, "19-triage")
