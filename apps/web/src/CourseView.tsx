@@ -62,29 +62,31 @@ export function workText(s: Pick<MapConcept, "assessments">): string {
   return `${scored.length} 项 · ${avg}%`;
 }
 
+/** The number shown for a row: a concept (a prerequisite like "U4-fiscal") shows the
+ * section it belongs to, so the column holds section numbers only. */
+export function keyOf(c: Pick<MapConcept, "kind" | "parent"> | undefined, key: string): string {
+  return c?.kind === "concept" ? c.parent : key;
+}
+
 function SectionRow({
   s,
   concepts,
   byKey,
   onMastery,
-  why,
 }: {
   s: MapConcept;
   concepts: MapConcept[];
   byKey: Map<string, MapConcept>;
   onMastery: (key: string, state: MasteryState | "") => void;
-  why?: string;
 }) {
   const [open, setOpen] = useState(false);
   const m = s.mastery;
   return (
     <li className={open ? "km-section open" : "km-section"} data-testid="km-section">
       <button type="button" className="km-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {/* A concept (a prerequisite like "U4-fiscal") shows the section it belongs to. */}
-        <span className="km-key">{s.kind === "concept" ? s.parent : s.key}</span>
+        <span className="km-key">{keyOf(s, s.key)}</span>
         <span className="km-title">
           {s.title_zh || s.title}
-          {why && <span className="km-why">{why}</span>}
         </span>
         <span className="km-work">{workText(s)}</span>
         <span className={`km-state mastery-${m?.state ?? "none"}`}>{m ? MASTERY[m.state] : ""}</span>
@@ -101,7 +103,7 @@ function SectionRow({
       )}
       {open && (
         <div className="km-detail" data-testid="km-detail">
-          {s.title_zh && <p className="km-en">{s.title}</p>}
+          {s.title_zh && <p className="km-note">{s.title}</p>}
           {concepts.length > 0 && (
             <ul className="km-concepts">
               {concepts.map((c) => (
@@ -134,13 +136,14 @@ function SectionRow({
               ))}
             </ul>
           )}
+          {m && m.source !== "user" && m.note && <p className="km-note">{m.note}</p>}
           <label className="km-set">
             <span className="km-label">我的掌握情况</span>
             <select
               value={m?.source === "user" ? m.state : ""}
               onChange={(e) => onMastery(s.key, e.target.value as MasteryState | "")}
             >
-              <option value="">自动判断{m && m.source !== "user" && m.note ? `（${m.note}）` : ""}</option>
+              <option value="">自动判断</option>
               {MASTERY_ORDER.map((st) => (
                 <option key={st} value={st}>
                   {MASTERY[st]}
@@ -157,18 +160,19 @@ function SectionRow({
 function ExamRow({ e, onOpen }: { e: MapExam; onOpen: () => void }) {
   const done = e.days_left !== null && e.days_left < 0;
   const soon = !done && e.days_left !== null && e.days_left <= 7;
+  const left = done && e.grade?.percent != null ? `成绩 ${e.grade.percent}%` : countdown(e.days_left);
   return (
     <li data-testid="exam-card">
       <button
         type="button"
         className={`exam-row${done ? " past" : ""}`}
-        aria-label={`打开复习地图：${e.name}`}
+        aria-label={`打开复习地图：${e.name}，${when(e.at)}，${left}`}
         onClick={onOpen}
       >
         <span className="exam-name">{e.name}</span>
         <span className="exam-when">{when(e.at)}</span>
         <span className={soon ? "exam-left soon" : "exam-left"}>
-          {done && e.grade?.percent != null ? `${e.grade.percent}%` : countdown(e.days_left)}
+          {left.replace("成绩 ", "")}
         </span>
         <span className="exam-go" aria-hidden="true">
           复习地图 →
@@ -223,7 +227,7 @@ function ExamView({
         <ol className="exam-first">
           {first.map((k) => (
             <li key={k}>
-              <span className="km-key">{k}</span>
+              <span className="km-key">{keyOf(byKey.get(k), k)}</span>
               <span>{byKey.get(k)?.title_zh || byKey.get(k)?.title}</span>
               <span className="exam-why">{exam.why[k]}</span>
             </li>
@@ -241,7 +245,7 @@ function ExamView({
           <h3 className="km-group">考前清单</h3>
           <ul className="exam-check">
             {exam.checklist.map((c, i) => (
-              <li key={`${i}-${c.text.slice(0, 12)}`} title={c.source ? `原文：${c.source}` : undefined}>
+              <li key={`${i}-${c.text.slice(0, 12)}`}>
                 {c.text}
               </li>
             ))}
@@ -279,7 +283,10 @@ function ExamView({
         </>
       )}
       {e.scope_source && (
-        <p className="km-foot">范围来源：{SOURCE_ZH[e.scope_source] ?? e.scope_source}</p>
+        <details className="km-foot">
+          <summary>范围从哪来</summary>
+          <p>{SOURCE_ZH[e.scope_source] ?? e.scope_source}</p>
+        </details>
       )}
     </div>
   );
@@ -390,7 +397,7 @@ export function CourseView({ api }: { api: Api }) {
       sections.filter((s) => s.parent === ch.key),
     ]),
     ...(orphans.length > 0 ? [["", "其他", orphans] as [string, string, MapConcept[]]] : []),
-  ];
+  ].filter(([, , list]) => list.length > 0);
   return (
     <div className="course" data-testid="course">
       {banner}

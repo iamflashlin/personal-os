@@ -1195,6 +1195,7 @@ ul.memories {
   max-width: 880px;
 }
 
+/* The segmented switcher; other pages' filters can move to it. */
 .seg {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1298,13 +1299,6 @@ ul.memories {
   overflow-wrap: anywhere;
 }
 
-.km-why {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
 .km-work {
   color: var(--muted);
   font-size: 0.9rem;
@@ -1352,7 +1346,7 @@ ul.memories {
   margin: 6px 0;
 }
 
-.km-en {
+.km-note {
   color: var(--muted);
 }
 

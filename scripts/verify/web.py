@@ -459,7 +459,14 @@ def verify_canvas_view(
                     "title": "Branches",
                     "title_zh": "分支",
                     "page": 7,
-                    "prereq": ["1.1"],
+                    "prereq": ["1.1", "1.1-assign"],
+                },
+                {
+                    "key": "1.1-assign",
+                    "kind": "concept",
+                    "parent": "1.1",
+                    "title": "Assignment",
+                    "title_zh": "赋值",
                 },
                 {
                     "key": "x.1",
@@ -536,6 +543,8 @@ def verify_canvas_view(
             "and the prerequisite outside its scope",
         )
         check("还没有评分的练习" in exam.inner_text(), "and why 1.2 comes first")
+        keys = exam.get_by_test_id("exam-prereqs").locator(".km-key").all_inner_texts()
+        check(keys == ["1.1", "1.1"], f"a concept prerequisite shows its section's number ({keys})")
         inside = exam.get_by_test_id("km-section").filter(has_text="分支").first
         inside.locator(".km-head").click()
         inside.get_by_label("我的掌握情况").select_option("needs_review")

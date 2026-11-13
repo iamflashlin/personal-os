@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countdown, workText } from "./CourseView";
+import { countdown, keyOf, workText } from "./CourseView";
 
 const work = (percents: (number | null)[]) => ({
   assessments: percents.map((percent, i) => ({
@@ -24,5 +24,11 @@ describe("课程 rows", () => {
     expect(countdown(-1)).toBe("已考");
     expect(countdown(0)).toBe("今天");
     expect(countdown(4)).toBe("还有 4 天");
+  });
+
+  it("shows a concept under its section's number", () => {
+    expect(keyOf({ kind: "concept", parent: "U4" }, "U4-fiscal")).toBe("U4");
+    expect(keyOf({ kind: "section", parent: "P1" }, "U4")).toBe("U4");
+    expect(keyOf(undefined, "3.1")).toBe("3.1");
   });
 });
