@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { EntrySummary, TodayEntry } from "./api";
-import { origin, rowTag, summaryBadges } from "./TodayView";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { origin, quietLine, rowTag, summaryBadges, TodayRow } from "./TodayView";
 
 const base: EntrySummary = {
   status: "ok",
@@ -48,10 +50,34 @@ describe("今日 rows", () => {
   });
 
   it("gives a row one tag at most, and none that its section already says", () => {
-    expect(rowTag(entry, "other")).toBe("缺交");
+    expect(rowTag({ ...entry, badge: "已提交" }, "other", "今天截止")).toBe("已提交");
+    expect(rowTag(entry, "other", "缺交 / 逾期")).toBe("");
+    expect(rowTag({ ...entry, badge: "进行中" }, "other", "进行中")).toBe("");
     const mail = { ...entry, badge: "未读", summary: { ...base, importance: "high" as const } };
-    expect(rowTag(mail, "mail")).toBe("重要"); // not 未读: the section is 未读邮件
-    expect(rowTag(mail, "action")).toBe("");
-    expect(rowTag({ ...mail, summary: null }, "mail")).toBe("");
+    expect(rowTag(mail, "mail", "未读邮件")).toBe("重要"); // not 未读
+    expect(rowTag(mail, "action", "邮件里要你做的")).toBe("");
+    expect(rowTag({ ...mail, summary: null }, "mail", "未读邮件")).toBe("");
+  });
+
+  it("keeps a mail's deadline even when it asks for nothing", () => {
+    expect(quietLine({ ...base, deadline_text: "周五" })).toBe("截止 周五");
+    const both = { ...base, action_needed: true, action: "交作业", deadline_text: "周五" };
+    expect(quietLine(both)).toBe("交作业，截止 周五");
+    expect(quietLine({ ...base, status: "pending", deadline_text: "周五" })).toBe("");
+    expect(quietLine(null)).toBe("");
+  });
+
+  it("renders mail text as text, never as HTML", () => {
+    const evil = {
+      ...entry,
+      title: '<script>alert("x")</script>',
+      summary: { ...base, action_needed: true, action: "<img src=x onerror=1>" },
+    };
+    const html = renderToStaticMarkup(
+      createElement(TodayRow, { entry: evil, withDay: false, section: "mail", title: "未读邮件" }),
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;script&gt;");
   });
 });

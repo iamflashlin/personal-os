@@ -408,7 +408,7 @@ section {
   flex-wrap: wrap;
   gap: 4px 18px;
   margin: 0 0 0 20px;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
@@ -878,7 +878,8 @@ ul.memories {
   outline-offset: -2px;
 }
 
-/* On wide screens the column header says this; it stays for screen readers. */
+/* Read by screen readers only. On wide screens the column header says .g-keep-label. */
+.sr-only,
 .g-keep-label {
   position: absolute;
   width: 1px;
