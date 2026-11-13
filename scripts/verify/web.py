@@ -900,7 +900,14 @@ def verify_schedule_view(page: Page, out: Path) -> None:
     form.get_by_role("button", name="保存").click()
     view.get_by_text("健身").first.wait_for(timeout=20_000)
     check(view.get_by_test_id("sched-conflict").count() == 2, "the clash is marked on both")
-    check(view.get_by_text("空闲：").count() >= 1, "free time is listed")
+    # Free time is listed from now until 22:00, and only on a day that has things (T-0058):
+    # late in the evening the test day has none left, so it is only required before 21:00.
+    late = day.date() == now.date() and now.hour >= 21
+    shown = view.get_by_text("空闲：").count() >= 1
+    check(
+        shown or late,
+        f"free time is listed on the busy day ({'late, none left' if late else shown})",
+    )
     shot(page, out, "22-schedule")
     workout = view.get_by_test_id("sched-entry").filter(has_text="健身").first
     workout.get_by_role("button", name="删除").click()

@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type AgendaEntry, type Agenda, type Api, ApiError, type EventKind } from "./api";
 import { safeLink } from "./ConnectionsView";
-import { browserZone } from "./TodayView";
+import { origin, browserZone } from "./TodayView";
 
 const KIND_LABEL: Record<string, string> = {
   class: "上课",
@@ -51,6 +51,25 @@ function localInput(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** The time column: a deadline says so here, so it needs no tag of its own. */
+export function timeText(e: Pick<AgendaEntry, "all_day" | "starts_at" | "ends_at" | "kind">): string {
+  if (e.kind === "deadline") return e.all_day ? "全天截止" : `截止 ${hm(e.starts_at)}`;
+  if (e.all_day) return "全天";
+  return e.ends_at ? `${hm(e.starts_at)}–${hm(e.ends_at)}` : hm(e.starts_at);
+}
+
+/** The right column: Canvas work names its course (a short name when it has a code);
+ * every other event says what kind it is. A room such as "ATC 203" is never a course. */
+export function sideText(e: Pick<AgendaEntry, "kind" | "location" | "source">): string {
+  if (e.source === "canvas") return origin({ note: e.location, source: "" });
+  return KIND_LABEL[e.kind] ?? e.kind;
+}
+
+/** Where an event is, shown by its title: Canvas work has none (its course is on the right). */
+export function placeText(e: Pick<AgendaEntry, "location" | "source">): string {
+  return e.source === "canvas" ? "" : e.location;
+}
+
 function Entry({
   e,
   onDelete,
@@ -61,38 +80,41 @@ function Entry({
   repeats: boolean;
 }) {
   const link = safeLink(e.url);
+  const side = sideText(e);
+  const place = placeText(e);
   return (
-    <li className={`sched-entry${e.conflict ? " conflict" : ""}`} data-testid="sched-entry">
-      <span className="badge">{KIND_LABEL[e.kind] ?? e.kind}</span>{" "}
-      <span className="muted">
-        {e.all_day ? "全天" : e.ends_at ? `${hm(e.starts_at)}–${hm(e.ends_at)}` : hm(e.starts_at)}
-      </span>{" "}
-      {link ? (
-        <a href={link} target="_blank" rel="noreferrer noopener">
-          {e.title}
-        </a>
-      ) : (
-        e.title
-      )}
-      {e.location && <span className="muted"> · {e.location}</span>}
-      {e.conflict && (
-        <span className="badge submission-缺交" data-testid="sched-conflict">
-          时间冲突
-        </span>
-      )}
-      {e.event_id && (
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => {
-            // One click on a weekly class would delete every week: say so first.
-            if (repeats && !window.confirm("这是每周重复的日程，删除会删掉所有的周次。确定删除？")) return;
-            onDelete(e.event_id ?? "");
-          }}
-        >
-          {repeats ? "删除全部" : "删除"}
-        </button>
-      )}
+    <li className={`s-row${e.conflict ? " conflict" : ""}`} data-testid="sched-entry">
+      <span className="s-time">{timeText(e)}</span>
+      <span className="s-what">
+        {link ? (
+          <a href={link} target="_blank" rel="noreferrer noopener">
+            {e.title}
+          </a>
+        ) : (
+          e.title
+        )}
+        {place && <span className="s-place">{place}</span>}
+        {e.conflict && (
+          <span className="s-clash" data-testid="sched-conflict">
+            时间冲突
+          </span>
+        )}
+        {e.event_id && (
+          <button
+            type="button"
+            className="g-more s-del"
+            aria-label={`${repeats ? "删除全部" : "删除"}：${e.title}`}
+            onClick={() => {
+              // One click on a weekly class would delete every week: say so first.
+              if (repeats && !window.confirm("这是每周重复的日程，删除会删掉所有的周次。确定删除？")) return;
+              onDelete(e.event_id ?? "");
+            }}
+          >
+            {repeats ? "删除全部" : "删除"}
+          </button>
+        )}
+      </span>
+      <span className="s-side">{side}</span>
     </li>
   );
 }
@@ -167,6 +189,9 @@ export function ScheduleView({ api }: { api: Api }) {
     d.setDate(d.getDate() + i);
     return d;
   });
+  const now = new Date();
+  const onThisWeek = weekStart(now).getTime() === start.getTime();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const grouped = byDay(agenda?.entries ?? []);
   const freeByDay = byDay(
     (agenda?.free ?? []).map((f) => ({
@@ -191,21 +216,25 @@ export function ScheduleView({ api }: { api: Api }) {
   const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
 
   return (
-    <section className="schedule" data-testid="schedule">
-      <div className="sched-head">
-        <button type="button" onClick={() => shift(-7)}>
-          上一周
-        </button>
-        <strong>
-          {start.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} –{" "}
-          {new Date(end.getTime() - 1).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
-        </strong>
-        <button type="button" onClick={() => shift(7)}>
-          下一周
-        </button>
-        <button type="button" onClick={() => setStart(weekStart(new Date()))}>
-          本周
-        </button>
+    <div className="schedule" data-testid="schedule">
+      <div className="s-head">
+        <div className="s-nav">
+          <button type="button" className="s-arrow" aria-label="上一周" onClick={() => shift(-7)}>
+            ‹
+          </button>
+          <strong>
+            {start.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} –{" "}
+            {new Date(end.getTime() - 1).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
+          </strong>
+          <button type="button" className="s-arrow" aria-label="下一周" onClick={() => shift(7)}>
+            ›
+          </button>
+          {!onThisWeek && (
+            <button type="button" className="g-more" onClick={() => setStart(weekStart(new Date()))}>
+              回到本周
+            </button>
+          )}
+        </div>
         <button type="button" data-testid="sched-add" onClick={() => setAdding((v) => !v)}>
           {adding ? "取消" : "添加日程"}
         </button>
@@ -257,37 +286,41 @@ export function ScheduleView({ api }: { api: Api }) {
       )}
       {!agenda && !error && <p>加载中…</p>}
       {agenda && (
-        <div className="sched-week">
+        <div className="s-week">
           {days.map((d) => {
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             const entries = grouped.get(key) ?? [];
             const free = freeByDay.get(key) ?? [];
+            const isToday = key === todayKey;
             return (
-              <div key={key} className="sched-day" data-testid="sched-day">
+              <div key={key} className={isToday ? "s-day today" : "s-day"} data-testid="sched-day">
                 <h3>
-                  {d.toLocaleDateString("zh-CN", { weekday: "short", month: "numeric", day: "numeric" })}
+                  {d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
+                  <span>{d.toLocaleDateString("zh-CN", { weekday: "short" })}</span>
+                  {isToday && <span className="s-today">今天</span>}
                 </h3>
-                {entries.length === 0 && <p className="muted">没有安排</p>}
-                <ul>
-                  {entries.map((e) => (
-                    <Entry
-                      key={e.key}
-                      e={e}
-                      repeats={e.repeats}
-                      onDelete={(id) => void remove(id)}
-                    />
-                  ))}
-                </ul>
-                {free.length > 0 && (
-                  <p className="muted sched-free">
-                    空闲：{free.map((f) => `${hm(f.starts_at)}–${hm(f.ends_at ?? f.starts_at)}`).join("、")}
-                  </p>
+                {entries.length === 0 ? (
+                  <p className="s-empty">没有安排</p>
+                ) : (
+                  <>
+                    <ul>
+                      {entries.map((e) => (
+                        <Entry key={e.key} e={e} repeats={e.repeats} onDelete={(id) => void remove(id)} />
+                      ))}
+                    </ul>
+                    {/* Only a busy day needs its gaps spelled out; an empty day is free. */}
+                    {free.length > 0 && (
+                      <p className="s-free">
+                        空闲：{free.map((f) => `${hm(f.starts_at)}–${hm(f.ends_at ?? f.starts_at)}`).join("、")}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             );
           })}
         </div>
       )}
-    </section>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type AgendaEntry, createApi } from "./api";
-import { byDay, weekStart } from "./ScheduleView";
+import { byDay, placeText, sideText, timeText, weekStart } from "./ScheduleView";
 
 const entry = (startsAt: string): AgendaEntry => ({
   key: startsAt,
@@ -49,5 +49,27 @@ describe("schedule", () => {
     expect(calls[0].path).toContain("time_zone=America%2FLos_Angeles");
     expect(calls[1].path).toBe("/schedule/events?time_zone=America%2FLos_Angeles");
     expect(calls[1].body).toMatchObject({ title: "健身", repeat_days: ["MO"] });
+  });
+
+  it("says a deadline in the time column and names its course shortly", () => {
+    const at = new Date(2026, 10, 15, 23, 59).toISOString();
+    const deadline = { kind: "deadline", all_day: false, starts_at: at, ends_at: null };
+    expect(timeText(deadline)).toBe("截止 23:59");
+    expect(timeText({ ...deadline, all_day: true })).toBe("全天截止");
+    expect(timeText({ ...deadline, kind: "class", all_day: true })).toBe("全天");
+    const canvas = { kind: "deadline", source: "canvas" as const };
+    expect(sideText({ ...canvas, location: "F26 ECON C2002 Prin Macroeconomics 03Y" })).toBe("ECON 2002");
+    expect(sideText({ ...canvas, location: "Orientation Workshop" })).toBe("Orientation Workshop");
+    expect(placeText({ ...canvas, location: "F26 ECON C2002" })).toBe("");
+  });
+
+  it("never takes a room or a manual event's location for a course", () => {
+    const exam = { kind: "exam", location: "CIS 22A", source: "manual" as const };
+    expect(sideText(exam)).toBe("考试");
+    expect(placeText(exam)).toBe("CIS 22A");
+    const room = { kind: "calendar", location: "ATC 203", source: "calendar" as const };
+    expect(sideText(room)).toBe("日历");
+    expect(placeText(room)).toBe("ATC 203");
+    expect(sideText({ kind: "workout", location: "Gym", source: "manual" })).toBe("健身");
   });
 });
