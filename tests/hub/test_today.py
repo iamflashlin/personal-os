@@ -477,3 +477,36 @@ def test_a_missing_copy_of_handed_in_work_is_not_missing(session: Session) -> No
         missing=True,
     )
     assert titles(view(session).missing) == ["Journal #9"]
+
+
+# --- done mail leaves 今日 (T-0056) -------------------------------------------------------
+
+
+def test_mail_whose_deadline_passed_needs_no_action(session: Session) -> None:
+    box = source(session, "email", "163")
+    for n, (title, deadline) in enumerate(
+        [("Due yesterday", date(2026, 11, 10)), ("Due today", date(2026, 11, 11)), ("Open", None)]
+    ):
+        item(session, box, "email_message", title, NOW - timedelta(days=2, minutes=n), seen=True)
+        summarise(session, title, action="交作业", deadline=deadline)
+    shown = [t.removeprefix("摘要：") for t in titles(view(session).mail_actions)]
+    assert shown == ["Due today", "Open"]  # today's deadline is still today
+
+
+def test_mail_marked_handled_leaves_today(session: Session) -> None:
+    from apps.hub.triage import service as triage
+
+    box = source(session, "email", "163")
+    for n, title in enumerate(["Done", "Still to do"]):
+        item(session, box, "email_message", title, NOW - timedelta(hours=2, minutes=n))
+        summarise(session, title, action="回复")
+    before = view(session)
+    assert before.unread_mail == 2 and len(before.mail_actions) == 2
+    done = next(i for i in before.mail if i.title == "摘要：Done")
+    triage.set_item(session, OWNER, done.ref, True)
+    after = view(session)
+    assert titles(after.mail_actions) == ["摘要：Still to do"]
+    assert titles(after.mail) == ["摘要：Still to do"]
+    assert after.unread_mail == 1 and "1 封未读邮件" in after.headline
+    triage.set_item(session, OWNER, done.ref, False)  # back to 未处理: it returns
+    assert len(view(session).mail_actions) == 2
