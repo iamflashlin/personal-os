@@ -9,6 +9,7 @@ import {
   type MasteryState,
 } from "./api";
 import { safeLink } from "./ConnectionsView";
+import { shortCode } from "./GpaView";
 
 export const MASTERY: Record<MasteryState, string> = {
   not_tested: "未测试",
@@ -22,7 +23,7 @@ const SOURCE_ZH: Record<string, string> = { syllabus: "课程大纲" };
 
 const SUGGESTED_SHOWN = 8; // the rest behind 展开全部: a long list is not a plan
 
-const MASTERY_ORDER: MasteryState[] = ["not_tested", "seen", "practicing", "verified", "needs_review"];
+const MASTERY_ORDER: MasteryState[] = ["needs_review", "practicing", "seen", "not_tested", "verified"];
 
 function Ext({ href, children }: { href: string; children: React.ReactNode }) {
   const link = safeLink(href);
@@ -53,6 +54,14 @@ export function countdown(days: number | null): string {
   return `还有 ${days} 天`;
 }
 
+/** The last column of a section row: its graded work in one short phrase. */
+export function workText(s: Pick<MapConcept, "assessments">): string {
+  const scored = s.assessments.map((a) => a.percent).filter((p): p is number => p !== null);
+  if (scored.length === 0) return s.assessments.length > 0 ? `${s.assessments.length} 项未出分` : "";
+  const avg = Math.round(scored.reduce((a, b) => a + b, 0) / scored.length);
+  return `${scored.length} 项 · ${avg}%`;
+}
+
 function SectionRow({
   s,
   concepts,
@@ -69,65 +78,68 @@ function SectionRow({
   const [open, setOpen] = useState(false);
   const m = s.mastery;
   return (
-    <li className={`km-section mastery-${m?.state ?? "none"}`} data-testid="km-section">
+    <li className={open ? "km-section open" : "km-section"} data-testid="km-section">
       <button type="button" className="km-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="km-key">{s.key}</span>
         <span className="km-title">
           {s.title_zh || s.title}
-          {s.title_zh && <span className="muted"> · {s.title}</span>}
+          {why && <span className="km-why">{why}</span>}
         </span>
-        {m && <span className={`badge mastery mastery-${m.state}`}>{MASTERY[m.state]}</span>}
+        <span className="km-work">{workText(s)}</span>
+        <span className={`km-state mastery-${m?.state ?? "none"}`}>{m ? MASTERY[m.state] : ""}</span>
       </button>
-      {why && <p className="km-why">{why}</p>}
-      <div className="km-meta">
-        {s.page !== null && s.material_url && (
-          <Ext href={s.material_url}>讲义 第 {s.page} 页</Ext>
-        )}
-        {s.page !== null && !s.material_url && <span className="muted">讲义 第 {s.page} 页</span>}
-        {s.resources.map((r) => (
-          <Ext key={r.url + r.title} href={r.url}>
-            <span className="chip">{r.title}</span>
-          </Ext>
-        ))}
-        {s.assessments.map((a) => (
-          <Ext key={a.url + a.title} href={a.url}>
-            <span className={`chip score${a.percent === null ? "" : a.percent >= 90 ? " good" : a.percent < 70 ? " bad" : ""}`}>
-              {a.title}
-              {a.percent !== null && ` · ${a.percent}%`}
-            </span>
-          </Ext>
-        ))}
-      </div>
+      {/* The notes page link stays visible: it is what a student opens to study. */}
+      {s.page !== null && (
+        <div className="km-notes">
+          {s.material_url ? (
+            <Ext href={s.material_url}>讲义 第 {s.page} 页</Ext>
+          ) : (
+            <span>讲义 第 {s.page} 页</span>
+          )}
+        </div>
+      )}
       {open && (
         <div className="km-detail" data-testid="km-detail">
-          {m && <p className="muted">{m.source === "user" ? "你自己标的" : m.note}</p>}
+          {s.title_zh && <p className="km-en">{s.title}</p>}
           {concepts.length > 0 && (
             <ul className="km-concepts">
               {concepts.map((c) => (
                 <li key={c.key}>
                   {c.title_zh || c.title}
-                  {c.title_zh && <span className="muted"> · {c.title}</span>}
                   {c.page !== null && <span className="muted"> · 第 {c.page} 页</span>}
                 </li>
               ))}
             </ul>
           )}
           {s.prereq.length > 0 && (
-            <p className="muted">
-              要先会：
+            <p>
+              <span className="km-label">要先会</span>
               {s.prereq.map((p) => byKey.get(p)?.title_zh || byKey.get(p)?.title || p).join("、")}
-              <span className={`badge${s.prereq_origin === "ai" ? " ai" : ""}`}>
-                {s.prereq_origin === "ai" ? "AI 补充" : "老师"}
-              </span>
+              <span className="muted">（{s.prereq_origin === "ai" ? "AI 补充" : "老师"}）</span>
             </p>
           )}
+          {(s.resources.length > 0 || s.assessments.length > 0) && (
+            <ul className="km-links">
+              {s.resources.map((r) => (
+                <li key={r.url + r.title}>
+                  <Ext href={r.url}>{r.title}</Ext>
+                </li>
+              ))}
+              {s.assessments.map((a) => (
+                <li key={a.url + a.title}>
+                  <Ext href={a.url}>{a.title}</Ext>
+                  <span className="km-score">{a.percent !== null ? `${a.percent}%` : "未出分"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <label className="km-set">
-            <span className="label">我的掌握情况</span>
+            <span className="km-label">我的掌握情况</span>
             <select
               value={m?.source === "user" ? m.state : ""}
               onChange={(e) => onMastery(s.key, e.target.value as MasteryState | "")}
             >
-              <option value="">按练习成绩自动判断</option>
+              <option value="">自动判断{m && m.source !== "user" && m.note ? `（${m.note}）` : ""}</option>
               {MASTERY_ORDER.map((st) => (
                 <option key={st} value={st}>
                   {MASTERY[st]}
@@ -141,27 +153,27 @@ function SectionRow({
   );
 }
 
-function ExamCard({ e, onOpen }: { e: MapExam; onOpen: () => void }) {
+function ExamRow({ e, onOpen }: { e: MapExam; onOpen: () => void }) {
   const done = e.days_left !== null && e.days_left < 0;
+  const soon = !done && e.days_left !== null && e.days_left <= 7;
   return (
-    <div className={`exam-card${done ? " past" : ""}`} data-testid="exam-card">
-      <div className="exam-top">
-        <strong>{e.name}</strong>
-        {e.days_left !== null && (
-          <span className={`badge${!done && e.days_left <= 7 ? " warn" : ""}`}>
-            {countdown(e.days_left)}
-          </span>
-        )}
-      </div>
-      <div className="muted">{when(e.at)}</div>
-      <div className="muted">范围 {e.scope.length} 节</div>
-      {e.grade?.percent !== null && e.grade?.percent !== undefined && (
-        <div>成绩 {e.grade.percent}%</div>
-      )}
-      <button type="button" className="primary" onClick={onOpen}>
-        打开复习地图
+    <li data-testid="exam-card">
+      <button
+        type="button"
+        className={`exam-row${done ? " past" : ""}`}
+        aria-label={`打开复习地图：${e.name}`}
+        onClick={onOpen}
+      >
+        <span className="exam-name">{e.name}</span>
+        <span className="exam-when">{when(e.at)}</span>
+        <span className={soon ? "exam-left soon" : "exam-left"}>
+          {done && e.grade?.percent != null ? `${e.grade.percent}%` : countdown(e.days_left)}
+        </span>
+        <span className="exam-go" aria-hidden="true">
+          复习地图 →
+        </span>
       </button>
-    </div>
+    </li>
   );
 }
 
@@ -181,88 +193,92 @@ function ExamView({
   const [showAll, setShowAll] = useState(false);
   const concepts = (key: string) => map.concepts.filter((c) => c.parent === key && c.kind === "concept");
   const e = exam.exam;
+  const first = showAll ? exam.suggested : exam.suggested.slice(0, SUGGESTED_SHOWN);
   return (
     <div className="exam-map" data-testid="exam-map">
-      <button type="button" className="link-button" onClick={onBack}>
-        ← 返回课程
+      <button type="button" className="g-more" onClick={onBack}>
+        ← {shortCode(map.course_code)}
       </button>
-      <section className="exam-hero">
-        <div>
-          <h2>{e.name} 复习地图</h2>
-          <p className="muted">
-            {[when(e.at), countdown(e.days_left), e.scope_source && `范围来源：${SOURCE_ZH[e.scope_source] ?? e.scope_source}`]
-              .filter(Boolean)
-              .join(" · ")}
+      <div className="exam-head">
+        <h2>{e.name}</h2>
+        <p>
+          {[when(e.at), countdown(e.days_left), `${exam.sections.length} 节`].filter(Boolean).join(" · ")}
+        </p>
+        {e.resources.length > 0 && (
+          <p className="exam-res">
+            {e.resources.map((r) => (
+              <Ext key={r.url + r.title} href={r.url}>
+                {r.title}
+              </Ext>
+            ))}
           </p>
-        </div>
-        <div className="exam-links">
-          {e.resources.map((r) => (
-            <Ext key={r.url + r.title} href={r.url}>
-              <span className="chip">{r.title}</span>
-            </Ext>
+        )}
+      </div>
+
+      <h3 className="km-group">先复习这些</h3>
+      {exam.suggested.length === 0 ? (
+        <p className="muted">范围内每一节的练习都很好。考前做一遍复习题，再看下面的清单。</p>
+      ) : (
+        <ol className="exam-first">
+          {first.map((k) => (
+            <li key={k}>
+              <span className="km-key">{k}</span>
+              <span>{byKey.get(k)?.title_zh || byKey.get(k)?.title}</span>
+              <span className="exam-why">{exam.why[k]}</span>
+            </li>
           ))}
-        </div>
-      </section>
-      <div className="exam-grid">
-        <section>
-          <h2>建议先复习</h2>
-          {exam.suggested.length === 0 ? (
-            <p className="muted">范围内每一节的练习成绩都很好。考前做一遍复习题，再看下面的检查清单。</p>
-          ) : (
-            <ol className="suggested">
-              {(showAll ? exam.suggested : exam.suggested.slice(0, SUGGESTED_SHOWN)).map((k) => (
-                <li key={k}>
-                  <strong>
-                    {k} {byKey.get(k)?.title_zh || byKey.get(k)?.title}
-                  </strong>
-                  <div className="muted">{exam.why[k]}</div>
-                </li>
-              ))}
-            </ol>
-          )}
-          {exam.suggested.length > SUGGESTED_SHOWN && (
-            <button type="button" className="link-button" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? "只看前几项" : `展开全部 ${exam.suggested.length} 项`}
-            </button>
-          )}
-        </section>
-        <section>
-          <h2>考前检查清单</h2>
-          <ul className="checklist">
+        </ol>
+      )}
+      {exam.suggested.length > SUGGESTED_SHOWN && (
+        <button type="button" className="g-more" onClick={() => setShowAll((v) => !v)}>
+          {showAll ? "只看前几项" : `展开全部 ${exam.suggested.length} 项`}
+        </button>
+      )}
+
+      {exam.checklist.length > 0 && (
+        <>
+          <h3 className="km-group">考前清单</h3>
+          <ul className="exam-check">
             {exam.checklist.map((c, i) => (
-              <li key={`${i}-${c.text.slice(0, 12)}`}>
+              <li key={`${i}-${c.text.slice(0, 12)}`} title={c.source ? `原文：${c.source}` : undefined}>
                 {c.text}
-                {c.source && <div className="rule-source">原文：{c.source}</div>}
               </li>
             ))}
           </ul>
-        </section>
-      </div>
-      <section>
-        <h2>考试范围（{exam.sections.length} 节）</h2>
-        <ul className="km-list">
-          {exam.sections.map((s) => (
-            <SectionRow
-              key={s.key}
-              s={s}
-              concepts={concepts(s.key)}
-              byKey={byKey}
-              onMastery={onMastery}
-              why={exam.why[s.key]}
-            />
-          ))}
-        </ul>
-      </section>
+          {exam.checklist.some((c) => c.source) && (
+            <details className="exam-src">
+              <summary>老师原文</summary>
+              <ul>
+                {exam.checklist
+                  .filter((c) => c.source)
+                  .map((c, i) => (
+                    <li key={`${i}-${c.source.slice(0, 12)}`}>{c.source}</li>
+                  ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+
+      <h3 className="km-group">考试范围</h3>
+      <ul className="km-list">
+        {exam.sections.map((s) => (
+          <SectionRow key={s.key} s={s} concepts={concepts(s.key)} byKey={byKey} onMastery={onMastery} />
+        ))}
+      </ul>
+
       {exam.prerequisites.length > 0 && (
-        <section>
-          <h2>范围外，但要先会的</h2>
-          <p className="muted">这些不在考试范围里，但考试范围内的内容用得上。</p>
+        <>
+          <h3 className="km-group">范围外，但要先会</h3>
           <ul className="km-list" data-testid="exam-prereqs">
             {exam.prerequisites.map((s) => (
               <SectionRow key={s.key} s={s} concepts={[]} byKey={byKey} onMastery={onMastery} />
             ))}
           </ul>
-        </section>
+        </>
+      )}
+      {e.scope_source && (
+        <p className="km-foot">范围来源：{SOURCE_ZH[e.scope_source] ?? e.scope_source}</p>
       )}
     </div>
   );
@@ -342,12 +358,12 @@ export function CourseView({ api }: { api: Api }) {
   );
   if (codes === null) return banner || <p>加载中…</p>;
   if (codes.length === 0)
-    return <p className="muted">还没有课程知识地图。整理好一门课的讲义后，这里会显示它的章节、知识点和考试复习地图。</p>;
+    return <p className="muted">还没有课程知识地图。整理好一门课的讲义后，这里会显示它的章节和考试复习地图。</p>;
   if (!map) return banner || <p>加载中…</p>;
   const byKey = new Map(map.concepts.map((c) => [c.key, c]));
   if (exam)
     return (
-      <>
+      <div className="course">
         {banner}
         <ExamView
           exam={exam}
@@ -356,76 +372,63 @@ export function CourseView({ api }: { api: Api }) {
           onBack={() => setExam(null)}
           onMastery={(k, s) => void mastery(k, s)}
         />
-      </>
+      </div>
     );
 
   const chapters = map.concepts.filter((c) => c.kind === "chapter");
   const sections = map.concepts.filter((c) => c.kind === "section");
   const chapterKeys = new Set(chapters.map((c) => c.key));
   const orphans = sections.filter((s) => !chapterKeys.has(s.parent));
-  const counts = MASTERY_ORDER.map((st) => [st, sections.filter((s) => s.mastery?.state === st).length] as const);
+  const counts = MASTERY_ORDER.map((st) => [st, sections.filter((s) => s.mastery?.state === st).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([st, n]) => `${MASTERY[st]} ${n}`);
+  const groups: [string, string, MapConcept[]][] = [
+    ...chapters.map((ch): [string, string, MapConcept[]] => [
+      ch.key,
+      ch.title_zh || ch.title,
+      sections.filter((s) => s.parent === ch.key),
+    ]),
+    ...(orphans.length > 0 ? [["", "其他", orphans] as [string, string, MapConcept[]]] : []),
+  ];
   return (
     <div className="course" data-testid="course">
       {banner}
       {codes.length > 1 && (
-        <div className="mail-filters" role="group" aria-label="课程">
+        <div className="seg" role="group" aria-label="课程">
           {codes.map((c) => (
-            <button key={c} type="button" className={c === code ? "active" : ""} onClick={() => { setExam(null); setCode(c); }}>
-              {c}
+            <button
+              key={c}
+              type="button"
+              aria-pressed={c === code}
+              className={c === code ? "active" : ""}
+              onClick={() => {
+                setExam(null);
+                setCode(c);
+              }}
+            >
+              {shortCode(c)}
             </button>
           ))}
         </div>
       )}
-      <section className="course-hero">
-        <div>
-          <h2>{map.course_code}</h2>
-          <p className="muted">
-            {sections.length} 节 · 讲义：{map.material || "—"}
-          </p>
-        </div>
-        <div className="mastery-bar" aria-label="掌握情况">
-          {counts
-            .filter(([, n]) => n > 0)
-            .map(([st, n]) => (
-              <span key={st} className={`badge mastery mastery-${st}`}>
-                {MASTERY[st]} {n}
-              </span>
-            ))}
-        </div>
-      </section>
+      <p className="course-sum">
+        {sections.length} 节{counts.length > 0 && ` · ${counts.join(" · ")}`}
+      </p>
       {map.exams.length > 0 && (
-        <div className="exam-strip">
-          {map.exams.map((e) => (
-            <ExamCard key={e.name} e={e} onOpen={() => void openExam(e.name)} />
-          ))}
-        </div>
-      )}
-      {chapters.map((ch) => (
-        <section key={ch.key} data-testid="km-chapter">
-          <h2>
-            {ch.title_zh || ch.title}
-            {ch.title_zh && <span className="muted"> · {ch.title}</span>}
-          </h2>
-          <ul className="km-list">
-            {sections
-              .filter((s) => s.parent === ch.key)
-              .map((s) => (
-                <SectionRow
-                  key={s.key}
-                  s={s}
-                  concepts={map.concepts.filter((c) => c.parent === s.key && c.kind === "concept")}
-                  byKey={byKey}
-                  onMastery={(k, st) => void mastery(k, st)}
-                />
-              ))}
+        <>
+          <h3 className="km-group">考试</h3>
+          <ul className="exam-list">
+            {map.exams.map((e) => (
+              <ExamRow key={e.name} e={e} onOpen={() => void openExam(e.name)} />
+            ))}
           </ul>
-        </section>
-      ))}
-      {orphans.length > 0 && (
-        <section data-testid="km-chapter">
-          <h2>其他</h2>
+        </>
+      )}
+      {groups.map(([key, title, list]) => (
+        <section key={key || "other"} className="km-chapter" data-testid="km-chapter">
+          <h3 className="km-group">{title}</h3>
           <ul className="km-list">
-            {orphans.map((s) => (
+            {list.map((s) => (
               <SectionRow
                 key={s.key}
                 s={s}
@@ -436,11 +439,14 @@ export function CourseView({ api }: { api: Api }) {
             ))}
           </ul>
         </section>
-      )}
-      {map.note && <p className="muted">{map.note}</p>}
-      <p className="muted">
-        章节、知识点和页码来自老师的讲义；“要先会”标着来源（AI 补充或老师）。掌握情况按你的小测和作业成绩推断，你可以自己改。
-      </p>
+      ))}
+      <details className="km-foot">
+        <summary>这些内容从哪来</summary>
+        <p>
+          章节、知识点和页码来自老师的讲义和 Canvas；“要先会”标着来源（AI 补充或老师）。掌握情况按你的小测和作业成绩推断，点开一节可以自己改。
+          {map.note && ` ${map.note}`}
+        </p>
+      </details>
     </div>
   );
 }
