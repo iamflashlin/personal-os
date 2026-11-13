@@ -271,6 +271,7 @@ def verify_connections_view(
     key: str | None = None
     try:
         page.get_by_role("button", name="连接", exact=True).click()
+        open_add(page)
         form = page.get_by_role("form", name="添加日历订阅")
         form.get_by_label("名称").fill("Canvas 日历")
         form.get_by_label("订阅链接（不会再显示）").fill(feed.url)
@@ -343,6 +344,7 @@ def verify_canvas_view(
     owner = os.environ.get("POS_OWNER_ID", "local")
     key: str | None = None
     try:
+        open_add(page)
         form = page.get_by_role("form", name="连接 Canvas")
         form.get_by_label("学校的 Canvas 网址").fill(canvas.base)
         form.get_by_label("访问令牌（不会再显示）").fill(token)
@@ -615,6 +617,7 @@ def verify_email_view(
             json={"kind": "email", "name": "163 邮箱", "credential_name": name, "config": config},
         )
         check(created.status_code == 201, "an email connection was added")
+        open_add(page)
         form = page.get_by_role("form", name="连接邮箱")
         check(
             form.get_by_label("邮箱服务").input_value() == "imap.163.com", "163 is the first preset"
@@ -997,6 +1000,13 @@ def verify_data_kinds(page: Page, out: Path) -> None:
     page.screenshot(path=str(out / "25-phone-top.png"), full_page=False)
     check(True, "screenshot 25-phone-top (viewport only)")
     page.set_viewport_size({"width": 1200, "height": 800})
+
+
+def open_add(page: Page) -> None:
+    """连接: the add forms sit in 添加连接, closed once something is connected (T-0060)."""
+    box = page.get_by_test_id("add-connection")
+    if box.get_attribute("open") is None:
+        box.locator("summary").click()
 
 
 def open_view(page: Page, name: str) -> None:

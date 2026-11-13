@@ -836,6 +836,28 @@ ul.memories {
   }
 }
 
+/* ---------- connections (连接, T-0060) ---------- */
+
+.c-add {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.c-add > summary {
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.c-add[open] > summary {
+  margin-bottom: 12px;
+}
+
+.c-add form + form {
+  margin-top: 12px;
+}
+
 /* ---------- chat ---------- */
 
 .chat-form {
