@@ -12,6 +12,7 @@ from apps.hub.gpa import service as gpa
 from apps.hub.integrations import service as integrations
 from apps.hub.summaries import service as summaries
 from apps.hub.tasks import service as tasks
+from apps.hub.triage import service as triage
 from packages.contracts.integrations import IntegrationStatus, SyncedItem
 from packages.contracts.summaries import EmailSummary, SummaryStatus
 from packages.contracts.tasks import Task, TaskStatus
@@ -142,9 +143,15 @@ def _apply(entry: TodayEntry, found: EmailSummary | None) -> None:
 
 
 def _mail_actions(
-    session: Session, actor: Actor, now: datetime, names: dict[str, str]
+    session: Session,
+    actor: Actor,
+    now: datetime,
+    names: dict[str, str],
+    local_today: date,
+    handled: set[str],
 ) -> list[TodayEntry]:
-    """Mail the AI says needs action: deadline first (soonest), then newest."""
+    """Mail the AI says needs action: deadline first (soonest), then newest. A mail the user
+    marked 已处理 (or a rule did) is done, and so is one whose deadline has passed."""
     week = integrations.items_between(
         session,
         actor,
@@ -161,7 +168,9 @@ def _mail_actions(
         summary = found.get(item.id)
         if summary is None or summary.status is not SummaryStatus.ok or not summary.action_needed:
             continue
-        if summary.low_value:
+        if summary.low_value or item.id in handled:
+            continue
+        if summary.deadline_date is not None and summary.deadline_date < local_today:
             continue
         entry = _entry(item, names.get(item.integration_id, ""))
         _apply(entry, summary)
@@ -202,6 +211,7 @@ def today(
         item_type="canvas_assignment",
     )
     copies = gpa.missing_copies(session, actor, now)
+    handled = triage.handled_ids(session, actor, local_today)  # 已处理 on the 邮件 page
     for item in older + found:
         source = names.get(item.integration_id, "")
         day = _local_date(item.starts_at, item.all_day, tz)
@@ -221,7 +231,8 @@ def today(
             elif day is not None and local_today < day <= soon_last:
                 due_soon.append(entry)
         elif entry.kind is EntryKind.mail:
-            if _since(item, now, MAIL_HOURS) and not item.data.get("seen"):
+            unread_here = not item.data.get("seen") and item.id not in handled
+            if _since(item, now, MAIL_HOURS) and unread_here:
                 unread += 1
                 mail.append(entry)
         elif entry.kind is EntryKind.announcement and _since(item, now, NEWS_HOURS):
@@ -280,7 +291,7 @@ def today(
         headline=_headline(view, len(problems)),
         problems=problems,
         sources=len(sources),
-        mail_actions=_mail_actions(session, actor, now, names),
+        mail_actions=_mail_actions(session, actor, now, names, local_today, handled),
         low_value_mail=0,  # deprecated (T-0028), kept for older clients
         ai_notice=ai_notice,
         **view,
