@@ -12,10 +12,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from apps.hub.briefing import service as briefing
-from apps.hub.triage import service as triage
 from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
 from apps.hub.integrations.models import IntegrationRow, SyncedItemRow
+from apps.hub.triage import service as triage
 from packages.contracts.today import TodayView
 from tests.hub.support import hub_client
 
