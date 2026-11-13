@@ -2,15 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EmailSummary, SyncedItem } from "./api";
-import {
-  countMail,
-  filterMail,
-  MailDetail,
-  MailLine,
-  type MailRow,
-  mailTitle,
-  summariesFor,
-} from "./MailView";
+import { countMail, filterMail, MailDetail, MailLine, type MailRow, mailTitle, stateWord, summariesFor } from "./MailView";
 
 function item(id: string, title: string, body = "原文内容"): SyncedItem {
   return {
@@ -54,6 +46,17 @@ function summary(over: Partial<EmailSummary> = {}): EmailSummary {
 }
 
 describe("邮件 page", () => {
+  it("ends a row with one word: done, to do, or how much it matters", () => {
+    const row = (over: Partial<MailRow>): MailRow => ({ item: item("x", "x"), source: "163", ...over });
+    expect(stateWord(row({ summary: summary(), handled: "manual" })).text).toBe("已处理");
+    expect(stateWord(row({ summary: summary(), handled: "rule" })).text).toBe("已处理·规则");
+    expect(stateWord(row({ summary: summary() })).text).toBe("需处理");
+    expect(stateWord(row({ summary: summary({ action_needed: false }) })).text).toBe("重要");
+    expect(stateWord(row({ summary: summary({ action_needed: false, importance: "normal" }) })).text).toBe("");
+    expect(stateWord(row({ summary: summary({ low_value: true }) })).text).toBe("次要");
+    expect(stateWord(row({})).text).toBe("");
+  });
+
   it("shows the AI title, never the subject, once a mail is summarised", () => {
     const row: MailRow = {
       item: item("a", "Re: [CIS 22A] Reminder: Lab 5 submission window closes Friday"),
@@ -63,7 +66,8 @@ describe("邮件 page", () => {
     expect(mailTitle(row)).toBe("CIS22A 实验5 周五截止");
     const html = renderToStaticMarkup(createElement(MailLine, { row }));
     expect(html).toContain("CIS22A 实验5 周五截止");
-    expect(html).toContain("重要");
+    expect(html).toContain("需处理"); // one word: what to do beats how much it matters
+    expect(html).toContain("提交实验5，截止 周五 23:59");
     expect(html).not.toContain("Reminder: Lab 5"); // closed: the subject is not shown
   });
 
