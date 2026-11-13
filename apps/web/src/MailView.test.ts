@@ -71,6 +71,13 @@ describe("邮件 page", () => {
     expect(html).not.toContain("Reminder: Lab 5"); // closed: the subject is not shown
   });
 
+  it("never shows a to-do under a low-value mail", () => {
+    const row: MailRow = { item: item("z", "x"), source: "163", summary: summary({ low_value: true }) };
+    const html = renderToStaticMarkup(createElement(MailLine, { row }));
+    expect(html).toContain("次要");
+    expect(html).not.toContain("提交实验5");
+  });
+
   it("falls back to the subject while a mail has no summary", () => {
     expect(mailTitle({ item: item("b", "Lab 6"), source: "163" })).toBe("Lab 6");
     expect(mailTitle({ item: item("c", ""), source: "163" })).toBe("（无主题）");

@@ -155,7 +155,7 @@ function MailLineView({
   const { item, summary } = row;
   const ok = summary?.status === "ok";
   const state = stateWord(row);
-  const todo = ok && summary.action_needed && !row.handled ? summary.action : "";
+  const todo = needsAction(row) ? (summary?.action ?? "") : "";
   return (
     <li className={`mail-line${isUnread(row) ? " unread" : ""}${open ? " open" : ""}`} data-testid="mail-line">
       <button type="button" className="mail-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -164,6 +164,7 @@ function MailLineView({
           <span className="m-title" data-testid="mail-title">
             {mailTitle(row)}
           </span>
+          {isUnread(row) && <span className="sr-only">，未读</span>}
           {todo && (
             <span className="m-todo">
               {todo}

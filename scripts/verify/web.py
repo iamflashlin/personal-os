@@ -749,6 +749,11 @@ def verify_summaries_view(
             and "未读 2" in mail.get_by_test_id("mail-filter-unread").inner_text(),
             "the filters count every mail and the unread ones",
         )
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "邮件 fits a phone screen")
+        shot(page, out, "13b-email-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
         mail.get_by_test_id("mail-filter-action").click()
         acting = mail.get_by_test_id("mail-title").all_inner_texts()
         check(

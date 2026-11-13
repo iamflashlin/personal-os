@@ -669,11 +669,6 @@ ul.memories {
 
 /* ---------- mail ---------- */
 
-.summary {
-  margin: 0.25rem 0 0;
-  flex-basis: 100%;
-  text-align: left;
-}
 
 .mail-head {
   all: unset;
@@ -722,13 +717,10 @@ ul.memories {
   color: var(--primary);
 }
 
-.mail-toggle {
-  margin: 0.25rem 0 0.5rem;
-}
 
 /* ---------- mail page (T-0059) ----------
    One row per mail: when, what (with what it asks for), one state word. Unread is bold.
-   Scoped to .mail: 简报 still uses the shared .mail-head and .mail-filters above. */
+   Keyed on .mail-line (also used by the chat box); 简报's rows are .digest-item. */
 
 .mail {
   max-width: 880px;
@@ -749,11 +741,11 @@ ul.memories {
   overflow: hidden;
 }
 
-.m-list .mail-line + .mail-line {
+.mail-line + .mail-line {
   border-top: 1px solid var(--border);
 }
 
-.m-list .mail-head {
+.mail-line > .mail-head {
   display: grid;
   grid-template-columns: 6.5rem minmax(0, 1fr) 5.5rem;
   align-items: baseline;
@@ -762,12 +754,12 @@ ul.memories {
   padding: 12px 20px;
 }
 
-.m-list .mail-head:hover,
-.m-list .mail-line.open .mail-head {
+.mail-line > .mail-head:hover,
+.mail-line.open > .mail-head {
   background: var(--surface-2);
 }
 
-.m-list .mail-head:focus-visible {
+.mail-line > .mail-head:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
@@ -816,6 +808,14 @@ ul.memories {
   background: var(--surface-2);
 }
 
+.memories .m-open {
+  padding-left: 20px;
+}
+
+.memories .mail-line {
+  list-style: none;
+}
+
 .m-open .mail-detail {
   margin: 0;
   padding: 0;
@@ -823,7 +823,7 @@ ul.memories {
 }
 
 @media (max-width: 720px) {
-  .m-list .mail-head {
+  .mail-line > .mail-head {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
