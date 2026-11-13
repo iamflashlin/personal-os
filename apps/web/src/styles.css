@@ -200,16 +200,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.subtitle {
-  margin: 4px 0 0;
-  color: var(--muted);
-}
-
-.topbar-date {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
 @media (max-width: 900px) {
   .shell {
     display: block;
@@ -326,9 +316,116 @@ section {
   margin-bottom: 16px;
 }
 
+/* ---------- today (今日) ----------
+   One sentence, then sections of rows that share three columns: when, what, from. */
+
+.today {
+  max-width: 880px;
+}
+
 .today .headline {
-  margin: 0 0 18px;
-  font-size: 1.05rem;
+  margin: -10px 0 26px;
+  color: var(--muted);
+}
+
+.t-section {
+  margin-bottom: 26px;
+}
+
+.t-section h2 {
+  margin: 0 0 8px 20px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.t-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.t-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) minmax(0, 11rem);
+  align-items: baseline;
+  gap: 0 16px;
+  padding: 13px 20px;
+  overflow-wrap: anywhere;
+}
+
+.t-row + .t-row {
+  border-top: 1px solid var(--border);
+}
+
+.t-when {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.t-from {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.t-tag {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.t-tag.bad {
+  color: var(--danger);
+}
+
+.t-tag.ok {
+  color: var(--ok);
+}
+
+.t-todo {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 0.9rem;
+}
+
+.t-notice {
+  margin: 0 0 22px;
+  color: var(--warn);
+}
+
+.t-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0 0 0 20px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.t-problem {
+  flex-basis: 100%;
+  color: var(--warn);
+}
+
+@media (max-width: 720px) {
+  .t-row {
+    grid-template-columns: 4.2rem minmax(0, 1fr);
+  }
+
+  .t-from {
+    grid-column: 2;
+    text-align: left;
+  }
 }
 
 /* ---------- controls ---------- */
@@ -781,7 +878,8 @@ ul.memories {
   outline-offset: -2px;
 }
 
-/* On wide screens the column header says this; it stays for screen readers. */
+/* Read by screen readers only. On wide screens the column header says .g-keep-label. */
+.sr-only,
 .g-keep-label {
   position: absolute;
   width: 1px;

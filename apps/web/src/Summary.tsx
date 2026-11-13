@@ -15,41 +15,6 @@ export function formatUsd(microUsd: number): string {
   return `$${(Math.max(0, microUsd) / 1_000_000).toFixed(2)}`;
 }
 
-/** One summary line. All text is rendered by React, so mail content is never HTML. */
-export function SummaryLine({
-  summary,
-  hideGist = false,
-}: {
-  summary: EntrySummary | null | undefined;
-  hideGist?: boolean;
-}) {
-  if (!summary) return null;
-  if (summary.status !== "ok") {
-    return (
-      <p className="muted summary" data-testid="summary-state">
-        {SUMMARY_LABEL[summary.status]}
-      </p>
-    );
-  }
-  if (hideGist && !summary.action_needed && !summary.deadline_text) return null;
-  return (
-    <p className="summary" data-testid="summary">
-      {!hideGist && (
-        <>
-          <span className="badge ai">AI</span> {summary.gist}
-        </>
-      )}
-      {summary.action_needed && (
-        <>
-          {" "}
-          <span className="badge submission-缺交">需处理</span> {summary.action}
-        </>
-      )}
-      {summary.deadline_text && <span className="muted">（截止：{summary.deadline_text}）</span>}
-    </p>
-  );
-}
-
 function errorText(err: unknown): string {
   if (err instanceof ApiError) return `操作失败（${err.status}）：${err.detail}`;
   return String(err);

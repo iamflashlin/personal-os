@@ -1,16 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Api, ApiError, type EntrySummary, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
-import { SummaryLine } from "./Summary";
-
-const BADGE_CLASS: Record<string, string> = {
-  缺交: "submission-缺交",
-  逾期: "submission-缺交",
-  未读: "submission-缺交",
-  已提交: "submission-已提交",
-  已评分: "submission-已评分",
-  进行中: "in_progress",
-};
+import { shortCode } from "./GpaView";
+import { SUMMARY_LABEL } from "./Summary";
 
 function errorText(err: unknown): string {
   if (err instanceof ApiError) return `（${err.status}）${err.detail}`;
@@ -33,6 +25,34 @@ export function summaryBadges(s: EntrySummary | null | undefined): string[] {
   return s.importance === "high" ? ["重要"] : [];
 }
 
+/** The right-hand column of a row: the course as a short name when the note names one
+ * ("F26 MATH D001A 49 Calculus I" -> "MATH 1A"), else the note itself (a sender, a calendar). */
+export function origin(entry: Pick<TodayEntry, "note" | "source">): string {
+  const m = /\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b/.exec(entry.note);
+  return m ? shortCode(`${m[1]} ${m[2]}`) : entry.note || entry.source;
+}
+
+/** The single tag of a row, never one its section title already says (no 未读 under
+ * 未读邮件, no 进行中 under 进行中, no 缺交 under 缺交 / 逾期). Mail shows only how much it
+ * matters; other rows show their state (已提交, 已评分 …). */
+export function rowTag(
+  entry: TodayEntry,
+  section: "mail" | "action" | "other",
+  title: string,
+): string {
+  if (section === "action") return "";
+  const tag = section === "mail" ? (summaryBadges(entry.summary)[0] ?? "") : entry.badge;
+  return tag && !title.includes(tag) ? tag : "";
+}
+
+/** The quiet line under a mail's title: what it asks for and its deadline, either alone. */
+export function quietLine(s: EntrySummary | null | undefined): string {
+  if (!s || s.status !== "ok") return "";
+  return [s.action_needed ? s.action : "", s.deadline_text ? `截止 ${s.deadline_text}` : ""]
+    .filter(Boolean)
+    .join("，");
+}
+
 function whenText(entry: TodayEntry, withDay: boolean): string {
   if (!entry.at) return "";
   const at = new Date(entry.at);
@@ -49,34 +69,58 @@ function whenText(entry: TodayEntry, withDay: boolean): string {
   });
 }
 
-function Entry({ entry, withDay }: { entry: TodayEntry; withDay: boolean }) {
-  const when = whenText(entry, withDay);
+const TAG_CLASS: Record<string, string> = {
+  缺交: "t-tag bad",
+  逾期: "t-tag bad",
+  重要: "t-tag bad",
+  已提交: "t-tag ok",
+  已评分: "t-tag ok",
+};
+
+export function TodayRow({
+  entry,
+  withDay,
+  section,
+  title,
+}: {
+  entry: TodayEntry;
+  withDay: boolean;
+  section: "mail" | "action" | "other";
+  title: string;
+}) {
   const link = safeLink(entry.url);
+  const tag = rowTag(entry, section, title);
+  const s = entry.summary;
+  const quiet = quietLine(s);
   return (
-    <li className="memory" data-testid="today-entry">
-      <div className="memory-main">
-        {when && <span className="badge">{when}</span>}
-        <span className="memory-body">
-          {link ? (
-            <a href={link} target="_blank" rel="noreferrer noopener">
-              {entry.title}
-            </a>
-          ) : (
-            entry.title
-          )}
-        </span>
-        {summaryBadges(entry.summary).map((b) => (
-          <span key={b} className={b === "重要" ? "badge submission-缺交" : "badge"}>
-            {b}
-          </span>
-        ))}
-        {entry.badge && (
-          <span className={`badge ${BADGE_CLASS[entry.badge] ?? ""}`}>{entry.badge}</span>
+    <li className="t-row" data-testid="today-entry">
+      <span className="t-when">{whenText(entry, withDay)}</span>
+      <span className="t-what">
+        {link ? (
+          <a href={link} target="_blank" rel="noreferrer noopener">
+            {entry.title}
+          </a>
+        ) : (
+          entry.title
         )}
-      </div>
-      <div className="muted">{[entry.note, entry.source].filter(Boolean).join(" · ")}</div>
-      {/* The line above already is the AI title; show only what to do and when. */}
-      <SummaryLine summary={entry.summary} hideGist />
+        {tag && (
+          <span className={TAG_CLASS[tag] ?? "t-tag"}>
+            <span className="sr-only">，</span>
+            {tag}
+          </span>
+        )}
+        {quiet && (
+          <span className="t-todo" data-testid="summary">
+            {quiet}
+          </span>
+        )}
+        {s && s.status !== "ok" && (
+          <span className="t-todo" data-testid="summary-state">
+            {SUMMARY_LABEL[s.status]}
+          </span>
+        )}
+      </span>
+      <span className="t-from">{origin(entry)}</span>
     </li>
   );
 }
@@ -85,29 +129,31 @@ function Section({
   title,
   entries,
   testId,
-  empty,
   withDay = false,
+  section = "other",
 }: {
   title: string;
   entries: TodayEntry[];
   testId: string;
-  empty?: string;
   withDay?: boolean;
+  section?: "mail" | "action" | "other";
 }) {
-  if (entries.length === 0 && !empty) return null;
+  if (entries.length === 0) return null;
   return (
-    <section data-testid={testId}>
+    <div className="t-section" data-testid={testId}>
       <h2>{title}</h2>
-      {entries.length === 0 ? (
-        <p className="muted">{empty}</p>
-      ) : (
-        <ul>
-          {entries.map((e) => (
-            <Entry key={`${e.kind}-${e.ref}`} entry={e} withDay={withDay} />
-          ))}
-        </ul>
-      )}
-    </section>
+      <ul>
+        {entries.map((e) => (
+          <TodayRow
+            key={`${e.kind}-${e.ref}`}
+            entry={e}
+            withDay={withDay}
+            section={section}
+            title={title}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -151,70 +197,59 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
     );
   if (!today) return <p>加载中…</p>;
 
-  const date = new Date(`${today.date}T00:00:00`).toLocaleDateString("zh-CN", {
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
   const nothingConnected = today.sources === 0;
+  // A mail that asks for something is listed there; 未读邮件 does not repeat it.
+  const actionRefs = new Set((today.mail_actions ?? []).map((m) => m.ref));
   return (
     <div className="today" data-testid="today">
       <p className="headline" data-testid="today-headline">
-        <strong>{date}</strong> {today.headline}
+        {today.headline}
       </p>
       {nothingConnected && (
         <p className="muted">
-          还没有连接任何来源。连上 Canvas 和邮箱后，这里会自动列出截止、缺交和未读邮件。{" "}
+          还没有连接任何来源。连上 Canvas 和邮箱后，这里会列出截止、缺交和未读邮件。{" "}
           <button type="button" onClick={onConnect}>
             去连接
           </button>
         </p>
       )}
       {today.ai_notice && (
-        <p className="error" data-testid="today-ai-notice">
+        <p className="t-notice" data-testid="today-ai-notice">
           AI 邮件总结暂停：{today.ai_notice}{" "}
-          <button type="button" onClick={onConnect}>
+          <button type="button" className="g-more" onClick={onConnect}>
             去处理
           </button>
         </p>
       )}
-      {today.problems.length > 0 && (
-        <section data-testid="today-problems">
-          <h2>同步出错</h2>
-          <ul>
-            {today.problems.map((p) => (
-              <li key={p.name} className="error">
-                {p.name}：{p.error}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       <Section title="缺交 / 逾期" entries={today.missing} testId="today-missing" withDay />
+      <Section title="今天截止" entries={today.due_today} testId="today-due" />
+      <Section title="今日日程" entries={today.events} testId="today-events" />
       <Section
-        title="今天截止"
-        entries={today.due_today}
-        testId="today-due"
-        empty="今天没有截止的作业或任务"
-      />
-      <Section
-        title="需要处理的邮件（7 天内）"
+        title="邮件里要你做的"
         entries={today.mail_actions ?? []}
         testId="today-mail-actions"
         withDay
-      />
-      <Section title="今日日程" entries={today.events} testId="today-events" />
-      <Section
-        title={`未读邮件（过去 24 小时 ${today.unread_mail} 封）`}
-        entries={today.mail}
-        testId="today-mail"
+        section="action"
       />
       <Section title="接下来三天" entries={today.due_soon} testId="today-soon" withDay />
+      <Section
+        title="未读邮件"
+        entries={today.mail.filter((m) => !actionRefs.has(m.ref))}
+        testId="today-mail"
+        section="mail"
+      />
       <Section title="新公告" entries={today.announcements} testId="today-news" withDay />
       <Section title="进行中" entries={today.in_progress} testId="today-progress" />
-      <p className="muted">
-        更新于 {new Date(today.generated_at).toLocaleTimeString("zh-CN")}（{today.timezone}）{" "}
-        <button type="button" onClick={() => void reload()}>
+      <p className="t-foot">
+        {today.problems.length > 0 && (
+          <span className="t-problem" data-testid="today-problems">
+            {today.problems.map((p) => `${p.name}没同步上：${p.error}`).join("；")}
+          </span>
+        )}
+        <span>
+          更新于 {new Date(today.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+        </span>
+        <button type="button" className="g-more" onClick={() => void reload()}>
           刷新
         </button>
       </p>
