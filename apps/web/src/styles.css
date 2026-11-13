@@ -1202,6 +1202,10 @@ ul.memories {
   color: var(--danger);
 }
 
+.s-time {
+  white-space: nowrap;
+}
+
 .s-time,
 .s-side {
   color: var(--muted);
@@ -1254,7 +1258,7 @@ ul.memories {
   }
 
   .s-row {
-    grid-template-columns: 5.5rem minmax(0, 1fr);
+    grid-template-columns: 6.5rem minmax(0, 1fr);
   }
 
   .s-side {

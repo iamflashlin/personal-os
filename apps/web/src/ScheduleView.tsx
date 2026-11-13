@@ -53,16 +53,21 @@ function localInput(d: Date): string {
 
 /** The time column: a deadline says so here, so it needs no tag of its own. */
 export function timeText(e: Pick<AgendaEntry, "all_day" | "starts_at" | "ends_at" | "kind">): string {
+  if (e.kind === "deadline") return e.all_day ? "全天截止" : `截止 ${hm(e.starts_at)}`;
   if (e.all_day) return "全天";
-  if (e.kind === "deadline") return `截止 ${hm(e.starts_at)}`;
   return e.ends_at ? `${hm(e.starts_at)}–${hm(e.ends_at)}` : hm(e.starts_at);
 }
 
-/** The right column: the course for Canvas work (a short name), else the kind of event. */
+/** The right column: Canvas work names its course (a short name when it has a code);
+ * every other event says what kind it is. A room such as "ATC 203" is never a course. */
 export function sideText(e: Pick<AgendaEntry, "kind" | "location" | "source">): string {
-  const course = origin({ note: e.location, source: "" });
-  if (course && course !== e.location) return course; // a course code was found
-  return e.kind === "deadline" ? "" : (KIND_LABEL[e.kind] ?? e.kind);
+  if (e.source === "canvas") return origin({ note: e.location, source: "" });
+  return KIND_LABEL[e.kind] ?? e.kind;
+}
+
+/** Where an event is, shown by its title: Canvas work has none (its course is on the right). */
+export function placeText(e: Pick<AgendaEntry, "location" | "source">): string {
+  return e.source === "canvas" ? "" : e.location;
 }
 
 function Entry({
@@ -76,8 +81,7 @@ function Entry({
 }) {
   const link = safeLink(e.url);
   const side = sideText(e);
-  // A course name moves to the right column; any other location stays by the title.
-  const place = side && side === KIND_LABEL[e.kind] ? e.location : "";
+  const place = placeText(e);
   return (
     <li className={`s-row${e.conflict ? " conflict" : ""}`} data-testid="sched-entry">
       <span className="s-time">{timeText(e)}</span>
@@ -99,6 +103,7 @@ function Entry({
           <button
             type="button"
             className="g-more s-del"
+            aria-label={`${repeats ? "删除全部" : "删除"}：${e.title}`}
             onClick={() => {
               // One click on a weekly class would delete every week: say so first.
               if (repeats && !window.confirm("这是每周重复的日程，删除会删掉所有的周次。确定删除？")) return;
@@ -185,6 +190,7 @@ export function ScheduleView({ api }: { api: Api }) {
     return d;
   });
   const now = new Date();
+  const onThisWeek = weekStart(now).getTime() === start.getTime();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const grouped = byDay(agenda?.entries ?? []);
   const freeByDay = byDay(
@@ -223,7 +229,7 @@ export function ScheduleView({ api }: { api: Api }) {
           <button type="button" className="s-arrow" aria-label="下一周" onClick={() => shift(7)}>
             ›
           </button>
-          {weekStart(new Date()).getTime() !== start.getTime() && (
+          {!onThisWeek && (
             <button type="button" className="g-more" onClick={() => setStart(weekStart(new Date()))}>
               回到本周
             </button>
