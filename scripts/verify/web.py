@@ -285,6 +285,7 @@ def verify_connections_view(
         (stored,) = api.get("/credentials").json()
         key = f"{owner}:{stored['name']}"
         check(keyring.get_password(service, key) == feed.url, "the link is in Credential Manager")
+        open_add(page)  # 添加连接 closes again after the first add (T-0060)
         check(form.get_by_label("订阅链接（不会再显示）").input_value() == "", "link field emptied")
         check(feed.token not in page.content(), "the feed token is nowhere in the page")
         (integration,) = api.get("/integrations").json()
