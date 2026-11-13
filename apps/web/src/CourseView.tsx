@@ -80,7 +80,8 @@ function SectionRow({
   return (
     <li className={open ? "km-section open" : "km-section"} data-testid="km-section">
       <button type="button" className="km-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="km-key">{s.key}</span>
+        {/* A concept (a prerequisite like "U4-fiscal") shows the section it belongs to. */}
+        <span className="km-key">{s.kind === "concept" ? s.parent : s.key}</span>
         <span className="km-title">
           {s.title_zh || s.title}
           {why && <span className="km-why">{why}</span>}
