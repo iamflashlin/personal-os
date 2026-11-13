@@ -273,9 +273,10 @@ export function ConnectionsView({ api }: { api: Api }) {
           ))}
         </ul>
         {/* Adding is occasional: the forms open on demand, and on their own when nothing is
-            connected yet. */}
+            connected yet. After the first add it closes again on purpose ("done, here it is"). */}
         <details className="c-add" open={integrations?.length === 0} data-testid="add-connection">
           <summary>添加连接</summary>
+          <p className="muted">链接、令牌和授权码只存进 Windows 凭据管理器，页面不会再显示。</p>
           <NewFeedForm
             onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
           />

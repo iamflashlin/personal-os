@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import httpx  # noqa: E402
 import keyring  # noqa: E402
 from hub import CheckFailed, FakeCanvas, check, fake_mail, recent, running_hub  # noqa: E402
-from playwright.sync_api import Dialog, Locator, Page, sync_playwright  # noqa: E402
+from playwright.sync_api import Dialog, Locator, Page, expect, sync_playwright  # noqa: E402
 
 TASK_TITLE = "读第 3 次实验的说明"
 NOTE = "读完了，记下了三个问题"
@@ -1004,9 +1004,13 @@ def verify_data_kinds(page: Page, out: Path) -> None:
 
 def open_add(page: Page) -> None:
     """连接: the add forms sit in 添加连接, closed once something is connected (T-0060)."""
+    # Wait for the list first: an empty list opens the box by itself, and a click landing
+    # just after that would close it again.
+    page.get_by_test_id("integrations").get_by_text("加载中…").wait_for(state="detached")
     box = page.get_by_test_id("add-connection")
     if box.get_attribute("open") is None:
         box.locator("summary").click()
+    expect(box).to_have_attribute("open", "")
 
 
 def open_view(page: Page, name: str) -> None:
