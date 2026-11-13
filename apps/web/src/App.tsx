@@ -55,18 +55,6 @@ const GROUPS: { label: string; views: View[] }[] = [
   { label: "系统", views: ["tasks", "memories", "connections"] },
 ];
 
-const SUBTITLE: Record<View, string> = {
-  today: "今天要做的事、要交的作业和新邮件",
-  mail: "每封邮件的要点，以及要你处理的事",
-  digest: "时事、社团活动和群聊精华",
-  gpa: "按课程大纲计算的成绩和 GPA",
-  course: "每门课的章节、知识点、掌握情况和考试复习地图",
-  schedule: "这一周的课、活动、截止和空闲时间",
-  tasks: "目标、项目和任务",
-  memories: "系统记住的关于你的事",
-  connections: "接入的数据来源和它们的状态",
-};
-
 function todayLabel(): string {
   return new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" });
 }
@@ -163,11 +151,8 @@ export function App({ api }: { api: Api }) {
       </aside>
       <main className="page">
         <header className="topbar">
-          <div>
-            <h1>{VIEW[view]}</h1>
-            <p className="subtitle">{SUBTITLE[view]}</p>
-          </div>
-          <span className="topbar-date">{todayLabel()}</span>
+          {/* 今日 is headed by the day itself; the sidebar already names the page. */}
+          <h1>{view === "today" ? todayLabel() : VIEW[view]}</h1>
         </header>
         {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
         {view === "mail" && <MailView api={api} />}
