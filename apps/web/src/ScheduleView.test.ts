@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type AgendaEntry, createApi } from "./api";
-import { byDay, weekStart } from "./ScheduleView";
+import { byDay, sideText, timeText, weekStart } from "./ScheduleView";
 
 const entry = (startsAt: string): AgendaEntry => ({
   key: startsAt,
@@ -49,5 +49,17 @@ describe("schedule", () => {
     expect(calls[0].path).toContain("time_zone=America%2FLos_Angeles");
     expect(calls[1].path).toBe("/schedule/events?time_zone=America%2FLos_Angeles");
     expect(calls[1].body).toMatchObject({ title: "健身", repeat_days: ["MO"] });
+  });
+
+  it("says a deadline in the time column and names its course shortly", () => {
+    const at = new Date(2026, 10, 15, 23, 59).toISOString();
+    const deadline = { kind: "deadline", all_day: false, starts_at: at, ends_at: null };
+    expect(timeText(deadline)).toBe("截止 23:59");
+    expect(timeText({ ...deadline, all_day: true })).toBe("全天");
+    expect(sideText({ kind: "deadline", location: "F26 ECON C2002 Prin Macroeconomics 03Y", source: "canvas" })).toBe(
+      "ECON 2002",
+    );
+    expect(sideText({ kind: "workout", location: "Gym", source: "manual" })).toBe("健身");
+    expect(sideText({ kind: "deadline", location: "", source: "canvas" })).toBe("");
   });
 });

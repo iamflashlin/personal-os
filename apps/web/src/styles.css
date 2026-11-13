@@ -1083,24 +1083,50 @@ ul.memories {
   }
 }
 
-/* ---------- schedule (日程) ---------- */
+/* ---------- schedule (日程) ----------
+   One week as a list of days; each day's rows share three columns: time, what, course. */
 
-.sched-head {
+.schedule {
+  max-width: 880px;
+}
+
+.s-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.s-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s-nav strong {
+  min-width: 7.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-arrow {
+  width: 2rem;
+  padding: 2px 0;
+  font-size: 1.2rem;
+  line-height: 1.2;
 }
 
 .sched-form {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 14px;
-  padding: 14px;
-  background: var(--surface-2);
-  border-radius: var(--radius-sm);
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .sched-form fieldset {
@@ -1111,43 +1137,130 @@ ul.memories {
   border-radius: var(--radius-sm);
 }
 
-.sched-week {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 10px;
+.s-week {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
-.sched-day {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  background: var(--surface);
+.s-day {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0 16px;
+  padding: 12px 20px;
+}
+
+.s-day + .s-day {
+  border-top: 1px solid var(--border);
+}
+
+.s-day.today {
+  background: var(--primary-soft);
+}
+
+.s-day h3 {
+  margin: 0;
+  padding-top: 1px;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-day h3 span {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.s-day h3 .s-today {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.s-day ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.s-row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr) minmax(0, 6rem);
+  align-items: baseline;
+  gap: 0 14px;
+  padding: 1px 0 7px;
   overflow-wrap: anywhere;
 }
 
-.sched-day h3 {
-  margin: 0 0 6px;
+.s-row.conflict .s-time {
+  color: var(--danger);
+}
+
+.s-time,
+.s-side {
+  color: var(--muted);
   font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.sched-day ul {
-  list-style: none;
-  padding: 0;
+.s-side {
+  text-align: right;
+}
+
+.s-place,
+.s-clash {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.s-clash {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.s-del {
+  margin-left: 10px;
+  font-size: 0.85rem;
+}
+
+.s-empty,
+.s-free {
+  grid-column: 2;
   margin: 0;
-}
-
-.sched-entry {
-  margin: 6px 0;
+  color: var(--faint);
   font-size: 0.88rem;
 }
 
-.sched-entry.conflict {
-  border-left: 3px solid var(--danger);
-  padding-left: 6px;
+.s-free {
+  color: var(--muted);
 }
 
-.sched-free {
-  font-size: 0.8rem;
+@media (max-width: 720px) {
+  .s-day {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .s-empty,
+  .s-free {
+    grid-column: 1;
+  }
+
+  .s-row {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .s-side {
+    grid-column: 2;
+    text-align: left;
+  }
 }
 
 /* ---------- digest (简报) ---------- */
