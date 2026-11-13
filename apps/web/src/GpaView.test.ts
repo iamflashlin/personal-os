@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { type CourseGpa, createApi } from "./api";
-import { byModule, GpaView, keepLine, shortCode } from "./GpaView";
+import { byModule, GpaView, keepLine, needText, shortCode } from "./GpaView";
 
 const course: CourseGpa = {
   integration_item_id: "c1",
@@ -72,6 +72,9 @@ describe("the course line", () => {
     expect(keepLine({ letter: "A", lines: [{ ...lines[0], status: "out_of_reach" }] })).toBe(
       "89.1%，很难",
     );
+    expect(needText({ ...lines[0], needed: -12.3, status: "safe" })).toBe("已稳"); // no negative %
+    expect(needText({ ...lines[0], needed: null, status: "done" })).toBe("已稳");
+    expect(needText({ ...lines[0], needed: null, status: "out_of_reach" })).toBe("达不到");
     expect(keepLine({ letter: "B", lines })).toBe("");
     expect(keepLine({ letter: "", lines })).toBe("");
   });

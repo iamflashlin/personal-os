@@ -777,7 +777,23 @@ ul.memories {
   color: inherit;
 }
 
+.gpa-head:focus-visible {
+  outline-offset: -2px;
+}
+
+/* On wide screens the column header says this; it stays for screen readers. */
+.g-keep-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .g-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 650;
 }
 
@@ -909,8 +925,7 @@ ul.memories {
   padding-left: 18px;
 }
 
-.rules,
-.rules-open {
+.rules {
   margin: 8px 0;
   padding: 0;
   list-style: none;
@@ -930,10 +945,6 @@ ul.memories {
   color: var(--faint);
   font-size: 0.85em;
   overflow-wrap: anywhere;
-}
-
-.rules-open {
-  color: var(--warn);
 }
 
 .g-how {
@@ -962,8 +973,11 @@ ul.memories {
     font-size: 0.9rem;
   }
 
-  .g-keep::before {
-    content: "保住等级，之后平均要 ";
+  .g-keep-label {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
   }
 
   .g-detail {

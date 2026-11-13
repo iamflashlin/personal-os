@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   type Api,
   ApiError,
@@ -26,14 +26,20 @@ export function shortCode(code: string): string {
   return m ? `${m[1]} ${m[2]}` : code;
 }
 
-/** The last column of a course's line: what the remaining work must average to keep
- * the letter it has now ("" when there is no letter or no such target). */
+type Line = CourseGpa["lines"][number];
+
+/** What the remaining work must average to reach a target, in words. */
+export function needText(l: Line): string {
+  if (l.status === "safe" || l.status === "done") return "已稳";
+  if (l.needed === null) return l.status === "out_of_reach" ? "达不到" : "";
+  return l.status === "out_of_reach" ? `${l.needed}%，很难` : `${l.needed}%`;
+}
+
+/** The last column of a course's line: the target that keeps the letter it has now
+ * ("" when there is no letter or no such target). */
 export function keepLine(c: Pick<CourseGpa, "letter" | "lines">): string {
   const line = c.lines.find((l) => l.label.startsWith(`${c.letter}（`));
-  if (!c.letter || !line) return "";
-  if (line.status === "safe" || line.status === "done") return "已稳";
-  if (line.needed === null) return "";
-  return line.status === "out_of_reach" ? `${line.needed}%，很难` : `${line.needed}%`;
+  return c.letter && line ? needText(line) : "";
 }
 
 function Work({ w }: { w: WorkItem }) {
@@ -116,13 +122,6 @@ function RulesCard({
               </li>
             ))}
           </ul>
-          {p.open_questions.length > 0 && (
-            <ul className="rules-open">
-              {p.open_questions.map((q, i) => (
-                <li key={`${i}-${q.slice(0, 20)}`}>待确认：{q}</li>
-              ))}
-            </ul>
-          )}
           <p className="rule-source">来源：{p.syllabus_source}</p>
           {!p.confirmed_at && (
             <button type="button" onClick={() => onConfirm(p)}>
@@ -145,10 +144,12 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function Detail({
+  id,
   c,
   profile,
   onConfirm,
 }: {
+  id: string;
   c: CourseGpa;
   profile?: CourseProfile;
   onConfirm: (p: CourseProfile) => void;
@@ -156,7 +157,7 @@ function Detail({
   const [showMaterials, setShowMaterials] = useState(false);
   const groups = c.basis === "syllabus" ? [] : c.groups.filter((g) => g.total > 0 || g.weight > 0);
   return (
-    <div className="g-detail">
+    <div className="g-detail" id={id}>
       {c.missing.length > 0 && (
         <div className="g-block" data-testid="gpa-missing">
           <h3>缺交</h3>
@@ -182,7 +183,7 @@ function Detail({
             {c.lines.map((l) => (
               <li key={l.label} className={l.status === "out_of_reach" ? "g-far" : undefined}>
                 <span>{l.label}</span>
-                <strong>{l.needed !== null ? `${l.needed}%` : "—"}</strong>
+                <strong>{needText(l) || "—"}</strong>
               </li>
             ))}
           </ul>
@@ -277,12 +278,15 @@ function Course({
   onConfirm: (p: CourseProfile) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const detailId = useId();
+  const keep = keepLine(c);
   return (
     <section className={open ? "gpa-course open" : "gpa-course"} data-testid="gpa-course">
       <button
         type="button"
         className="gpa-head"
         aria-expanded={open}
+        aria-controls={detailId}
         title={c.code}
         onClick={() => setOpen((v) => !v)}
       >
@@ -291,10 +295,15 @@ function Course({
         <span className="g-percent">{c.percent !== null ? `${c.percent}%` : ""}</span>
         <span className="g-line">
           {c.completion.missing > 0 && <span className="g-flag">缺交 {c.completion.missing}　</span>}
-          {keepLine(c) && <span className="g-keep">{keepLine(c)}</span>}
+          {keep && (
+            <span className="g-keep">
+              <span className="g-keep-label">保住等级，之后平均要 </span>
+              {keep}
+            </span>
+          )}
         </span>
       </button>
-      {open && <Detail c={c} profile={profile} onConfirm={onConfirm} />}
+      {open && <Detail id={detailId} c={c} profile={profile} onConfirm={onConfirm} />}
     </section>
   );
 }

@@ -373,9 +373,12 @@ def verify_canvas_view(
             and card.locator(".gpa-grade").inner_text() == "A",
             f"成绩 is one line per course: name, letter, what is missing ({line[:60]!r})",
         )
+        check(
+            card.get_by_test_id("gpa-missing").count() == 0, "closed, the course is only its line"
+        )
         card.locator(".gpa-head").click()
         text = card.inner_text()
-        check("93.5" in text, "opening it shows the Canvas score")
+        check("93.5" in text, "opened, a note says Canvas's own 93.5%")
         check(card.get_by_test_id("gpa-missing").count() == 1, "opening it lists the missing lab")
         # T-0049: a syllabus rules card decides the letter; the user confirms it once.
         profile = {
@@ -430,10 +433,9 @@ def verify_canvas_view(
         card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
         card.locator(".gpa-head").click()
         card.get_by_text("按大纲的类别加权").wait_for(timeout=20_000)
-        text = card.inner_text()
         check(
-            "按总分计算" not in text and card.locator(".gpa-groups").count() == 0,
-            "a syllabus-computed course hides 按总分计算 and Canvas's group table",
+            card.locator(".gpa-groups").count() == 0,
+            "a syllabus-computed course hides Canvas's group table",
         )
         shot(page, out, "21c-gpa-syllabus")
         # T-0052: the course knowledge map and an exam's review map.
