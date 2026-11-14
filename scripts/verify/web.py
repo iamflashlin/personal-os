@@ -642,7 +642,7 @@ def verify_email_view(
         )
         shot(page, out, "14-today")
         open_view(page, "连接")
-        page.get_by_test_id("integrations").get_by_text("163 邮箱").wait_for()
+        page.get_by_test_id("integrations").get_by_text("163 邮箱", exact=True).wait_for()
         (row,) = [
             r
             for r in page.get_by_test_id("integrations").get_by_role("listitem").all()
