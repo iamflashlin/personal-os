@@ -33,11 +33,6 @@ const SECRET_NAME: Record<Integration["kind"], string> = {
 };
 const REFRESH_MS = 10_000;
 const SYNC_WAIT_MS = 60_000;
-const INTRO =
-  "把外部来源接进来，系统会在后台定时同步。现在支持“日历订阅链接”（ICS），" +
-  "例如 Canvas 的 Calendar Feed；也可以用 Canvas 的访问令牌直接接入（能看到是否已交、" +
-  "分数和公告）；邮箱用 IMAP 接入（163 要用授权码）。链接、令牌和授权码都只存进 " +
-  "Windows 凭据管理器，页面不会再显示它们。";
 
 const MAIL_LIMIT = 30;
 
@@ -252,7 +247,6 @@ export function ConnectionsView({ api }: { api: Api }) {
 
   return (
     <>
-      <p className="muted">{INTRO}</p>
       {loadError && (
         <p className="error" role="alert">
           {loadError}
@@ -263,17 +257,6 @@ export function ConnectionsView({ api }: { api: Api }) {
           {actionError}
         </p>
       )}
-      {integrations && <DataKindsOverview integrations={integrations} />}
-      <NewFeedForm
-        onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
-      />
-      <NewEmailForm
-        onConnect={(m) => run(() => api.connectEmail(m, newCredentialName("mail")))}
-      />
-      <NewCanvasForm
-        onConnect={(canvas) => run(() => api.connectCanvas(canvas, newCredentialName("canvas")))}
-      />
-      <AiCard api={api} onChanged={() => void reload()} />
       <section data-testid="integrations">
         <h2>已连接</h2>
         {integrations === null && !loadError && <p>加载中…</p>}
@@ -289,7 +272,24 @@ export function ConnectionsView({ api }: { api: Api }) {
             />
           ))}
         </ul>
+        {/* Adding is occasional: the forms open on demand, and on their own when nothing is
+            connected yet. After the first add it closes again on purpose ("done, here it is"). */}
+        <details className="c-add" open={integrations?.length === 0} data-testid="add-connection">
+          <summary>添加连接</summary>
+          <p className="muted">链接、令牌和授权码只存进 Windows 凭据管理器，页面不会再显示。</p>
+          <NewFeedForm
+            onConnect={(feed) => run(() => api.connectFeed(feed, newCredentialName("feed")))}
+          />
+          <NewEmailForm
+            onConnect={(m) => run(() => api.connectEmail(m, newCredentialName("mail")))}
+          />
+          <NewCanvasForm
+            onConnect={(canvas) => run(() => api.connectCanvas(canvas, newCredentialName("canvas")))}
+          />
+        </details>
       </section>
+      {integrations && <DataKindsOverview integrations={integrations} />}
+      <AiCard api={api} onChanged={() => void reload()} />
       <section data-testid="upcoming">
         <h2>接下来 {UPCOMING_DAYS} 天</h2>
         {upcoming.length === 0 && <p className="muted">没有即将到来的日程</p>}
