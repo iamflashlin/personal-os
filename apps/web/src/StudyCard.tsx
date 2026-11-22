@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Api, ApiError, newKey, type StepRun, type StudyPlan, type StudySession } from "./api";
 import { shortCode } from "./GpaView";
+import { type PollOptions, pollUntil } from "./poll";
 
 const POLL_MS = 1500;
 const POLL_LIMIT_MS = 60_000;
@@ -57,46 +58,17 @@ export function loadError(err: unknown): string {
   return `没能读到学习计划：${String(err)}`;
 }
 
-export interface PollOptions {
-  intervalMs?: number;
-  limitMs?: number;
-  isVisible?: () => boolean;
-  now?: () => number;
-}
-
-/**
- * Asks for the session every `intervalMs` until each step is answered, `limitMs` has
- * passed since the start, or `stop()` is called. Skips a tick while the tab is hidden.
- * Answers that arrive after stop() are dropped.
- */
+/** Asks for the session until each step is answered (see pollUntil). */
 export function pollSession(
   fetchSession: () => Promise<StudySession>,
   onUpdate: (s: StudySession) => void,
-  {
-    intervalMs = POLL_MS,
-    limitMs = POLL_LIMIT_MS,
-    isVisible = () => document.visibilityState === "visible",
-    now = () => Date.now(),
-  }: PollOptions = {},
+  options: PollOptions = {},
 ): () => void {
-  const startedAt = now();
-  let stopped = false;
-  const stop = () => {
-    stopped = true;
-    clearInterval(timer);
-  };
-  const timer = setInterval(() => {
-    if (now() - startedAt > limitMs) return stop();
-    if (!isVisible()) return;
-    fetchSession()
-      .then((s) => {
-        if (stopped) return;
-        onUpdate(s);
-        if (settled(s)) stop();
-      })
-      .catch(() => undefined);
-  }, intervalMs);
-  return stop;
+  return pollUntil(fetchSession, onUpdate, settled, {
+    intervalMs: POLL_MS,
+    limitMs: POLL_LIMIT_MS,
+    ...options,
+  });
 }
 
 type Stage = "plan" | "confirm" | "running";

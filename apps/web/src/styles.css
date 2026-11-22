@@ -1835,3 +1835,72 @@ ul.memories {
   display: flex;
   gap: 8px;
 }
+
+/* 作业 (ADR 0044): the reminder on 今日, the sidebar count, and 去提交 on each row. */
+.hw-reminder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 18px;
+  padding: 10px 16px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.nav-count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  color: var(--on-primary);
+  background: var(--danger);
+  border-radius: 10px;
+  font-size: 0.75rem;
+  line-height: 20px;
+  text-align: center;
+}
+
+.hw-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 22px;
+}
+
+.hw-urgent {
+  color: var(--danger);
+}
+
+.hw-empty {
+  margin: 0 0 0 20px;
+}
+
+.hw-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+
+.hw-open-text {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.hw-open-text.step-succeeded {
+  color: var(--ok);
+}
+
+.hw-open-text.step-failed,
+.hw-open-text.step-lost,
+.hw-open-text.step-cancelled {
+  color: var(--danger);
+}
+
+.hw-open-text.step-needs_user {
+  color: var(--warn);
+}

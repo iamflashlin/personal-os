@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Api, ApiError, type EntrySummary, type TodayEntry, type TodayView as Today } from "./api";
+import { type Api, ApiError, type EntrySummary, type HomeworkItem, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
-import { shortCode } from "./GpaView";
+import { courseIn } from "./GpaView";
+import { HomeworkReminder } from "./HomeworkView";
 import { StudyCard } from "./StudyCard";
 import { SUMMARY_LABEL } from "./Summary";
 
@@ -29,8 +30,7 @@ export function summaryBadges(s: EntrySummary | null | undefined): string[] {
 /** The right-hand column of a row: the course as a short name when the note names one
  * ("F26 MATH D001A 49 Calculus I" -> "MATH 1A"), else the note itself (a sender, a calendar). */
 export function origin(entry: Pick<TodayEntry, "note" | "source">): string {
-  const m = /\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b/.exec(entry.note);
-  return m ? shortCode(`${m[1]} ${m[2]}`) : entry.note || entry.source;
+  return courseIn(entry.note) ?? (entry.note || entry.source);
 }
 
 /** The single tag of a row, never one its section title already says (no 未读 under
@@ -158,7 +158,18 @@ function Section({
   );
 }
 
-export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void }) {
+export function TodayView({
+  api,
+  onConnect,
+  onHomework = () => undefined,
+  reminder = null,
+}: {
+  api: Api;
+  onConnect: () => void;
+  onHomework?: () => void;
+  /** The homework due within 24 h, from the board App loads (ADR 0044). */
+  reminder?: HomeworkItem | null;
+}) {
   const [today, setToday] = useState<Today | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
@@ -206,6 +217,7 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
       <p className="headline" data-testid="today-headline">
         {today.headline}
       </p>
+      <HomeworkReminder item={reminder} onOpen={onHomework} />
       <StudyCard api={api} code={null} />
       {nothingConnected && (
         <p className="muted">

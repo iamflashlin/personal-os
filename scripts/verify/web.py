@@ -560,6 +560,7 @@ def verify_canvas_view(
         shot(page, out, "27-exam-map")
         # T-0062: while Canvas is still connected, so the notes have a link to open.
         verify_study_view(page, api, out)
+        verify_homework_view(page, api, out)  # T-0066, also while Canvas is connected
         open_view(page, "成绩")
         card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
         card.wait_for(timeout=20_000)
@@ -687,6 +688,149 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
     today.wait_for(timeout=20_000)
     check("CIS 22A" in today.inner_text(), "今日 suggests the course with a map (CIS 22A)")
     shot(page, out, "30-study-today")
+
+
+def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
+    """T-0066: 作业 (ADR 0044). The real board from the fake Canvas first (the missing lab;
+    去提交 without an agent is refused), then a routed board for the 24-hour reminder on
+    今日, 去提交 turning into 已打开, and the check button waiting for a newer Canvas record."""
+    open_view(page, "作业")
+    hw = page.get_by_test_id("homework")
+    hw.wait_for(timeout=20_000)
+    missing = page.get_by_test_id("homework-missing")
+    check("Lab 3 实验报告" in missing.inner_text(), "作业 lists the missing lab under 缺交")
+    check("CIS 22A" in missing.inner_text(), "with its course")
+    nav = page.get_by_role("navigation", name="切换页面")
+    count = nav.get_by_test_id("homework-count")
+    count.wait_for(timeout=10_000)
+    check(count.inner_text().endswith("1"), f"the sidebar counts it ({count.inner_text()!r})")
+    submitted = page.get_by_test_id("homework-submitted")
+    check("最近 7 天" in submitted.inner_text(), "no dated submission: 最近交了 says so")
+    missing.get_by_role("button", name="去提交").click()
+    missing.get_by_role("status").filter(has_text="电脑助手").wait_for(timeout=10_000)
+    check(True, "去提交 without an agent says the agent is not connected")
+    check(api.get("/actions").json() == [], "and nothing was stored")
+    shot(page, out, "31-homework")
+
+    now = datetime.now(UTC)
+
+    def at(hours: float) -> str:
+        return (now + timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
+
+    def hw_item(iid: str, title: str, state: str, due: float, **over: Any) -> dict[str, Any]:
+        return {
+            "id": iid,
+            "title": title,
+            "course": "F26 ENGL C1000 Reading",
+            "course_code": "ENGL C1000",
+            "due_at": at(due),
+            "url": f"https://canvas.example.edu/courses/3/assignments/{iid}",
+            "points": 10,
+            "state": state,
+            "submitted_at": None,
+            "late": False,
+            **over,
+        }
+
+    journal = hw_item("01JVERIFYHW000000000000001", "Journal 4", "soon", 3.5)
+    board: dict[str, Any] = {
+        "generated_at": at(0),
+        "canvas": True,
+        "synced_at": at(-1),
+        "reminder": journal,
+        "missing": [],
+        "soon": [journal],
+        "week": [hw_item("01JVERIFYHW000000000000002", "Essay 2", "week", 72)],
+        "submitted": [
+            hw_item(
+                "01JVERIFYHW000000000000003",
+                "Journal 3",
+                "submitted",
+                -20,
+                submitted_at=at(-26),
+                late=True,
+            )
+        ],
+    }
+    checked: list[str] = []
+    run = {"id": "01JVERIFYHWRUN000000000000", "status": "dispatched", "message": ""}
+
+    def fake_board(route) -> None:
+        fresh = {**board, "synced_at": at(0)} if checked else board
+        route.fulfill(status=200, json=fresh)
+
+    def fake_open(route) -> None:
+        route.fulfill(status=202, json={"action": run, "replayed": False})
+
+    def fake_action(route) -> None:
+        route.fulfill(status=200, json={**run, "status": "succeeded", "message": "opened"})
+
+    def fake_check(route) -> None:
+        checked.append(route.request.method)
+        route.fulfill(status=202, json={"job_ids": ["01JVERIFYJOB00000000000000"]})
+
+    job_asks: list[str] = []
+
+    def fake_job(route) -> None:  # running on the first ask, done on the next
+        job_asks.append(route.request.url)
+        status = "running" if len(job_asks) == 1 else "succeeded"
+        route.fulfill(
+            status=200,
+            json={
+                "id": "01JVERIFYJOB00000000000000",
+                "status": status,
+                "attempts": 1,
+                "last_error": "",
+            },
+        )
+
+    page.route("**/homework", fake_board)
+    page.route("**/homework/*/open", fake_open)
+    page.route("**/actions/01JVERIFYHWRUN000000000000", fake_action)
+    page.route("**/homework/check", fake_check)
+    page.route("**/jobs/01JVERIFYJOB00000000000000", fake_job)
+    try:
+        open_view(page, "日程")
+        open_view(page, "今日")
+        reminder = page.get_by_test_id("homework-reminder")
+        reminder.wait_for(timeout=10_000)
+        text = reminder.inner_text()
+        check(
+            "还剩 3 小时：Journal 4（ENGL 1000）还没交" in text,
+            f"今日 reminds of homework due within 24 h ({text!r})",
+        )
+        shot(page, out, "32-homework-reminder")
+        reminder.get_by_role("button", name="去作业页").click()
+        soon = page.get_by_test_id("homework-soon")
+        soon.wait_for(timeout=10_000)
+        check(
+            nav.get_by_role("button", name="作业").get_attribute("aria-current") == "page",
+            "去作业页 opens 作业",
+        )
+        check("Journal 4" in soon.inner_text(), "the reminder's homework is under 24 小时内要交")
+        done = page.get_by_test_id("homework-submitted")
+        check("迟交" in done.inner_text() and "交于" in done.inner_text(), "a late hand-in shows")
+        soon.get_by_role("button", name="去提交").click()
+        soon.get_by_text("已打开").wait_for(timeout=10_000)
+        check(True, "去提交 turns into 已打开 when the agent answers")
+        check(soon.get_by_role("button", name="去提交").count() == 0, "and the button is gone")
+        page.get_by_role("button", name="我交了，查一下").click()
+        status = page.get_by_test_id("homework-check")
+        status.filter(has_text="已经是 Canvas 最新的记录").wait_for(timeout=20_000)
+        check(checked == ["POST"], "我交了，查一下 asks the Hub to sync Canvas once")
+        check(len(job_asks) >= 2, f"and waits for that sync job to finish ({len(job_asks)} asks)")
+        shot(page, out, "33-homework-routed")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "作业 fits a phone screen")
+        shot(page, out, "33b-homework-phone")
+        page.set_viewport_size({"width": 1200, "height": 800})
+    finally:
+        page.unroute("**/jobs/01JVERIFYJOB00000000000000")
+        page.unroute("**/homework/check")
+        page.unroute("**/actions/01JVERIFYHWRUN000000000000")
+        page.unroute("**/homework/*/open")
+        page.unroute("**/homework")
 
 
 def verify_email_view(
@@ -1216,9 +1360,9 @@ def run(out: Path, headed: bool) -> None:
             verify_schedule_view(page, out)
             verify_digest_view(page, out)
             verify_data_kinds(page, out)
-            # The 503s made on purpose: verify_canvas_view's (重试 must recover from it) and
-            # verify_study_view's start without an agent.
-            expected = ("/academic/maps", "/study/sessions", "status of 503")
+            # The 503s made on purpose: verify_canvas_view's (重试 must recover from it), and
+            # verify_study_view's and verify_homework_view's starts without an agent.
+            expected = ("/academic/maps", "/study/sessions", "/homework/", "status of 503")
             errors = [e for e in errors if not (("503" in e) and any(x in e for x in expected))]
             check(not errors, f"no browser console errors ({errors})")
             browser.close()

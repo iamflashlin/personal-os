@@ -615,6 +615,41 @@ export interface StudySession {
   version: number;
 }
 
+// 作业 (ADR 0044)
+export type HomeworkState = "missing" | "soon" | "week" | "submitted";
+export interface HomeworkItem {
+  id: string;
+  title: string;
+  course: string;
+  course_code: string;
+  due_at: string | null;
+  url: string;
+  points: number | null;
+  state: HomeworkState;
+  submitted_at: string | null;
+  late: boolean;
+}
+export interface HomeworkBoard {
+  generated_at: string;
+  canvas: boolean;
+  synced_at: string | null;
+  reminder: HomeworkItem | null;
+  missing: HomeworkItem[];
+  soon: HomeworkItem[];
+  week: HomeworkItem[];
+  submitted: HomeworkItem[];
+}
+/** What the Hub stored for one action the agent ran (contracts/actions.py ActionRun). */
+export interface ActionRun {
+  id: string;
+  status: Exclude<StepStatus, "not_sent">;
+  message: string;
+}
+export interface HomeworkOpened {
+  action: ActionRun;
+  replayed: boolean;
+}
+
 export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)) {
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
@@ -861,6 +896,15 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         method: "PATCH",
         body: JSON.stringify({ enabled }),
       }),
+    homework: () => call<HomeworkBoard>("/homework"),
+    /** Opens the assignment's own Canvas page on the PC; the Hub picks the URL. */
+    openHomework: (itemId: string, idempotencyKey: string) =>
+      call<HomeworkOpened>(`/homework/${encodeURIComponent(itemId)}/open`, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+      }),
+    checkHomework: () => call<{ job_ids: string[] }>("/homework/check", { method: "POST" }),
+    action: (id: string) => call<ActionRun>(`/actions/${encodeURIComponent(id)}`),
     askMail: (ask: ChatAsk) =>
       call<ChatAnswer>("/chat/ask", { method: "POST", body: JSON.stringify(ask) }),
     /** Sent once to the credential store (ADR 0025); the Hub never returns it. */

@@ -157,25 +157,29 @@ def _title_key(title: str) -> str:
 
 
 def _drop_duplicates(
-    assignments: list[_Assignment], now: datetime
+    assignments: list[_Assignment], now: datetime, pending: tuple[str, ...] = ("missing",)
 ) -> tuple[list[_Assignment], list[str]]:
     """A missing item that is a copy of handed-in work is left out instead of counting a 0:
     combined classes import the same work twice, into another group and sometimes with other
     points. A copy has the same title and sits in another Canvas group, or has the same
     points and due time in the same group. A weekly "Discussion" in one group with its own
-    due date is not a copy."""
+    due date is not a copy. `pending`: the states a copy may be in (作业 also drops copies
+    still open, so work handed in early in one section is not asked for again). An open
+    copy must also share the due time: a title alone (a "Reflection" in two groups) could
+    hide a real deadline, which costs more than a second reminder."""
     done = [a for a in assignments if a.state(now) in ("graded", "submitted", "late")]
     keep, dupes = [], []
     for a in assignments:
-        copy = a.state(now) == "missing" and any(
+        state = a.state(now)
+        same_due = a.item.starts_at is not None
+        copy = state in pending and any(
             _title_key(d.item.title) == _title_key(a.item.title)
             and (
-                d.data.get("group_id") != a.data.get("group_id")  # imported into another group
-                or (
-                    d.points == a.points
-                    and a.item.starts_at is not None
-                    and d.item.starts_at == a.item.starts_at
+                (  # imported into another group
+                    d.data.get("group_id") != a.data.get("group_id")
+                    and (state == "missing" or (same_due and d.item.starts_at == a.item.starts_at))
                 )
+                or (d.points == a.points and same_due and d.item.starts_at == a.item.starts_at)
             )
             for d in done
         )
@@ -186,18 +190,22 @@ def _drop_duplicates(
     return keep, dupes
 
 
-def missing_copies(session: Session, actor: Actor, now: datetime | None = None) -> set[str]:
+def missing_copies(
+    session: Session, actor: Actor, now: datetime | None = None, include_open: bool = False
+) -> set[str]:
     """Ids of Canvas assignments marked missing that are copies of handed-in work (see
     `_drop_duplicates`), so other pages agree with 成绩 that they are not missing. Grouped by
     the raw Canvas course code like `view`; non-credit courses are included (harmless). Loads
-    every assignment once: a few hundred rows a term."""
+    every assignment once: a few hundred rows a term. `include_open`: also copies not due yet
+    (作业, ADR 0044)."""
     now = now or datetime.now(UTC)
     by_course: dict[str, list[_Assignment]] = {}
     for a in _items(session, actor, "canvas_assignment"):
         by_course.setdefault(str(a.data.get("course_code") or ""), []).append(_Assignment(a))
     ids: set[str] = set()
     for group in by_course.values():
-        kept = {a.item.id for a in _drop_duplicates(group, now)[0]}
+        pending = ("missing", "upcoming", "open") if include_open else ("missing",)
+        kept = {a.item.id for a in _drop_duplicates(group, now, pending)[0]}
         ids.update(a.item.id for a in group if a.item.id not in kept)
     return ids
 
