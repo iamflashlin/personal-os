@@ -27,12 +27,26 @@ export function settled(s: StudySession): boolean {
   return s.steps.every((st) => st.status !== "dispatched");
 }
 
-/** The refusal shown when 开始 fails: the agent being offline gets its own sentence. */
-export function startError(err: unknown): string {
-  if (err instanceof ApiError && err.status === 503)
-    return "电脑助手没有连上，所以没法替你打开。资料链接在下面的课程页里，也可以自己点开。";
+/** The refusal shown when 开始 fails: the agent being offline gets its own sentence,
+ * pointing to where the links are on this page (课程) or on another one (今日). */
+export function startError(err: unknown, onCoursePage = true): string {
+  if (err instanceof ApiError && err.status === 503) {
+    const where = onCoursePage ? "下面的课程内容里" : "「课程」页里";
+    return `电脑助手没有连上，所以没法替你打开。资料链接在${where}，也可以自己点开。`;
+  }
   if (err instanceof ApiError) return `（${err.status}）${err.detail}`;
   return String(err);
+}
+
+/** The agent reports in English; the common reasons are said in plain Chinese. */
+export function stepReason(message: string): string {
+  if (/^no window titled .* appeared within/.test(message))
+    return "页面可能打开了，但没认出它的窗口（比如 Canvas 要你先登录）";
+  if (/^no VS Code window/.test(message)) return "VS Code 没有在时间内打开";
+  if (/not on PATH/.test(message)) return "这台电脑上找不到 VS Code";
+  if (message === "the agent disconnected before reporting a result")
+    return "电脑助手中途断开了，不知道打开没有";
+  return message;
 }
 
 /** A plan that could not be loaded: the Hub's own words, never the agent sentence. */
@@ -154,7 +168,7 @@ export function StudyCard({ api, code }: { api: Api; code: string | null }) {
       setSession(await api.startStudy(plan.course_code, key.current));
       setStage("running");
     } catch (err) {
-      setError(startError(err));
+      setError(startError(err, code !== null));
       setStage("plan");
     } finally {
       setBusy(false);
@@ -239,7 +253,9 @@ export function StudyCard({ api, code }: { api: Api; code: string | null }) {
               <li key={`${i}-${s.label}`} className={`step-${s.status}`}>
                 <span>{s.label}</span>
                 <span className="study-word">{STEP_WORD[s.status]}</span>
-                {s.status !== "succeeded" && s.message && <span className="muted"> {s.message}</span>}
+                {s.status !== "succeeded" && s.message && (
+                  <span className="muted"> {stepReason(s.message)}</span>
+                )}
               </li>
             ))}
           </ul>

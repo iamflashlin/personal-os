@@ -642,7 +642,7 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
                 "label": "打开复习资料",
                 "action_run_id": None,
                 "status": "failed",
-                "message": "no window titled 'Review'",
+                "message": "no window titled 'Review' appeared within 20s",
             },
         ],
     }
@@ -664,9 +664,11 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
     page.get_by_test_id("study-confirm").get_by_role("button", name="确认打开").click()
     run = page.get_by_test_id("study-run")
     run.wait_for(timeout=10_000)
+    check("正在打开…" in run.inner_text(), "right after 确认打开 each step says 正在打开…")
     run.get_by_text("已打开").wait_for(timeout=10_000)  # 正在打开… until the poll answers
     check(True, "正在打开… turns into 已打开 when the agent answers")
-    check("没打开成功" in run.inner_text(), "a failed step says so, with the reason")
+    check("没打开成功" in run.inner_text(), "a failed step says so")
+    check("没认出它的窗口" in run.inner_text(), "with the reason in plain Chinese")
     shot(page, out, "29-study-running")
     page.set_viewport_size({"width": 390, "height": 900})
     wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")

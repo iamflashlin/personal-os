@@ -2,7 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Api, ApiError, type StudySession } from "./api";
-import { lastText, loadError, pollSession, settled, STEP_WORD, startError, StudyCard } from "./StudyCard";
+import {
+  lastText,
+  loadError,
+  pollSession,
+  settled,
+  STEP_WORD,
+  startError,
+  stepReason,
+  StudyCard,
+} from "./StudyCard";
 
 const session = (statuses: StudySession["steps"][number]["status"][]): StudySession => ({
   id: "s",
@@ -105,5 +114,18 @@ describe("following a started session", () => {
 
   it("explains a plan that failed to load without blaming the agent", () => {
     expect(loadError(new ApiError(503, "Hub 正在重启"))).toBe("没能读到学习计划（503）Hub 正在重启");
+  });
+});
+
+describe("plain words", () => {
+  it("points to the links where they are", () => {
+    expect(startError(new ApiError(503, "x"), true)).toContain("下面的课程内容里");
+    expect(startError(new ApiError(503, "x"), false)).toContain("「课程」页里");
+  });
+
+  it("says the agent's common reasons in Chinese and keeps unknown ones", () => {
+    expect(stepReason("no window titled 'Notes' appeared within 20s")).toContain("没认出它的窗口");
+    expect(stepReason("the agent disconnected before reporting a result")).toContain("中途断开");
+    expect(stepReason("something new")).toBe("something new");
   });
 });
