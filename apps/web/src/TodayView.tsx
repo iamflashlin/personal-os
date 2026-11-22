@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type Api, ApiError, type EntrySummary, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
 import { shortCode } from "./GpaView";
+import { StudyCard } from "./StudyCard";
 import { SUMMARY_LABEL } from "./Summary";
 
 function errorText(err: unknown): string {
@@ -205,6 +206,7 @@ export function TodayView({ api, onConnect }: { api: Api; onConnect: () => void 
       <p className="headline" data-testid="today-headline">
         {today.headline}
       </p>
+      <StudyCard api={api} code={null} />
       {nothingConnected && (
         <p className="muted">
           还没有连接任何来源。连上 Canvas 和邮箱后，这里会列出截止、缺交和未读邮件。{" "}
