@@ -35,11 +35,60 @@ export function startError(err: unknown): string {
   return String(err);
 }
 
+/** A plan that could not be loaded: the Hub's own words, never the agent sentence. */
+export function loadError(err: unknown): string {
+  if (err instanceof ApiError) return `没能读到学习计划（${err.status}）${err.detail}`;
+  return `没能读到学习计划：${String(err)}`;
+}
+
+export interface PollOptions {
+  intervalMs?: number;
+  limitMs?: number;
+  isVisible?: () => boolean;
+  now?: () => number;
+}
+
+/**
+ * Asks for the session every `intervalMs` until each step is answered, `limitMs` has
+ * passed since the start, or `stop()` is called. Skips a tick while the tab is hidden.
+ * Answers that arrive after stop() are dropped.
+ */
+export function pollSession(
+  fetchSession: () => Promise<StudySession>,
+  onUpdate: (s: StudySession) => void,
+  {
+    intervalMs = POLL_MS,
+    limitMs = POLL_LIMIT_MS,
+    isVisible = () => document.visibilityState === "visible",
+    now = () => Date.now(),
+  }: PollOptions = {},
+): () => void {
+  const startedAt = now();
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+  const timer = setInterval(() => {
+    if (now() - startedAt > limitMs) return stop();
+    if (!isVisible()) return;
+    fetchSession()
+      .then((s) => {
+        if (stopped) return;
+        onUpdate(s);
+        if (settled(s)) stop();
+      })
+      .catch(() => undefined);
+  }, intervalMs);
+  return stop;
+}
+
 type Stage = "plan" | "confirm" | "running";
 
 /**
  * 开始学习: what to study next, and one click to open it on the PC (ADR 0042).
  * `code` null: the course with the nearest exam (今日); otherwise that course (课程).
+ * Give it `key={code}` so a course switch starts fresh (a new Idempotency-Key too).
  */
 export function StudyCard({ api, code }: { api: Api; code: string | null }) {
   const [plan, setPlan] = useState<StudyPlan | null>(null);
@@ -48,52 +97,54 @@ export function StudyCard({ api, code }: { api: Api; code: string | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
+  // One per attempt to start: reused on a retry, so a retry never opens things twice.
   const key = useRef(newKey());
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     try {
       if (code === null && (await api.courseMaps()).length === 0) {
-        setMissing(true); // no course map yet: nothing to suggest (and no 404 to log)
+        if (alive.current) setMissing(true); // no course map yet (and no 404 to log)
         return;
       }
-      setPlan(code === null ? await api.studyNext() : await api.studyPlan(code));
+      const p = code === null ? await api.studyNext() : await api.studyPlan(code);
+      if (!alive.current) return;
+      setPlan(p);
       setMissing(false);
+      setError(null);
     } catch (err) {
+      if (!alive.current) return;
       if (err instanceof ApiError && err.status === 404) setMissing(true);
-      else setError(startError(err));
+      else setError(loadError(err));
     }
   }, [api, code]);
 
   useEffect(() => {
-    setStage("plan");
-    setSession(null);
-    setError(null);
     void load();
   }, [load]);
 
-  // Follow the steps until the agent has answered each one (only while the tab is shown).
+  // Follow the steps until the agent has answered each one: one poller per session.
+  const sessionId = session?.id ?? null;
+  const pending = session !== null && session.status === "started" && !settled(session);
   useEffect(() => {
-    if (!session || settled(session) || session.status === "finished") return;
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - startedAt > POLL_LIMIT_MS) {
-        window.clearInterval(timer);
-        return;
-      }
-      api
-        .studySession(session.id)
-        .then((s) => {
-          setSession(s);
-          if (settled(s)) window.clearInterval(timer);
-        })
-        .catch(() => undefined);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [api, session]);
+    if (sessionId === null || !pending) return;
+    return pollSession(
+      () => api.studySession(sessionId),
+      (s) => {
+        if (alive.current) setSession((cur) => (cur?.id === s.id ? s : cur));
+      },
+    );
+  }, [api, sessionId, pending]);
 
   if (missing) return null; // no course map yet: nothing to suggest
-  if (!plan) return error ? <p className="error">{error}</p> : null;
+  // On 今日 a plan that failed to load shows nothing; 课程 says why.
+  if (!plan) return error && code !== null ? <p className="error">{error}</p> : null;
 
   async function start() {
     if (!plan) return;
@@ -121,7 +172,7 @@ export function StudyCard({ api, code }: { api: Api; code: string | null }) {
       setStage("plan");
       await load();
     } catch (err) {
-      setError(startError(err));
+      setError(err instanceof ApiError ? `（${err.status}）${err.detail}` : String(err));
     } finally {
       setBusy(false);
     }
@@ -163,8 +214,8 @@ export function StudyCard({ api, code }: { api: Api; code: string | null }) {
         <div className="study-confirm" data-testid="study-confirm">
           <p>会在电脑上打开：</p>
           <ul>
-            {plan.steps.map((s) => (
-              <li key={s.label}>{s.label}</li>
+            {plan.steps.map((s, i) => (
+              <li key={`${i}-${s.label}`}>{s.label}</li>
             ))}
           </ul>
           <div className="study-actions">

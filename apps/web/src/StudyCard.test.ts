@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Api, ApiError, type StudySession } from "./api";
-import { lastText, settled, STEP_WORD, startError, StudyCard } from "./StudyCard";
+import { lastText, loadError, pollSession, settled, STEP_WORD, startError, StudyCard } from "./StudyCard";
 
 const session = (statuses: StudySession["steps"][number]["status"][]): StudySession => ({
   id: "s",
@@ -43,5 +43,67 @@ describe("开始学习", () => {
   it("renders nothing before the plan arrives", () => {
     const api = { courseMaps: () => new Promise(() => undefined) } as unknown as Api;
     expect(renderToStaticMarkup(createElement(StudyCard, { api, code: null }))).toBe("");
+  });
+});
+
+describe("following a started session", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function setup(answer: () => StudySession, visible = () => true) {
+    vi.useFakeTimers();
+    const calls: number[] = [];
+    const updates: StudySession[] = [];
+    const stop = pollSession(
+      () => {
+        calls.push(Date.now());
+        return Promise.resolve(answer());
+      },
+      (s) => updates.push(s),
+      { intervalMs: 1500, limitMs: 60_000, isVisible: visible, now: () => Date.now() },
+    );
+    return { calls, updates, stop };
+  }
+
+  it("stops after 60 s even while the Hub keeps answering 'dispatched'", async () => {
+    const { calls } = setup(() => session(["dispatched"]));
+    await vi.advanceTimersByTimeAsync(59_000);
+    const before = calls.length;
+    expect(before).toBeGreaterThan(30);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.length - before).toBeLessThanOrEqual(1);
+  });
+
+  it("stops once every step is answered", async () => {
+    let n = 0;
+    const { calls, updates } = setup(() => session([++n < 3 ? "dispatched" : "succeeded"]));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(calls).toHaveLength(3);
+    expect(updates.at(-1)?.steps[0].status).toBe("succeeded");
+  });
+
+  it("asks nothing while the tab is hidden", async () => {
+    const { calls } = setup(() => session(["dispatched"]), () => false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("drops an answer that arrives after stop()", async () => {
+    vi.useFakeTimers();
+    let resolve: (s: StudySession) => void = () => undefined;
+    const updates: StudySession[] = [];
+    const stop = pollSession(
+      () => new Promise((r) => (resolve = r)),
+      (s) => updates.push(s),
+      { intervalMs: 1000, isVisible: () => true, now: () => Date.now() },
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    stop();
+    resolve(session(["succeeded"]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  it("explains a plan that failed to load without blaming the agent", () => {
+    expect(loadError(new ApiError(503, "Hub 正在重启"))).toBe("没能读到学习计划（503）Hub 正在重启");
   });
 });

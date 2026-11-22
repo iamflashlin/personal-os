@@ -771,7 +771,8 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
     profiles: () => call<CourseProfile[]>("/academic/profiles"),
     studyNext: () => call<StudyPlan>("/study/next"),
     studyPlan: (code: string) => call<StudyPlan>(`/study/plans/${encodeURIComponent(code)}`),
-    /** `idempotencyKey`: one per click of 确认打开, so a retry never opens things twice. */
+    /** `idempotencyKey`: one per attempt to start, reused on a retry, so a retry never opens
+     * things twice. */
     startStudy: (code: string, idempotencyKey: string) =>
       call<StudySession>("/study/sessions", {
         method: "POST",

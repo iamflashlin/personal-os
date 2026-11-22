@@ -620,13 +620,8 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
         "status": "started",
         "next": plan["next"],
         "steps": [
-            {"label": lbl, "action_run_id": None, "status": st, "message": msg}
-            for lbl, st, msg in zip(
-                [*labels, "打开复习资料"],
-                ["succeeded", "failed"],
-                ["opened", "no window titled 'Review'"],
-                strict=False,
-            )
+            {"label": "打开讲义", "action_run_id": None, "status": "dispatched", "message": ""},
+            {"label": "打开复习资料", "action_run_id": None, "status": "dispatched", "message": ""},
         ],
         "started_at": "2026-11-22T10:00:00Z",
         "finished_at": None,
@@ -634,23 +629,44 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
         "version": 1,
     }
     finished: list[str] = []
+    answered = {
+        **session,
+        "steps": [
+            {
+                "label": "打开讲义",
+                "action_run_id": None,
+                "status": "succeeded",
+                "message": "opened",
+            },
+            {
+                "label": "打开复习资料",
+                "action_run_id": None,
+                "status": "failed",
+                "message": "no window titled 'Review'",
+            },
+        ],
+    }
 
     def fake_start(route) -> None:
-        route.fulfill(status=201, json=session)
+        if route.request.method == "POST":
+            route.fulfill(status=201, json=session)  # both steps still 正在打开…
+        else:
+            route.fulfill(status=200, json=answered)  # the poll: the agent has answered
 
     def fake_finish(route) -> None:
         finished.append(route.request.post_data or "")
         route.fulfill(status=200, json={**session, "status": "finished", "version": 2})
 
     page.route("**/study/sessions", fake_start)
+    page.route("**/study/sessions/01JVERIFYSTUDY000000000000", fake_start)
     page.route("**/study/sessions/*/finish", fake_finish)
     card.get_by_role("button", name="开始学习").click()
     page.get_by_test_id("study-confirm").get_by_role("button", name="确认打开").click()
     run = page.get_by_test_id("study-run")
     run.wait_for(timeout=10_000)
-    check("已打开" in run.inner_text(), "a step the agent opened says 已打开")
-    if len(session["steps"]) > 1:
-        check("没打开成功" in run.inner_text(), "a failed step says so, with the reason")
+    run.get_by_text("已打开").wait_for(timeout=10_000)  # 正在打开… until the poll answers
+    check(True, "正在打开… turns into 已打开 when the agent answers")
+    check("没打开成功" in run.inner_text(), "a failed step says so, with the reason")
     shot(page, out, "29-study-running")
     page.set_viewport_size({"width": 390, "height": 900})
     wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
@@ -661,6 +677,7 @@ def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
     page.get_by_test_id("study-card").get_by_role("button", name="开始学习").wait_for()
     check(finished == ['{"version":1,"note":""}'], f"学完了 sends the version read ({finished})")
     page.unroute("**/study/sessions/*/finish")
+    page.unroute("**/study/sessions/01JVERIFYSTUDY000000000000")
     page.unroute("**/study/sessions")
 
     open_view(page, "今日")

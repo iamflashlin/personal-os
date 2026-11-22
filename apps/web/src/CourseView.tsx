@@ -420,7 +420,7 @@ export function CourseView({ api }: { api: Api }) {
           ))}
         </div>
       )}
-      <StudyCard api={api} code={code} />
+      <StudyCard key={code} api={api} code={code} />
       <p className="course-sum">
         {sections.length} 节{counts.length > 0 && ` · ${counts.join(" · ")}`}
       </p>
