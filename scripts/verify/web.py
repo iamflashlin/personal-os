@@ -558,6 +558,8 @@ def verify_canvas_view(
         check(not wide, "the exam map fits a phone screen")
         page.set_viewport_size({"width": 1200, "height": 800})
         shot(page, out, "27-exam-map")
+        # T-0062: while Canvas is still connected, so the notes have a link to open.
+        verify_study_view(page, api, out)
         open_view(page, "成绩")
         card = page.get_by_test_id("gpa-course").filter(has_text="CIS 22A")
         card.wait_for(timeout=20_000)
@@ -588,6 +590,101 @@ def verify_canvas_view(
         if key is not None:
             with contextlib.suppress(Exception):
                 keyring.delete_password(service, key)
+
+
+def verify_study_view(page: Page, api: httpx.Client, out: Path) -> None:
+    """T-0062: 开始学习 on 课程 and 今日 (ADR 0042). Without an agent the Hub refuses with
+    503 and the page says so; the running state is shown from a routed session."""
+    open_view(page, "日程")  # leave the exam map: 课程 opens fresh on its course list
+    open_view(page, "课程")
+    card = page.get_by_test_id("study-card")
+    card.wait_for(timeout=20_000)
+    plan = api.get("/study/plans/CIS D022A").json()
+    check(plan["next"]["title"] in card.inner_text(), f"课程 shows the next step ({plan['next']})")
+    check(plan["next"]["why"] in card.inner_text(), "and why")
+    start = card.get_by_role("button", name="开始学习")
+    check(start.is_enabled() == bool(plan["steps"]), "开始学习 is enabled when there is a link")
+    start.click()
+    confirm = page.get_by_test_id("study-confirm")
+    labels = [s["label"] for s in plan["steps"]]
+    check(all(lbl in confirm.inner_text() for lbl in labels), f"confirm lists the steps {labels}")
+    confirm.get_by_role("button", name="确认打开").click()
+    card.get_by_role("alert").wait_for(timeout=10_000)
+    check("电脑助手没有连上" in card.inner_text(), "no agent: the page says so in plain words")
+    check(api.get("/study/plans/CIS D022A").json()["last"] is None, "and nothing was stored")
+    shot(page, out, "28-study-offline")
+
+    session = {
+        "id": "01JVERIFYSTUDY000000000000",
+        "course_code": "CIS D022A",
+        "status": "started",
+        "next": plan["next"],
+        "steps": [
+            {"label": "打开讲义", "action_run_id": None, "status": "dispatched", "message": ""},
+            {"label": "打开复习资料", "action_run_id": None, "status": "dispatched", "message": ""},
+        ],
+        "started_at": "2026-11-22T10:00:00Z",
+        "finished_at": None,
+        "note": "",
+        "version": 1,
+    }
+    finished: list[str] = []
+    answered = {
+        **session,
+        "steps": [
+            {
+                "label": "打开讲义",
+                "action_run_id": None,
+                "status": "succeeded",
+                "message": "opened",
+            },
+            {
+                "label": "打开复习资料",
+                "action_run_id": None,
+                "status": "failed",
+                "message": "no window titled 'Review'",
+            },
+        ],
+    }
+
+    def fake_start(route) -> None:
+        if route.request.method == "POST":
+            route.fulfill(status=201, json=session)  # both steps still 正在打开…
+        else:
+            route.fulfill(status=200, json=answered)  # the poll: the agent has answered
+
+    def fake_finish(route) -> None:
+        finished.append(route.request.post_data or "")
+        route.fulfill(status=200, json={**session, "status": "finished", "version": 2})
+
+    page.route("**/study/sessions", fake_start)
+    page.route("**/study/sessions/01JVERIFYSTUDY000000000000", fake_start)
+    page.route("**/study/sessions/*/finish", fake_finish)
+    card.get_by_role("button", name="开始学习").click()
+    page.get_by_test_id("study-confirm").get_by_role("button", name="确认打开").click()
+    run = page.get_by_test_id("study-run")
+    run.wait_for(timeout=10_000)
+    run.get_by_text("已打开").wait_for(timeout=10_000)  # 正在打开… until the poll answers
+    check(True, "正在打开… turns into 已打开 when the agent answers")
+    check("没打开成功" in run.inner_text(), "a failed step says so, with the reason")
+    shot(page, out, "29-study-running")
+    page.set_viewport_size({"width": 390, "height": 900})
+    wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    check(not wide, "开始学习 fits a phone screen")
+    shot(page, out, "29b-study-phone")
+    page.set_viewport_size({"width": 1200, "height": 800})
+    run.get_by_role("button", name="学完了").click()
+    page.get_by_test_id("study-card").get_by_role("button", name="开始学习").wait_for()
+    check(finished == ['{"version":1,"note":""}'], f"学完了 sends the version read ({finished})")
+    page.unroute("**/study/sessions/*/finish")
+    page.unroute("**/study/sessions/01JVERIFYSTUDY000000000000")
+    page.unroute("**/study/sessions")
+
+    open_view(page, "今日")
+    today = page.get_by_test_id("study-card")
+    today.wait_for(timeout=20_000)
+    check("CIS 22A" in today.inner_text(), "今日 suggests the course with a map (CIS 22A)")
+    shot(page, out, "30-study-today")
 
 
 def verify_email_view(
@@ -912,11 +1009,12 @@ def verify_schedule_view(page: Page, out: Path) -> None:
     check(view.get_by_test_id("sched-conflict").count() == 2, "the clash is marked on both")
     # Free time is listed from now until 22:00, and only on a day that has things (T-0058):
     # late in the evening the test day has none left, so it is only required before 21:00.
-    late = day.date() == now.date() and now.hour >= 21
+    # On a Sunday the test day is the Saturday before, already past: no free time is left.
+    late = (day.date() == now.date() and now.hour >= 21) or day.date() < now.date()
     shown = view.get_by_text("空闲：").count() >= 1
     check(
         shown or late,
-        f"free time is listed on the busy day ({'late, none left' if late else shown})",
+        f"free time is listed on the busy day ({'past or late, none left' if late else shown})",
     )
     shot(page, out, "22-schedule")
     workout = view.get_by_test_id("sched-entry").filter(has_text="健身").first
@@ -1116,8 +1214,9 @@ def run(out: Path, headed: bool) -> None:
             verify_schedule_view(page, out)
             verify_digest_view(page, out)
             verify_data_kinds(page, out)
-            # The one 503 that verify_canvas_view makes on purpose (重试 must recover from it).
-            expected = ("/academic/maps", "status of 503")
+            # The 503s made on purpose: verify_canvas_view's (重试 must recover from it) and
+            # verify_study_view's start without an agent.
+            expected = ("/academic/maps", "/study/sessions", "status of 503")
             errors = [e for e in errors if not (("503" in e) and any(x in e for x in expected))]
             check(not errors, f"no browser console errors ({errors})")
             browser.close()

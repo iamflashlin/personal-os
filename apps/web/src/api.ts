@@ -557,6 +557,64 @@ function describe(body: unknown): string {
   return "unexpected response";
 }
 
+/** A fresh idempotency key. `crypto.randomUUID` needs a secure context (https or loopback). */
+export function newKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+// 开始学习 (ADR 0042)
+export interface StudyStep {
+  label: string;
+  action: string;
+  params: Record<string, unknown>;
+}
+export interface NextUp {
+  key: string;
+  title: string;
+  why: string;
+  page: number | null;
+  exam: string;
+}
+export interface LastSession {
+  started_at: string;
+  finished_at: string | null;
+  title: string;
+}
+export interface StudyPlan {
+  course_code: string;
+  next: NextUp;
+  steps: StudyStep[];
+  last: LastSession | null;
+}
+export type StepStatus =
+  | "dispatched"
+  | "succeeded"
+  | "failed"
+  | "needs_user"
+  | "cancelled"
+  | "lost"
+  | "not_sent";
+export interface StepRun {
+  label: string;
+  action_run_id: string | null;
+  status: StepStatus;
+  message: string;
+}
+export interface StudySession {
+  id: string;
+  course_code: string;
+  status: "started" | "finished";
+  next: NextUp;
+  steps: StepRun[];
+  started_at: string;
+  finished_at: string | null;
+  note: string;
+  version: number;
+}
+
 export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)) {
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
@@ -711,6 +769,22 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
     runSummaries: () => call<{ job_id: string }>("/summaries/run", { method: "POST" }),
     gpa: () => call<GpaView>("/gpa"),
     profiles: () => call<CourseProfile[]>("/academic/profiles"),
+    studyNext: () => call<StudyPlan>("/study/next"),
+    studyPlan: (code: string) => call<StudyPlan>(`/study/plans/${encodeURIComponent(code)}`),
+    /** `idempotencyKey`: one per attempt to start, reused on a retry, so a retry never opens
+     * things twice. */
+    startStudy: (code: string, idempotencyKey: string) =>
+      call<StudySession>("/study/sessions", {
+        method: "POST",
+        body: JSON.stringify({ course_code: code }),
+        headers: { "Idempotency-Key": idempotencyKey },
+      }),
+    studySession: (id: string) => call<StudySession>(`/study/sessions/${encodeURIComponent(id)}`),
+    finishStudy: (id: string, version: number, note = "") =>
+      call<StudySession>(`/study/sessions/${encodeURIComponent(id)}/finish`, {
+        method: "POST",
+        body: JSON.stringify({ version, note }),
+      }),
     courseMaps: () => call<string[]>("/academic/maps"),
     courseMap: (code: string) => call<CourseMap>(`/academic/maps/${encodeURIComponent(code)}`),
     examMap: (code: string, exam: string) =>

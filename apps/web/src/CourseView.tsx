@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { safeLink } from "./ConnectionsView";
 import { shortCode } from "./GpaView";
+import { StudyCard } from "./StudyCard";
 
 export const MASTERY: Record<MasteryState, string> = {
   not_tested: "未测试",
@@ -419,6 +420,7 @@ export function CourseView({ api }: { api: Api }) {
           ))}
         </div>
       )}
+      <StudyCard key={code} api={api} code={code} />
       <p className="course-sum">
         {sections.length} 节{counts.length > 0 && ` · ${counts.join(" · ")}`}
       </p>

@@ -8,6 +8,7 @@ import {
   type Project,
   type Task,
   type TaskStatus,
+  newKey,
   parseTags,
 } from "./api";
 import { ConnectionsView } from "./ConnectionsView";
@@ -63,14 +64,6 @@ interface Data {
   goals: Goal[];
   projects: Project[];
   tasks: Task[];
-}
-
-/** A fresh idempotency key. `crypto.randomUUID` needs a secure context (https or loopback). */
-function newKey(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
 }
 
 /** Runs one user action; resolves to true only if it succeeded. */

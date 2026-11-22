@@ -1773,3 +1773,65 @@ ul.memories {
     display: none;
   }
 }
+
+/* 开始学习 (ADR 0042): one card, the next thing first, one button. */
+.study {
+  margin: 0 0 22px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.study p {
+  margin: 0 0 6px;
+}
+
+.study-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.study-course {
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.study-confirm ul,
+.study-steps {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+
+.study-steps li {
+  margin: 4px 0;
+}
+
+.study-word {
+  margin-left: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.study-steps .step-succeeded .study-word {
+  color: var(--ok);
+}
+
+.study-steps .step-failed .study-word,
+.study-steps .step-lost .study-word,
+.study-steps .step-not_sent .study-word {
+  color: var(--danger);
+}
+
+.study-steps .step-needs_user .study-word {
+  color: var(--warn);
+}
+
+.study-actions {
+  display: flex;
+  gap: 8px;
+}
