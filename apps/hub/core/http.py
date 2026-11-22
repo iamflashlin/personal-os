@@ -1,13 +1,12 @@
 """FastAPI plumbing shared by every module's `api.py`."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import Engine
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
+from apps.hub.core.db import run_in_session
 from apps.hub.core.domain import (
     Actor,
     Conflict,
@@ -17,6 +16,8 @@ from apps.hub.core.domain import (
     NotFound,
     Unavailable,
 )
+
+__all__ = ["ActorDep", "SessionDep", "acall", "call", "run_in_session"]
 
 _STATUS: dict[type[DomainError], int] = {
     NotFound: 404,
@@ -50,11 +51,10 @@ def call[T](fn: Callable[[], T]) -> T:
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
-async def run_in_session[T](engine: Engine, fn: Callable[[Session], T]) -> T:
-    """Run blocking database work from an async endpoint without stalling the event loop."""
-
-    def work() -> T:
-        with Session(engine, expire_on_commit=False) as session:
-            return fn(session)
-
-    return await run_in_threadpool(work)
+async def acall[T](work: Awaitable[T]) -> T:
+    """`call` for async service functions."""
+    try:
+        return await work
+    except DomainError as exc:
+        status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 400)
+        raise HTTPException(status_code=status, detail=str(exc)) from exc

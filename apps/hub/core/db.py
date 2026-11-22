@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -6,6 +7,8 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, Engine, create_engine, event
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 DB_FILENAME = "hub.sqlite"
@@ -62,3 +65,13 @@ def current_revision(engine: Engine) -> str:
     if rev is None:
         raise RuntimeError("database has not been migrated")
     return rev
+
+
+async def run_in_session[T](engine: Engine, fn: Callable[[Session], T]) -> T:
+    """Run blocking database work from async code without stalling the event loop."""
+
+    def work() -> T:
+        with Session(engine, expire_on_commit=False) as session:
+            return fn(session)
+
+    return await run_in_threadpool(work)

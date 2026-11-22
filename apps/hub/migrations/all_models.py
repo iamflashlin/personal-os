@@ -17,6 +17,7 @@ import apps.hub.jobs.models
 import apps.hub.memory.models
 import apps.hub.models.models
 import apps.hub.schedule.models
+import apps.hub.study.models
 import apps.hub.summaries.models
 import apps.hub.tasks.models
 import apps.hub.triage.models  # noqa: F401

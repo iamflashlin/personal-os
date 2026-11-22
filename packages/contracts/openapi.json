@@ -2920,6 +2920,38 @@
         "title": "JobStatus",
         "type": "string"
       },
+      "LastSession": {
+        "properties": {
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "finished_at",
+          "title"
+        ],
+        "title": "LastSession",
+        "type": "object"
+      },
       "MapIn": {
         "additionalProperties": false,
         "description": "One course's whole map, as an import writes it (replaces the previous one).",
@@ -3590,6 +3622,47 @@
           "ends_at"
         ],
         "title": "NewEvent",
+        "type": "object"
+      },
+      "NextUp": {
+        "description": "What to study now and why.",
+        "properties": {
+          "exam": {
+            "title": "Exam",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "why",
+          "page",
+          "exam"
+        ],
+        "title": "NextUp",
         "type": "object"
       },
       "PairRequest": {
@@ -4315,6 +4388,222 @@
           "error"
         ],
         "title": "SourceProblem",
+        "type": "object"
+      },
+      "StepRun": {
+        "properties": {
+          "action_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Run Id"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StepStatus"
+          }
+        },
+        "required": [
+          "label",
+          "action_run_id",
+          "status",
+          "message"
+        ],
+        "title": "StepRun",
+        "type": "object"
+      },
+      "StepStatus": {
+        "description": "`not_sent`: the agent was gone before this step was sent; nothing ran.",
+        "enum": [
+          "dispatched",
+          "succeeded",
+          "failed",
+          "needs_user",
+          "cancelled",
+          "lost",
+          "not_sent"
+        ],
+        "title": "StepStatus",
+        "type": "string"
+      },
+      "StudyFinish": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Note",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "StudyFinish",
+        "type": "object"
+      },
+      "StudyPlan": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "$ref": "#/components/schemas/NextUp"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StudyStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "course_code",
+          "next",
+          "steps",
+          "last"
+        ],
+        "title": "StudyPlan",
+        "type": "object"
+      },
+      "StudySession": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/NextUp"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StudySessionStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepRun"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "course_code",
+          "status",
+          "next",
+          "steps",
+          "started_at",
+          "finished_at",
+          "note",
+          "version"
+        ],
+        "title": "StudySession",
+        "type": "object"
+      },
+      "StudySessionStatus": {
+        "enum": [
+          "started",
+          "finished"
+        ],
+        "title": "StudySessionStatus",
+        "type": "string"
+      },
+      "StudyStart": {
+        "additionalProperties": false,
+        "properties": {
+          "course_code": {
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Course Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_code"
+        ],
+        "title": "StudyStart",
+        "type": "object"
+      },
+      "StudyStep": {
+        "description": "One thing to open. `params` are the action's own, validated when it is dispatched.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionName"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "label",
+          "action",
+          "params"
+        ],
+        "title": "StudyStep",
         "type": "object"
       },
       "SummariesStatus": {
@@ -8378,6 +8667,217 @@
         "summary": "Update Event",
         "tags": [
           "schedule"
+        ]
+      }
+    },
+    "/study/next": {
+      "get": {
+        "operationId": "get_next_study_plan_study_next_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Next Study Plan",
+        "tags": [
+          "study"
+        ]
+      }
+    },
+    "/study/plans/{code}": {
+      "get": {
+        "operationId": "get_study_plan_study_plans__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Study Plan",
+        "tags": [
+          "study"
+        ]
+      }
+    },
+    "/study/sessions": {
+      "post": {
+        "operationId": "start_study_session_study_sessions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 180,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudySession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Study Session",
+        "tags": [
+          "study"
+        ]
+      }
+    },
+    "/study/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_study_session_study_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudySession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Study Session",
+        "tags": [
+          "study"
+        ]
+      }
+    },
+    "/study/sessions/{session_id}/finish": {
+      "post": {
+        "operationId": "finish_study_session_study_sessions__session_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyFinish"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudySession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish Study Session",
+        "tags": [
+          "study"
         ]
       }
     },

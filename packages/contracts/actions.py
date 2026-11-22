@@ -55,7 +55,8 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-Title = Annotated[str, Field(min_length=1, max_length=200)]
+TITLE_MAX = 200
+Title = Annotated[str, Field(min_length=1, max_length=TITLE_MAX)]
 
 
 class OpenUrlParams(_Strict):

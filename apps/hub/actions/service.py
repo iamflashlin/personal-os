@@ -9,12 +9,14 @@ import json
 from dataclasses import dataclass
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.websockets import WebSocketDisconnect
 
 from apps.hub.actions.models import ActionRunRow
 from apps.hub.audit import service as audit
+from apps.hub.core.db import run_in_session
 from apps.hub.core.domain import Actor, Conflict, Forbidden, Invalid, NotFound, Unavailable
 from apps.hub.devices import service as devices
 from packages.contracts.actions import (
@@ -27,6 +29,7 @@ from packages.contracts.actions import (
     ActionRunStatus,
     parse_params,
 )
+from packages.contracts.agent_protocol import ActionRequestMsg
 
 ENTITY = "action_run"
 _OPEN = (ActionRunStatus.dispatched, ActionRunStatus.lost)
@@ -124,6 +127,44 @@ def begin(
     return audit.audited(session, actor, ENTITY, "dispatch", None, detail, op)
 
 
+async def dispatch(
+    engine: Engine,
+    links: devices.AgentLinks,
+    actor: Actor,
+    idempotency_key: str,
+    payload: ActionCreate,
+) -> Dispatch:
+    """Store the run and send it to the connected agent, at most once per key.
+
+    Returns `request=None` for a replay (nothing sent). A run that could not be sent
+    because the agent left in the meantime comes back `lost`. Refusals raise DomainError.
+    """
+    link = links.current(actor.owner_id)
+    dispatched = await run_in_session(
+        engine, lambda s: begin(s, actor, idempotency_key, payload, link)
+    )
+    if dispatched.request is None:
+        return dispatched
+    assert link is not None  # begin() refuses to dispatch without one
+    run_id = dispatched.run.id
+    link.in_flight.add(run_id)
+    # No await since the add: if the link is still current, its disconnect handler has
+    # not run yet and will see this run in in_flight.
+    if links.current(actor.owner_id) is link:
+        try:
+            await link.send(ActionRequestMsg(request=dispatched.request))
+            return dispatched
+        except (WebSocketDisconnect, RuntimeError, OSError):
+            pass
+    link.in_flight.discard(run_id)
+
+    def lost(session: Session) -> ActionRun:
+        mark_lost(session, actor, {run_id})
+        return get(session, actor, run_id)
+
+    return Dispatch(await run_in_session(engine, lost), dispatched.request)
+
+
 def record_result(session: Session, actor: Actor, result: ActionResult) -> None:
     """Store what the agent reported. A result for a run this device was not sent is
     refused and audited, never raised, so one bad frame does not drop the connection."""
@@ -191,6 +232,17 @@ def get(session: Session, actor: Actor, action_id: str) -> ActionRun:
     if row is None or row.owner_id != actor.owner_id:
         raise NotFound(f"action run {action_id} not found")
     return _read(row)
+
+
+def get_by_key(session: Session, actor: Actor, idempotency_key: str) -> ActionRun | None:
+    """The run this key made, if any: the truth about whether it was sent."""
+    row = session.scalars(
+        select(ActionRunRow).where(
+            ActionRunRow.owner_id == actor.owner_id,
+            ActionRunRow.idempotency_key == idempotency_key,
+        )
+    ).one_or_none()
+    return None if row is None else _read(row)
 
 
 def list_runs(session: Session, actor: Actor, limit: int) -> list[ActionRun]:
