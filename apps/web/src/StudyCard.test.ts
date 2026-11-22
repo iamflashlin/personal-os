@@ -126,6 +126,11 @@ describe("plain words", () => {
   it("says the agent's common reasons in Chinese and keeps unknown ones", () => {
     expect(stepReason("no window titled 'Notes' appeared within 20s")).toContain("没认出它的窗口");
     expect(stepReason("the agent disconnected before reporting a result")).toContain("中途断开");
+    expect(stepReason("no VS Code window for 'x' within 20s")).toBe("VS Code 没有在时间内打开");
+    expect(stepReason("VS Code's `code` command is not on PATH")).toBe("这台电脑上找不到 VS Code");
+    expect(stepReason("agent stopped before the action finished")).toContain("中途停了");
+    // another tool's message that also says "not on PATH" is not blamed on VS Code
+    expect(stepReason("FileNotFoundError: git is not on PATH")).toBe("FileNotFoundError: git is not on PATH");
     expect(stepReason("something new")).toBe("something new");
   });
 });
