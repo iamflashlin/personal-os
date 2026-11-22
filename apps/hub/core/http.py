@@ -1,6 +1,6 @@
 """FastAPI plumbing shared by every module's `api.py`."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
@@ -46,6 +46,15 @@ def call[T](fn: Callable[[], T]) -> T:
         return fn()
     except DomainError as exc:
         # Any other refusal is still the client's request being refused: 400.
+        status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 400)
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+async def acall[T](work: Awaitable[T]) -> T:
+    """`call` for async service functions."""
+    try:
+        return await work
+    except DomainError as exc:
         status = next((_STATUS[c] for c in type(exc).__mro__ if c in _STATUS), 400)
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
