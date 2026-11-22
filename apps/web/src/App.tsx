@@ -89,6 +89,11 @@ export function App({ api }: { api: Api }) {
   const [homework, setHomework] = useState<HomeworkBoard | null>(null);
   const homeworkCount = attention(homework);
   const homeworkTicket = useRef(0);
+  /** A board the 作业 page just loaded: newer than any App load still on its way. */
+  const showHomework = useCallback((b: HomeworkBoard) => {
+    homeworkTicket.current += 1;
+    setHomework(b);
+  }, []);
   const loadHomework = useCallback(() => {
     const ticket = ++homeworkTicket.current; // an older, slower answer must not win
     api
@@ -183,7 +188,7 @@ export function App({ api }: { api: Api }) {
             reminder={homework?.reminder ?? null}
           />
         )}
-        {view === "homework" && <HomeworkView api={api} onBoard={setHomework} />}
+        {view === "homework" && <HomeworkView api={api} onBoard={showHomework} />}
         {view === "mail" && <MailView api={api} />}
         {view === "digest" && <DigestView api={api} />}
         {view === "gpa" && <GpaView api={api} />}

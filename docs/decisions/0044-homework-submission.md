@@ -34,3 +34,16 @@ a submission after the user makes it.
 4. **Reminders stay inside the Hub.** 今日 shows the nearest unsubmitted item due within
    24 h; the sidebar shows a count. Windows notifications are a later, separate choice.
 5. **The system never writes or submits work.** It tracks, reminds and opens pages.
+
+## T-0067: 排时间
+
+6. **A suggested time, never an automatic one.** `GET /homework/{id}/slot` returns the
+   earliest free slot (the schedule's free time: inside 08:00-22:00 local, not blocked by
+   any event) of at least 60 minutes that ends before the homework is due (missing work:
+   within the next week; never more than 14 days ahead), starting on a quarter hour.
+   Nothing is stored until 排进日程 (`POST /homework/{id}/plan`).
+7. **The block is an ordinary schedule event** (kind task, 「写作业：<name>」), so 日程 shows
+   it, finds conflicts with it and lets the user move or delete it. Its notes hold the
+   Canvas link and a `homework:<item id>` line; the board finds the block by that line, so
+   no table or migration is needed and a moved or deleted event is reflected. One block per
+   homework: planning it again returns the block already there.

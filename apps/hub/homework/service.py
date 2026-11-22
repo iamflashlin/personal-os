@@ -1,9 +1,11 @@
+# ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation on purpose)
 """作业 (ADR 0044): what is missing, due soon and handed in, from synced Canvas
 assignments; open an assignment's page on the PC; ask Canvas to sync now.
 
 Submitted means Canvas recorded it. Nothing here writes or submits work."""
 
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from pydantic import ValidationError
 from sqlalchemy import Engine
@@ -15,21 +17,27 @@ from apps.hub.core.domain import Actor, Conflict, Invalid, NotFound
 from apps.hub.devices import service as devices
 from apps.hub.gpa import service as gpa
 from apps.hub.integrations import service as integrations
+from apps.hub.schedule import service as schedule
 from packages.contracts.actions import TITLE_MAX, ActionCreate, ActionName, OpenUrlParams
 from packages.contracts.homework import (
     HomeworkBoard,
     HomeworkCheck,
     HomeworkItem,
     HomeworkOpened,
+    HomeworkPlan,
+    HomeworkSlot,
     HomeworkState,
+    PlannedTime,
 )
 from packages.contracts.integrations import SyncedItem
+from packages.contracts.schedule import NewEvent
 
 ITEM_TYPE = "canvas_assignment"
 DONE_STATES = {"submitted", "graded", "pending_review"}  # as the schedule counts them
 SOON = timedelta(hours=24)
 WEEK = timedelta(days=7)
 MISSING_LOOKBACK = timedelta(days=120)  # Canvas keeps old missing work; as 今日 does
+PLAN_AHEAD = timedelta(days=14)  # a suggestion looks at most this far ahead
 AHEAD = timedelta(days=60)  # early submissions of work due later still count as handed in
 
 
@@ -64,7 +72,35 @@ def _state(item: SyncedItem, now: datetime) -> HomeworkState | None:
     return "week" if due <= now + WEEK else None
 
 
-def _item(item: SyncedItem, state: HomeworkState) -> HomeworkItem:
+def _marker(item_id: str) -> str:
+    """Written into the planned event's notes; how the board finds it again (no new table)."""
+    return f"homework:{item_id}"
+
+
+MARKER = re.compile(r"^homework:([0-9A-HJKMNP-TV-Z]{26})$")  # a ULID, as _marker writes it
+
+
+def _planned(session: Session, actor: Actor, now: datetime) -> dict[str, PlannedTime]:
+    """Each homework's planned block that has not ended yet, read from the schedule (a
+    moved or deleted event is reflected; a block that passed lets the user plan again).
+    Only task blocks count, and only a marker line exactly as `_marker` writes it. The
+    earliest block wins if the user copied it."""
+    out: dict[str, PlannedTime] = {}
+    for event in schedule.events(session, actor):
+        if event.kind != "task" or event.ends_at <= now:
+            continue
+        for line in event.notes.splitlines():
+            m = MARKER.match(line.strip())
+            if m and m.group(1) not in out:
+                out[m.group(1)] = PlannedTime(
+                    event_id=event.id, starts_at=event.starts_at, ends_at=event.ends_at
+                )
+    return out
+
+
+def _item(
+    item: SyncedItem, state: HomeworkState, planned: PlannedTime | None = None
+) -> HomeworkItem:
     data = item.data
     return HomeworkItem(
         id=item.id,
@@ -77,6 +113,7 @@ def _item(item: SyncedItem, state: HomeworkState) -> HomeworkItem:
         state=state,
         submitted_at=_when(data.get("submitted_at")),
         late=bool(data.get("late")),
+        planned=planned if state != "submitted" else None,
     )
 
 
@@ -95,11 +132,12 @@ def board(session: Session, actor: Actor, now: datetime | None = None) -> Homewo
     found = integrations.items_between(
         session, actor, now - MISSING_LOOKBACK, now + AHEAD, item_type=ITEM_TYPE
     )
+    planned = _planned(session, actor, now)
     for item in found:
         state = _state(item, now)
         if state is None or (state != "submitted" and item.id in copies):
             continue
-        groups[state].append(_item(item, state))
+        groups[state].append(_item(item, state, planned.get(item.id)))
     groups["submitted"].sort(key=lambda h: h.submitted_at or now, reverse=True)
     synced = [s.last_success_at for s in sources if s.last_success_at is not None]
     return HomeworkBoard(
@@ -132,6 +170,83 @@ def _payload(item: SyncedItem) -> ActionCreate:
     return ActionCreate(name=ActionName.open_url, params=params.model_dump(mode="json"))
 
 
+def _open_homework(session: Session, actor: Actor, item_id: str, now: datetime) -> SyncedItem:
+    item = _assignment(session, actor, item_id)
+    if _state(item, now) not in ("missing", "soon", "week"):
+        raise Conflict("这份作业已经交了，或者不在这周要交的里面")
+    return item
+
+
+def suggest(
+    session: Session,
+    actor: Actor,
+    item_id: str,
+    minutes: int,
+    zone: tzinfo,
+    zone_name: str,
+    now: datetime | None = None,
+) -> HomeworkSlot:
+    """The earliest free slot of `minutes` that ends before the homework is due (missing
+    work: within the next week). Free time is the schedule's (ADR 0038): inside the day
+    window, not blocked by classes or other events."""
+    now = now or datetime.now(UTC)
+    item = _open_homework(session, actor, item_id, now)
+    due = item.starts_at
+    # Open work is due within a week (and missing work gets the next week), so the cap is
+    # only a safety bound on how far the agenda is read.
+    end = min(due if due is not None and due > now else now + WEEK, now + PLAN_AHEAD)
+    length = timedelta(minutes=minutes)
+    found = schedule.agenda(session, actor, now, end, zone, zone_name, now=now)
+    for free in found.free:
+        start = _round_up(free.starts_at)
+        if start + length <= free.ends_at:
+            return HomeworkSlot(starts_at=start, ends_at=start + length, reason="")
+    when = "截止前" if due is not None and due > now else "这周"
+    return HomeworkSlot(
+        starts_at=None, ends_at=None, reason=f"{when}没有连续 {minutes} 分钟的空闲时间"
+    )
+
+
+def _round_up(at: datetime) -> datetime:
+    """To the next quarter hour, so the block reads 19:15, not 19:07."""
+    at = at.replace(second=0, microsecond=0)
+    return at + timedelta(minutes=(-at.minute) % 15)
+
+
+def plan(
+    session: Session,
+    actor: Actor,
+    item_id: str,
+    body: HomeworkPlan,
+    zone_name: str,
+    now: datetime | None = None,
+) -> tuple[PlannedTime, bool]:
+    """Put the homework on the schedule as a task block. One block per homework: planning
+    it again returns the block already there. Returns (block, created)."""
+    now = now or datetime.now(UTC)
+    item = _open_homework(session, actor, item_id, now)
+    seen = _planned(session, actor, now).get(item.id)
+    if seen is not None:
+        return seen, False
+    if body.starts_at < now - timedelta(minutes=5):
+        raise Invalid("这个时间已经过去了")
+    title = f"写作业：{item.title.strip()}"[:200]
+    notes = "\n".join(line for line in (item.url, _marker(item.id)) if line)
+    event = schedule.create(
+        session,
+        actor,
+        NewEvent(
+            title=title,
+            kind="task",
+            starts_at=body.starts_at,
+            ends_at=body.ends_at,
+            notes=notes,
+        ),
+        zone_name,
+    )
+    return PlannedTime(event_id=event.id, starts_at=event.starts_at, ends_at=event.ends_at), True
+
+
 def action_key(key: str) -> str:
     return f"homework:{key}"
 
@@ -156,4 +271,4 @@ def check(session: Session, actor: Actor, now: datetime | None = None) -> Homewo
     )
 
 
-__all__ = ["action_key", "board", "check", "open_page"]
+__all__ = ["action_key", "board", "check", "open_page", "plan", "suggest"]

@@ -1904,3 +1904,17 @@ ul.memories {
 .hw-open-text.step-needs_user {
   color: var(--warn);
 }
+
+/* 排时间 (T-0067) */
+.hw-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+
+.hw-planned {
+  color: var(--ok);
+}

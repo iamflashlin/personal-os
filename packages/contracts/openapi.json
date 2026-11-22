@@ -2748,6 +2748,16 @@
             "title": "Late",
             "type": "boolean"
           },
+          "planned": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlannedTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "points": {
             "anyOf": [
               {
@@ -2820,6 +2830,68 @@
           "replayed"
         ],
         "title": "HomeworkOpened",
+        "type": "object"
+      },
+      "HomeworkPlan": {
+        "additionalProperties": false,
+        "description": "The block to set aside, usually the suggested slot (the user may have moved it).",
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at"
+        ],
+        "title": "HomeworkPlan",
+        "type": "object"
+      },
+      "HomeworkSlot": {
+        "description": "The suggested time to do a homework: the earliest free slot before it is due.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "reason"
+        ],
+        "title": "HomeworkSlot",
         "type": "object"
       },
       "Importance": {
@@ -3929,6 +4001,32 @@
           "expires_at"
         ],
         "title": "PairingCode",
+        "type": "object"
+      },
+      "PlannedTime": {
+        "description": "A time block on the schedule for one homework, read back from the schedule.",
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "starts_at",
+          "ends_at"
+        ],
+        "title": "PlannedTime",
         "type": "object"
       },
       "ProfileConfirm": {
@@ -7687,6 +7785,134 @@
           }
         },
         "summary": "Open Homework",
+        "tags": [
+          "homework"
+        ]
+      }
+    },
+    "/homework/{item_id}/plan": {
+      "post": {
+        "operationId": "plan_homework_homework__item_id__plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HomeworkPlan"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedTime"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Homework",
+        "tags": [
+          "homework"
+        ]
+      }
+    },
+    "/homework/{item_id}/slot": {
+      "get": {
+        "operationId": "suggest_homework_slot_homework__item_id__slot_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 480,
+              "minimum": 10,
+              "title": "Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeworkSlot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Homework Slot",
         "tags": [
           "homework"
         ]

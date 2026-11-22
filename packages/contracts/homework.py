@@ -1,13 +1,21 @@
 """作业 (ADR 0044): each Canvas assignment's submission state, computed from synced items."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from packages.contracts.actions import ActionRun
 
 HomeworkState = Literal["missing", "soon", "week", "submitted"]
+
+
+class PlannedTime(BaseModel):
+    """A time block on the schedule for one homework, read back from the schedule."""
+
+    event_id: str
+    starts_at: datetime
+    ends_at: datetime
 
 
 class HomeworkItem(BaseModel):
@@ -21,6 +29,31 @@ class HomeworkItem(BaseModel):
     state: HomeworkState
     submitted_at: datetime | None  # when Canvas recorded the submission
     late: bool  # Canvas marked the submission late
+    planned: PlannedTime | None = None  # the schedule block set aside for it (T-0067)
+
+
+class HomeworkSlot(BaseModel):
+    """The suggested time to do a homework: the earliest free slot before it is due."""
+
+    starts_at: datetime | None
+    ends_at: datetime | None
+    reason: str  # why there is none, in plain words; "" when there is one
+
+
+class HomeworkPlan(BaseModel):
+    """The block to set aside, usually the suggested slot (the user may have moved it)."""
+
+    model_config = ConfigDict(extra="forbid")
+    starts_at: datetime
+    ends_at: datetime
+
+    @model_validator(mode="after")
+    def _order(self) -> "HomeworkPlan":
+        if self.starts_at.tzinfo is None or self.ends_at.tzinfo is None:
+            raise ValueError("times must carry a time zone offset")
+        if not timedelta(minutes=10) <= self.ends_at - self.starts_at <= timedelta(hours=8):
+            raise ValueError("a homework block lasts 10 minutes to 8 hours")
+        return self
 
 
 class HomeworkBoard(BaseModel):

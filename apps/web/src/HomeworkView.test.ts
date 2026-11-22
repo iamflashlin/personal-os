@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type ActionRun, ApiError, type HomeworkBoard, type HomeworkItem, type Job } from "./api";
-import { attention, courseOf, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
+import { attention, blockText, courseOf, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
 import { pollUntil } from "./poll";
 
 const NOW = Date.parse("2026-11-22T10:00:00Z");
@@ -39,6 +39,13 @@ function board(over: Partial<HomeworkBoard> = {}): HomeworkBoard {
 function run(status: ActionRun["status"], message = ""): ActionRun {
   return { id: "a1", status, message };
 }
+
+describe("blockText", () => {
+  it("says the day and the hours of a planned block", () => {
+    const text = blockText({ starts_at: "2026-11-24T19:00:00", ends_at: "2026-11-24T20:00:00" });
+    expect(text).toBe("周二 11/24 19:00–20:00");
+  });
+});
 
 describe("dueText", () => {
   it("says how long is left, or how long ago it was due", () => {
