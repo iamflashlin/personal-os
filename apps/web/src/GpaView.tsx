@@ -26,6 +26,13 @@ export function shortCode(code: string): string {
   return m ? `${m[1]} ${m[2]}` : code;
 }
 
+/** The short course name inside a longer text ("F26 MATH D001A 49 Calculus I" -> "MATH 1A"),
+ * or null when the text names no course. */
+export function courseIn(text: string): string | null {
+  const m = /\b([A-Z]{2,5})\s+([A-Z]?\d{3,4}[A-Z]?)\b/.exec(text);
+  return m ? shortCode(`${m[1]} ${m[2]}`) : null;
+}
+
 type Line = CourseGpa["lines"][number];
 
 /** What the remaining work must average to reach a target, in words. */

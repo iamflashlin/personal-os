@@ -2627,6 +2627,201 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "HomeworkBoard": {
+        "properties": {
+          "canvas": {
+            "title": "Canvas",
+            "type": "boolean"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/HomeworkItem"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "reminder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeworkItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "soon": {
+            "items": {
+              "$ref": "#/components/schemas/HomeworkItem"
+            },
+            "title": "Soon",
+            "type": "array"
+          },
+          "submitted": {
+            "items": {
+              "$ref": "#/components/schemas/HomeworkItem"
+            },
+            "title": "Submitted",
+            "type": "array"
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synced At"
+          },
+          "week": {
+            "items": {
+              "$ref": "#/components/schemas/HomeworkItem"
+            },
+            "title": "Week",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "canvas",
+          "synced_at",
+          "reminder",
+          "missing",
+          "soon",
+          "week",
+          "submitted"
+        ],
+        "title": "HomeworkBoard",
+        "type": "object"
+      },
+      "HomeworkCheck": {
+        "properties": {
+          "job_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Job Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_ids"
+        ],
+        "title": "HomeworkCheck",
+        "type": "object"
+      },
+      "HomeworkItem": {
+        "properties": {
+          "course": {
+            "title": "Course",
+            "type": "string"
+          },
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "late": {
+            "title": "Late",
+            "type": "boolean"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points"
+          },
+          "state": {
+            "enum": [
+              "missing",
+              "soon",
+              "week",
+              "submitted"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "course",
+          "course_code",
+          "due_at",
+          "url",
+          "points",
+          "state",
+          "submitted_at",
+          "late"
+        ],
+        "title": "HomeworkItem",
+        "type": "object"
+      },
+      "HomeworkOpened": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionRun"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "replayed"
+        ],
+        "title": "HomeworkOpened",
+        "type": "object"
+      },
       "Importance": {
         "enum": [
           "high",
@@ -7400,6 +7595,101 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/homework": {
+      "get": {
+        "operationId": "get_homework_board_homework_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeworkBoard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Homework Board",
+        "tags": [
+          "homework"
+        ]
+      }
+    },
+    "/homework/check": {
+      "post": {
+        "operationId": "check_homework_homework_check_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeworkCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Check Homework",
+        "tags": [
+          "homework"
+        ]
+      }
+    },
+    "/homework/{item_id}/open": {
+      "post": {
+        "operationId": "open_homework_homework__item_id__open_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 180,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeworkOpened"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Homework",
+        "tags": [
+          "homework"
+        ]
       }
     },
     "/integrations": {

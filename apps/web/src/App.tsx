@@ -19,6 +19,8 @@ import { CourseView } from "./CourseView";
 import { ScheduleView } from "./ScheduleView";
 import { MemoryView } from "./MemoryView";
 import { TodayView } from "./TodayView";
+import { HomeworkView, attention } from "./HomeworkView";
+import type { HomeworkBoard } from "./api";
 import { Icon } from "./Icon";
 
 const TASK_STATUS: Record<TaskStatus, string> = {
@@ -39,6 +41,7 @@ const VIEW = {
   today: "今日",
   mail: "邮件",
   digest: "简报",
+  homework: "作业",
   gpa: "成绩",
   course: "课程",
   schedule: "日程",
@@ -51,7 +54,7 @@ type View = keyof typeof VIEW;
 /** The sidebar, in groups: what the user does daily comes first. */
 const GROUPS: { label: string; views: View[] }[] = [
   { label: "今天", views: ["today", "schedule"] },
-  { label: "学业", views: ["gpa", "course"] },
+  { label: "学业", views: ["homework", "course", "gpa"] },
   { label: "信息", views: ["mail", "digest"] },
   { label: "系统", views: ["tasks", "memories", "connections"] },
 ];
@@ -81,6 +84,25 @@ export function App({ api }: { api: Api }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("today");
+  // One homework board (ADR 0044) for the sidebar count and the 今日 reminder: loaded at
+  // start, every 5 minutes and on each visit to 今日; the 作业 page passes its own up.
+  const [homework, setHomework] = useState<HomeworkBoard | null>(null);
+  const homeworkCount = attention(homework);
+  const homeworkTicket = useRef(0);
+  const loadHomework = useCallback(() => {
+    const ticket = ++homeworkTicket.current; // an older, slower answer must not win
+    api
+      .homework()
+      .then((b) => ticket === homeworkTicket.current && setHomework(b))
+      .catch(() => undefined); // 今日 already says when the Hub is unreachable
+  }, [api]);
+  useEffect(() => {
+    const timer = window.setInterval(loadHomework, 5 * 60 * 1000); // on every page
+    return () => window.clearInterval(timer);
+  }, [loadHomework]);
+  useEffect(() => {
+    if (view === "today") loadHomework();
+  }, [view, loadHomework]);
   const latestReload = useRef(0);
 
   const reload = useCallback(async () => {
@@ -136,6 +158,12 @@ export function App({ api }: { api: Api }) {
                 >
                   <Icon name={v} />
                   <span>{VIEW[v]}</span>
+                  {v === "homework" && homeworkCount > 0 && (
+                    <span className="nav-count" data-testid="homework-count">
+                      <span className="sr-only">，要处理 </span>
+                      {homeworkCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -147,7 +175,15 @@ export function App({ api }: { api: Api }) {
           {/* 今日 is headed by the day itself; the sidebar already names the page. */}
           <h1>{view === "today" ? todayLabel() : VIEW[view]}</h1>
         </header>
-        {view === "today" && <TodayView api={api} onConnect={() => setView("connections")} />}
+        {view === "today" && (
+          <TodayView
+            api={api}
+            onConnect={() => setView("connections")}
+            onHomework={() => setView("homework")}
+            reminder={homework?.reminder ?? null}
+          />
+        )}
+        {view === "homework" && <HomeworkView api={api} onBoard={setHomework} />}
         {view === "mail" && <MailView api={api} />}
         {view === "digest" && <DigestView api={api} />}
         {view === "gpa" && <GpaView api={api} />}
