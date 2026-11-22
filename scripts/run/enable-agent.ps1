@@ -64,15 +64,23 @@ if (-not (Test-Path (Join-Path $CopyDir "apps\desktop_agent"))) {
 }
 
 # Stop a running supervised agent first, so the new token is the one that connects.
+$hadFlag = Test-Path $flag
 Remove-Item $flag -Force -ErrorAction SilentlyContinue
+
+function Fail-Restoring([string]$text) {
+    # The old token is untouched until pairing succeeds: put the switch back as it was.
+    if ($hadFlag) { Set-Content -Path $flag -Value (Get-Date -Format o) -Encoding ascii }
+    $state = if ($hadFlag) { "电脑助手保持原来的设置" } else { "电脑助手仍然是关着的" }
+    Write-Output "FAILED: $text（$state）"
+    exit 1
+}
 $null = Wait-Online $false 15
 
 Write-Output "== 向 Hub 要一次性配对码"
 try {
     $code = (Invoke-RestMethod -Method Post -Uri "$HubUrl/devices/pairing-codes" -TimeoutSec 5).code
 } catch {
-    Write-Output "FAILED: Hub 没有给配对码：$($_.Exception.Message)"
-    exit 1
+    Fail-Restoring "Hub 没有给配对码：$($_.Exception.Message)"
 }
 
 Write-Output "== 配对电脑助手（令牌存进 Windows 凭据管理器）"
@@ -80,7 +88,7 @@ Push-Location $CopyDir
 & $uv run --frozen python -m apps.desktop_agent --hub-url $HubUrl pair --code $code
 $paired = $LASTEXITCODE -eq 0
 Pop-Location
-if (-not $paired) { Write-Output "FAILED: 配对没有成功（见上面）"; exit 1 }
+if (-not $paired) { Fail-Restoring "配对没有成功（见上面）" }
 
 Write-Output "== 打开常驻开关"
 Set-Content -Path $flag -Value (Get-Date -Format o) -Encoding ascii

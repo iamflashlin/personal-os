@@ -98,6 +98,34 @@ def ours(name: str) -> list[int]:
     return found
 
 
+def answers(client: httpx.Client) -> bool:
+    try:
+        client.get("/health")
+        return True
+    except httpx.TransportError:
+        return False
+
+
+def exists(pid: int) -> bool:
+    out = subprocess.run(
+        ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, check=False
+    ).stdout
+    return str(pid) in out
+
+
+LIVE_PID = Path("D:/dev/personal-os-data/hub.pid")
+
+
+def live_hub() -> str:
+    """The always-on Hub's state: whether 8765 answers, and whether its uv process runs."""
+    try:
+        ok = httpx.get("http://127.0.0.1:8765/health", timeout=3).json()["status"] == "ok"
+    except (httpx.HTTPError, ValueError, KeyError):
+        ok = False
+    pid = int(LIVE_PID.read_text().strip()) if LIVE_PID.exists() else 0
+    return f"answers={ok} pid_running={exists(pid) if pid else 'no hub.pid'}"
+
+
 def ps(script: str, *args: str, env: dict[str, str], timeout: int = 120) -> tuple[int, str]:
     done = subprocess.run(
         [*PS, str(RUN / script), *args],
@@ -195,19 +223,22 @@ def main() -> int:
         # One more agent, so stop-hub.ps1 has all three processes to stop.
         code, _ = ps("enable-agent.ps1", *enable, env=env)
         check(code == 0 and online(), "re-enabled for the stop test")
+        recorded = [int((data_dir / f).read_text().strip()) for f in ("hub.pid", "agent.pid")]
+        live_before = live_hub()
+        print(f"info   always-on Hub before stop-hub.ps1: {live_before}", flush=True)
         code, text = ps("stop-hub.ps1", *common, env=env)
         check(code == 0, "stop-hub.ps1 exits 0")
         down = wait(lambda: supervisor is not None and supervisor.poll() is not None, 20)
         check(down is not None, "the supervisor is gone")
-        hub_gone = wait(lambda: api.get("/health").status_code < 0, 10) is None
-        try:
-            api.get("/health")
-            still = True
-        except httpx.TransportError:
-            still = False
-        check(hub_gone and not still, "the Hub no longer answers")
+        gone_at = wait(lambda: not answers(api), 15)
+        check(gone_at is not None, f"the Hub no longer answers ({gone_at}s)")
         left = ours("apps.desktop_agent") + ours("apps.hub")
-        check(not left, f"no Hub or agent process of this checkout is left ({left})")
+        check(not left, f"no Hub or agent interpreter of this checkout is left ({left})")
+        alive = [p for p in recorded if exists(p)]
+        check(not alive, f"the recorded uv processes (hub.pid, agent.pid) are gone ({alive})")
+        live_after = live_hub()
+        print(f"info   always-on Hub after stop-hub.ps1: {live_after}", flush=True)
+        check(live_after == live_before, "the always-on Hub on 8765 is as it was (untouched)")
         outcome = 0
         print("\nRESULT: PASS")
     except Failed as exc:

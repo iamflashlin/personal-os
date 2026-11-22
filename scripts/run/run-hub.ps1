@@ -78,6 +78,7 @@ $hubNext = Get-Date            # when the Hub may be started (again)
 $agent = $null
 $agentNext = Get-Date
 $agentHold = $null             # agent.enabled's stamp when the agent last needed the user
+$agentStartStamp = $null       # agent.enabled's stamp when the running agent was started
 
 while ($true) {
     Wait-For-Update $DataDir
@@ -108,7 +109,9 @@ while ($true) {
         Remove-Item $agentPidFile -Force -ErrorAction SilentlyContinue
         $agent = $null
         if ($agentHoldCodes -contains $code) {
-            $agentHold = $stamp
+            # The stamp at its start, not now: a re-pair that rewrote the flag while this
+            # agent was exiting must release the hold, not be held itself.
+            $agentHold = $agentStartStamp
             Write-Log "agent exited with code ${code}: it needs pairing (scripts\run\enable-agent.ps1); not restarting until then"
         } else {
             Write-Log "agent exited with code ${code}; starting again in 10 s"
@@ -127,6 +130,7 @@ while ($true) {
         $agentHold = $null
         $uvExe = Find-Uv
         if ($uvExe) {
+            $agentStartStamp = $stamp
             $agent = Start-Run $uvExe "apps.desktop_agent" "agent" @("run")
             Set-Content -Path $agentPidFile -Value $agent.Id -Encoding ascii
         }

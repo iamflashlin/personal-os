@@ -1,4 +1,5 @@
-# Stops the always-on Hub's processes (the supervisor and the Hub it started) and waits
+# Stops the always-on Hub's processes (the supervisor, the Hub and the desktop agent it
+# started) and waits
 # until they are gone. Only processes that are provably ours are touched.
 param(
     [string]$CopyDir = "D:\dev\personal-os-run",
