@@ -43,7 +43,9 @@ export function stepReason(message: string): string {
   if (/^no window titled .* appeared within/.test(message))
     return "页面可能打开了，但没认出它的窗口（比如 Canvas 要你先登录）";
   if (/^no VS Code window/.test(message)) return "VS Code 没有在时间内打开";
-  if (/not on PATH/.test(message)) return "这台电脑上找不到 VS Code";
+  if (/^VS Code's `code` command is not on PATH/.test(message)) return "这台电脑上找不到 VS Code";
+  if (message === "agent stopped before the action finished")
+    return "电脑助手中途停了，不知道打开没有";
   if (message === "the agent disconnected before reporting a result")
     return "电脑助手中途断开了，不知道打开没有";
   return message;
