@@ -227,7 +227,7 @@ def _read(session: Session, actor: Actor, row: StudySessionRow) -> StudySession:
                     label=s["label"],
                     action_run_id=None,
                     status=StepStatus.not_sent,
-                    message="电脑助手不在线，这一步没有发出去",
+                    message="这一步没有发出去",
                 )
             )
         else:
@@ -277,10 +277,11 @@ def _create(
         )
     ).one_or_none()
     if seen is not None:
-        if (
-            seen.course_code
-            != academic.course_map(session, actor, body.course_code, now).course_code
-        ):
+        try:
+            asked = academic.course_map(session, actor, body.course_code, now).course_code
+        except NotFound:  # the map is gone since: compare the code as written
+            asked = " ".join(body.course_code.upper().split())
+        if seen.course_code != asked:
             raise Invalid("Idempotency-Key was already used for another course")
         todo = [
             (i, StudyStep.model_validate(s))
