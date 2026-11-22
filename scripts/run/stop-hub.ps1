@@ -41,6 +41,25 @@ foreach ($p in $hubs) {
 }
 Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
 
+# The desktop agent the supervisor started (T-0063), by the same rules: uv only when its
+# id is in agent.pid, python only when it runs from the copy. A dev agent elsewhere is left.
+$agentPidFile = Join-Path $DataDir "agent.pid"
+$agentRecorded = if (Test-Path $agentPidFile) { [int](Get-Content $agentPidFile -Raw) } else { 0 }
+Get-CimInstance Win32_Process -Filter "Name = 'uv.exe' OR Name = 'python.exe'" |
+    Where-Object { $_.CommandLine -like "*apps.desktop_agent*" } |
+    ForEach-Object {
+        $isOurUv = $_.Name -eq "uv.exe" -and $_.ProcessId -eq $agentRecorded
+        $isOurPython = $_.Name -eq "python.exe" -and $_.ExecutablePath -like "$CopyDir\*"
+        if ($isOurUv -or $isOurPython) {
+            $parent = $_.ProcessId
+            Get-CimInstance Win32_Process -Filter "ParentProcessId = $parent" |
+                ForEach-Object { $stopped += $_.ProcessId }
+            & taskkill.exe /PID $parent /T /F 2>$null | Out-Null
+            $stopped += $parent
+        }
+    }
+Remove-Item $agentPidFile -Force -ErrorAction SilentlyContinue
+
 # Wait, so files under the copy's .venv are no longer locked when the caller goes on.
 foreach ($id in $stopped) {
     Wait-Process -Id $id -Timeout 15 -ErrorAction SilentlyContinue

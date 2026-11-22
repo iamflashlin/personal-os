@@ -1,5 +1,9 @@
 # Keeps the Personal OS Hub running: starts it, and starts it again if it ever exits.
 # Started at logon by the "PersonalOS Hub" scheduled task (install-always-on.ps1).
+#
+# The desktop agent (T-0063, ADR 0043) is kept running the same way, but only while
+# $DataDir\agent.enabled exists. scripts\run\enable-agent.ps1 pairs the agent and writes
+# that file; -Disable removes it. Nothing about the agent changes until the user runs it.
 param(
     [Parameter(Mandatory = $true)][string]$CopyDir,
     [Parameter(Mandatory = $true)][string]$DataDir,
@@ -11,7 +15,13 @@ $logs = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $log = Join-Path $logs "hub.log"   # the supervisor's own notes
 $pidFile = Join-Path $DataDir "hub.pid"
+$agentFlag = Join-Path $DataDir "agent.enabled"
+$agentPidFile = Join-Path $DataDir "agent.pid"
 $keepRuns = 10                     # per-run output files kept (newest first)
+# Agent exit codes a restart cannot fix (apps/desktop_agent/__main__.py): 2 not paired,
+# 3 token rejected, 4 replaced by another agent. The supervisor then waits until
+# agent.enabled is written again, which enable-agent.ps1 does after pairing.
+$agentHoldCodes = @(2, 3, 4)
 
 function Write-Log([string]$text) {
     if ((Test-Path $log) -and ((Get-Item $log).Length -gt 1MB)) {
@@ -25,6 +35,27 @@ function Find-Uv {
     if ($Uv -and (Test-Path $Uv)) { return $Uv }
     $found = Get-Command uv -ErrorAction SilentlyContinue
     if ($found) { return $found.Source }
+    return $null
+}
+
+function Start-Run([string]$uvExe, [string]$module, [string]$prefix, [string[]]$extra) {
+    # Each run writes its own files, so a crash's output survives the next start.
+    Get-ChildItem $logs -Filter "$prefix-run-*.log" | Sort-Object Name -Descending |
+        Select-Object -Skip ($keepRuns * 2) | Remove-Item -Force -ErrorAction SilentlyContinue
+    $run = Get-Date -Format "yyyyMMdd-HHmmss"
+    $out = Join-Path $logs "$prefix-run-$run-out.log"
+    $err = Join-Path $logs "$prefix-run-$run-err.log"
+    $arguments = @("run", "--frozen", "python", "-m", $module) + $extra
+    $proc = Start-Process -FilePath $uvExe -ArgumentList $arguments -WorkingDirectory $CopyDir `
+        -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $proc.Handle  # Windows PowerShell 5.1 only reports ExitCode if the handle was read
+    Write-Log "started $module from $CopyDir (pid $($proc.Id), output: $prefix-run-$run-*.log)"
+    return $proc
+}
+
+function Get-FlagStamp {
+    $item = Get-Item $agentFlag -ErrorAction SilentlyContinue
+    if ($item) { return $item.LastWriteTimeUtc.Ticks }
     return $null
 }
 
@@ -42,27 +73,64 @@ $env:POS_DATA_DIR = $DataDir
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $CopyDir
 
+$hub = $null
+$hubNext = Get-Date            # when the Hub may be started (again)
+$agent = $null
+$agentNext = Get-Date
+$agentHold = $null             # agent.enabled's stamp when the agent last needed the user
+
 while ($true) {
-    # Each run writes its own files, so a crash's output survives the next start.
-    Get-ChildItem $logs -Filter "hub-run-*.log" | Sort-Object Name -Descending |
-        Select-Object -Skip ($keepRuns * 2) | Remove-Item -Force -ErrorAction SilentlyContinue
     Wait-For-Update $DataDir
-    $uvExe = Find-Uv
-    if (-not $uvExe) {
-        Write-Log "uv was not found; trying again in 60 s"
-        Start-Sleep -Seconds 60
-        continue
+
+    # --- the Hub ---
+    if ($hub -and $hub.HasExited) {
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+        Write-Log "Hub exited with code $($hub.ExitCode); starting again in 10 s"
+        $hub = $null
+        $hubNext = (Get-Date).AddSeconds(10)
     }
-    $run = Get-Date -Format "yyyyMMdd-HHmmss"
-    $out = Join-Path $logs "hub-run-$run-out.log"
-    $err = Join-Path $logs "hub-run-$run-err.log"
-    Write-Log "starting Hub from $CopyDir with data_dir=$DataDir (output: hub-run-$run-*.log)"
-    $proc = Start-Process -FilePath $uvExe -ArgumentList @("run", "--frozen", "python", "-m", "apps.hub") `
-        -WorkingDirectory $CopyDir -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-    $null = $proc.Handle  # Windows PowerShell 5.1 only reports ExitCode if the handle was read
-    Set-Content -Path $pidFile -Value $proc.Id -Encoding ascii
-    $proc.WaitForExit()
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-    Write-Log "Hub exited with code $($proc.ExitCode); starting again in 10 s"
-    Start-Sleep -Seconds 10
+    if (-not $hub -and (Get-Date) -ge $hubNext) {
+        $uvExe = Find-Uv
+        if (-not $uvExe) {
+            Write-Log "uv was not found; trying again in 60 s"
+            $hubNext = (Get-Date).AddSeconds(60)
+        } else {
+            Write-Log "starting Hub with data_dir=$DataDir"
+            $hub = Start-Run $uvExe "apps.hub" "hub" @()
+            Set-Content -Path $pidFile -Value $hub.Id -Encoding ascii
+        }
+    }
+
+    # --- the desktop agent, only while agent.enabled exists ---
+    $stamp = Get-FlagStamp
+    if ($agent -and $agent.HasExited) {
+        $code = $agent.ExitCode
+        Remove-Item $agentPidFile -Force -ErrorAction SilentlyContinue
+        $agent = $null
+        if ($agentHoldCodes -contains $code) {
+            $agentHold = $stamp
+            Write-Log "agent exited with code ${code}: it needs pairing (scripts\run\enable-agent.ps1); not restarting until then"
+        } else {
+            Write-Log "agent exited with code ${code}; starting again in 10 s"
+        }
+        $agentNext = (Get-Date).AddSeconds(10)
+    }
+    if ($agent -and $null -eq $stamp) {
+        & taskkill.exe /PID $agent.Id /T /F 2>$null | Out-Null
+        Remove-Item $agentPidFile -Force -ErrorAction SilentlyContinue
+        Write-Log "agent.enabled was removed: agent stopped"
+        $agent = $null
+        $agentHold = $null
+    }
+    $held = ($null -ne $agentHold) -and ($agentHold -eq $stamp)
+    if (-not $agent -and $null -ne $stamp -and -not $held -and $hub -and (Get-Date) -ge $agentNext) {
+        $agentHold = $null
+        $uvExe = Find-Uv
+        if ($uvExe) {
+            $agent = Start-Run $uvExe "apps.desktop_agent" "agent" @("run")
+            Set-Content -Path $agentPidFile -Value $agent.Id -Encoding ascii
+        }
+    }
+
+    Start-Sleep -Seconds 2
 }
