@@ -19,7 +19,7 @@ from apps.hub.schedule import service as schedule
 from packages.contracts.actions import ActionStatus
 from packages.contracts.agent_protocol import ActionRequestMsg
 from packages.contracts.homework import HomeworkPlan
-from packages.contracts.schedule import NewEvent
+from packages.contracts.schedule import EventKind, NewEvent
 from tests.hub.agent_support import connect, heartbeat, hello, pair, receive
 from tests.hub.support import hub_client
 from tests.hub.test_actions import answer
@@ -441,8 +441,12 @@ def test_only_a_task_block_with_the_exact_marker_counts(hub) -> None:
     client, engine = hub
     hid = plan_seed(engine, NOW + timedelta(days=2))
     start = NOW + timedelta(hours=2)
+    blocks: list[tuple[EventKind, str]] = [
+        ("other", f"homework:{hid}"),
+        ("task", f"homework: read {hid}"),
+    ]
     with Session(engine) as s:
-        for kind, notes in (("other", f"homework:{hid}"), ("task", f"homework: read {hid}")):
+        for kind, notes in blocks:
             schedule.create(
                 s,
                 OWNER,

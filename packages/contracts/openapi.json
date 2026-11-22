@@ -7873,7 +7873,7 @@
             "schema": {
               "default": 60,
               "maximum": 480,
-              "minimum": 10,
+              "minimum": 30,
               "title": "Minutes",
               "type": "integer"
             }
