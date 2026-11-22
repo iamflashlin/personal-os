@@ -16,8 +16,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from apps.hub.actions.models import ActionRunRow
 from apps.hub.audit import service as audit
+from apps.hub.core.db import run_in_session
 from apps.hub.core.domain import Actor, Conflict, Forbidden, Invalid, NotFound, Unavailable
-from apps.hub.core.http import run_in_session
 from apps.hub.devices import service as devices
 from packages.contracts.actions import (
     ACTION_SPECS,
@@ -232,6 +232,17 @@ def get(session: Session, actor: Actor, action_id: str) -> ActionRun:
     if row is None or row.owner_id != actor.owner_id:
         raise NotFound(f"action run {action_id} not found")
     return _read(row)
+
+
+def get_by_key(session: Session, actor: Actor, idempotency_key: str) -> ActionRun | None:
+    """The run this key made, if any: the truth about whether it was sent."""
+    row = session.scalars(
+        select(ActionRunRow).where(
+            ActionRunRow.owner_id == actor.owner_id,
+            ActionRunRow.idempotency_key == idempotency_key,
+        )
+    ).one_or_none()
+    return None if row is None else _read(row)
 
 
 def list_runs(session: Session, actor: Actor, limit: int) -> list[ActionRun]:

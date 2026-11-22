@@ -7,6 +7,7 @@ actions module, so the agent verifies every window and nothing runs twice per ke
 """
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from pydantic import ValidationError
@@ -17,11 +18,11 @@ from sqlalchemy.orm import Session
 from apps.hub.academic import service as academic
 from apps.hub.actions import service as actions
 from apps.hub.audit import service as audit
-from apps.hub.core.domain import Actor, Conflict, DomainError, NotFound, Unavailable
-from apps.hub.core.http import run_in_session
+from apps.hub.core.db import run_in_session
+from apps.hub.core.domain import Actor, Conflict, DomainError, Invalid, NotFound, Unavailable
 from apps.hub.devices import service as devices
 from apps.hub.study.models import StudySessionRow
-from packages.contracts.actions import ActionCreate, ActionName, OpenUrlParams
+from packages.contracts.actions import TITLE_MAX, ActionCreate, ActionName, OpenUrlParams
 from packages.contracts.course_map import ConceptView, CourseMap, ExamView
 from packages.contracts.study import (
     LastSession,
@@ -52,7 +53,7 @@ _EXTENSION = re.compile(r"\.(pdf|pptx?|docx?|xlsx?)$", re.IGNORECASE)
 
 def _title_hint(name: str) -> str:
     """The part of a file or page name a browser tab title will contain."""
-    return _EXTENSION.sub("", name.strip())[:200]
+    return _EXTENSION.sub("", name.strip())[:TITLE_MAX]
 
 
 def _open(label: str, url: str, title: str) -> StudyStep | None:
@@ -208,27 +209,34 @@ def _row(session: Session, actor: Actor, session_id: str) -> StudySessionRow:
     return row
 
 
+def step_key(session_key: str, index: int) -> str:
+    """The action Idempotency-Key of one step, apart from keys sent to POST /actions."""
+    return f"study:{session_key}:{index}"
+
+
 def _read(session: Session, actor: Actor, row: StudySessionRow) -> StudySession:
+    """Each step's state comes from its action run, found by its key: a run exists if and
+    only if the step was stored for sending, so a half-finished start never shows a step
+    that ran as not sent."""
     steps: list[StepRun] = []
-    for s in row.steps:
-        run_id = s.get("action_run_id")
-        if run_id:
-            run = actions.get(session, actor, run_id)
+    for i, s in enumerate(row.steps):
+        run = actions.get_by_key(session, actor, step_key(row.idempotency_key, i))
+        if run is None:
             steps.append(
                 StepRun(
                     label=s["label"],
-                    action_run_id=run_id,
-                    status=step_status(run.status),
-                    message=run.message,
+                    action_run_id=None,
+                    status=StepStatus.not_sent,
+                    message="电脑助手不在线，这一步没有发出去",
                 )
             )
         else:
             steps.append(
                 StepRun(
                     label=s["label"],
-                    action_run_id=None,
-                    status=StepStatus.not_sent,
-                    message=s.get("message", ""),
+                    action_run_id=run.id,
+                    status=step_status(run.status),
+                    message=run.message,
                 )
             )
     return StudySession(
@@ -248,17 +256,41 @@ def get(session: Session, actor: Actor, session_id: str) -> StudySession:
     return _read(session, actor, _row(session, actor, session_id))
 
 
+@dataclass(frozen=True)
+class _Started:
+    session_id: str
+    replayed: bool
+    to_send: list[tuple[int, StudyStep]]  # steps without an action run yet
+
+
 def _create(
-    session: Session, actor: Actor, body: StudyStart, key: str, now: datetime
-) -> tuple[StudySession, list[StudyStep] | None]:
-    """The stored session and the steps to send; steps None: a replay, send nothing."""
+    session: Session, actor: Actor, body: StudyStart, key: str, online: bool, now: datetime
+) -> _Started:
+    """The stored session for `key` (made now if new) and the steps still to send.
+
+    A replay never makes a second session; its unsent steps are sent again (each step
+    has its own key, so a step still runs at most once). A new key needs the agent.
+    """
     seen = session.scalars(
         select(StudySessionRow).where(
             StudySessionRow.owner_id == actor.owner_id, StudySessionRow.idempotency_key == key
         )
     ).one_or_none()
     if seen is not None:
-        return _read(session, actor, seen), None
+        if (
+            seen.course_code
+            != academic.course_map(session, actor, body.course_code, now).course_code
+        ):
+            raise Invalid("Idempotency-Key was already used for another course")
+        todo = [
+            (i, StudyStep.model_validate(s))
+            for i, s in enumerate(seen.steps)
+            if actions.get_by_key(session, actor, step_key(key, i)) is None
+        ]
+        open_steps = todo if online and seen.status == StudySessionStatus.started else []
+        return _Started(seen.id, True, open_steps)
+    if not online:
+        raise Unavailable("电脑助手没有连上，没法替你打开")
     p = plan(session, actor, body.course_code, now)
 
     def op() -> audit.Outcome[StudySessionRow]:
@@ -268,7 +300,7 @@ def _create(
             course_code=p.course_code,
             status=StudySessionStatus.started,
             next=p.next.model_dump(mode="json"),
-            steps=[{"label": s.label, "action_run_id": None, "message": ""} for s in p.steps],
+            steps=[s.model_dump(mode="json") for s in p.steps],
             idempotency_key=key,
             note="",
         )
@@ -281,16 +313,7 @@ def _create(
 
     detail = {"course_code": p.course_code, "next": p.next.title}
     row = audit.audited(session, actor, ENTITY, "start", None, detail, op)
-    return _read(session, actor, row), p.steps
-
-
-def _save_runs(
-    session: Session, actor: Actor, session_id: str, sent: list[dict[str, object]]
-) -> StudySession:
-    row = _row(session, actor, session_id)
-    row.steps = sent
-    session.commit()
-    return _read(session, actor, row)
+    return _Started(row.id, False, list(enumerate(p.steps)))
 
 
 async def start(
@@ -300,30 +323,29 @@ async def start(
     body: StudyStart,
     key: str,
     now: datetime | None = None,
-) -> StudySession:
-    """Store the session, then send each step to the PC (once per key)."""
-    if links.current(actor.owner_id) is None:
-        raise Unavailable("电脑助手没有连上，没法替你打开")
+) -> tuple[StudySession, bool]:
+    """Store the session, then send each step to the PC, at most once per step.
+
+    Returns the session and whether this was a replay of `key`.
+    """
     when = now or datetime.now(UTC)
-    stored, steps = await run_in_session(engine, lambda s: _create(s, actor, body, key, when))
-    if steps is None:
-        return stored
-    sent: list[dict[str, object]] = []
-    for i, step in enumerate(steps):
-        entry: dict[str, object] = {"label": step.label, "action_run_id": None, "message": ""}
+    online = links.current(actor.owner_id) is not None
+    started = await run_in_session(engine, lambda s: _create(s, actor, body, key, online, when))
+    for i, step in started.to_send:
         try:
-            d = await actions.dispatch(
+            await actions.dispatch(
                 engine,
                 links,
                 actor,
-                f"{key}:{i}",
+                step_key(key, i),
                 ActionCreate(name=step.action, params=step.params),
             )
-            entry["action_run_id"] = d.run.id
-        except DomainError as exc:
-            entry["message"] = str(exc)
-        sent.append(entry)
-    return await run_in_session(engine, lambda s: _save_runs(s, actor, stored.id, sent))
+        except DomainError:
+            # The agent left (or refused this action): the step shows as not sent, and a
+            # replay of the same key sends it again.
+            continue
+    stored = await run_in_session(engine, lambda s: get(s, actor, started.session_id))
+    return stored, started.replayed
 
 
 def finish(

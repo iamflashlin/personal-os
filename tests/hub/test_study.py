@@ -10,6 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
+from apps.hub.actions import service as actions_service
+from apps.hub.core.domain import Unavailable
 from apps.hub.core.settings import Settings
 from packages.contracts.actions import ActionStatus
 from packages.contracts.agent_protocol import ActionRequestMsg
@@ -73,7 +75,11 @@ def test_a_course_without_an_upcoming_exam_still_gets_a_plan(hub) -> None:
 def test_unknown_course_is_404(hub) -> None:
     client, _ = hub
     assert client.get("/study/plans/NOPE 1").status_code == 404
-    assert start(client, code="NOPE 1").status_code in (404, 503)
+    _, token = pair(client)
+    with connect(client, token) as ws:
+        hello(ws)
+        assert start(client, code="NOPE 1").status_code == 404
+        heartbeat(ws)  # nothing was sent
 
 
 def test_start_without_an_agent_is_503_and_stores_nothing(hub) -> None:
@@ -95,11 +101,13 @@ def test_start_sends_each_step_once_and_reports_what_the_agent_did(hub) -> None:
         assert [s["status"] for s in session["steps"]] == ["dispatched", "dispatched"]
         first, second = receive(ws), receive(ws)
         assert isinstance(first, ActionRequestMsg) and isinstance(second, ActionRequestMsg)
-        assert first.request.idempotency_key == "s-1:0"
+        assert first.request.idempotency_key == "study:s-1:0"
         assert first.request.params["expect_title_contains"] == "Math1A-Sec3.4"
 
         again = start(client)  # the same key: the same session, nothing sent
         assert again.status_code == 201
+        assert again.headers["Idempotent-Replayed"] == "true"
+        assert "Idempotent-Replayed" not in r.headers
         assert again.json()["id"] == session["id"]
 
         ws.send_text(answer(first, ActionStatus.succeeded, "opened"))
@@ -177,3 +185,63 @@ def test_a_section_without_its_own_links_still_opens_the_course_notes(hub) -> No
     plan = client.get("/study/plans/MATH D001A").json()
     assert plan["next"]["key"] == "9.1"
     assert [s["params"]["url"] for s in plan["steps"]] == ["https://c/m1"]
+
+
+def test_a_replay_while_the_agent_is_offline_returns_the_stored_session(hub) -> None:
+    client, _ = hub
+    _, token = pair(client)
+    with connect(client, token) as ws:
+        hello(ws)
+        first = start(client).json()
+        receive(ws)
+        receive(ws)
+    again = start(client)
+    assert again.status_code == 201
+    assert again.json()["id"] == first["id"]
+    assert again.headers["Idempotent-Replayed"] == "true"
+
+
+def test_the_same_key_for_another_course_is_refused(hub) -> None:
+    client, _ = hub
+    other = course_map(course_code="ECON C2002")
+    assert client.put("/academic/maps/ECON C2002", json=other).status_code == 200
+    _, token = pair(client)
+    with connect(client, token) as ws:
+        hello(ws)
+        start(client)
+        receive(ws)
+        receive(ws)
+        r = start(client, code="ECON C2002")
+        assert r.status_code == 422
+        heartbeat(ws)
+
+
+def test_a_start_cut_short_shows_what_was_sent_and_a_replay_sends_the_rest(
+    hub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = hub
+    real = actions_service.dispatch
+    calls = {"n": 0}
+
+    async def flaky(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise Unavailable("agent offline")
+        return await real(*args, **kwargs)
+
+    _, token = pair(client)
+    with connect(client, token) as ws:
+        hello(ws)
+        monkeypatch.setattr(actions_service, "dispatch", flaky)
+        session = start(client).json()
+        monkeypatch.setattr(actions_service, "dispatch", real)
+        assert [s["status"] for s in session["steps"]] == ["dispatched", "not_sent"]
+        assert isinstance(receive(ws), ActionRequestMsg)
+
+        replay = start(client).json()
+        assert replay["id"] == session["id"]
+        assert [s["status"] for s in replay["steps"]] == ["dispatched", "dispatched"]
+        resent = receive(ws)
+        assert isinstance(resent, ActionRequestMsg)
+        assert resent.request.idempotency_key == "study:s-1:1"  # only the unsent step
+        heartbeat(ws)
