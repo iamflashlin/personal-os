@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type ActionRun, ApiError, type HomeworkBoard, type HomeworkItem, type Job } from "./api";
-import { attention, blockText, courseOf, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
+import { attention, blockText, courseOf, firstThing, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
 import { pollUntil } from "./poll";
 
 const NOW = Date.parse("2026-11-22T10:00:00Z");
@@ -173,5 +173,45 @@ describe("pollUntil", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("firstThing", () => {
+  const week = (title: string, planned = false) =>
+    item({
+      title,
+      state: "week",
+      due_at: new Date(NOW + 50 * H).toISOString(),
+      planned: planned ? { event_id: "e", starts_at: "x", ends_at: "y" } : null,
+    });
+
+  it("is nothing without a board or without work", () => {
+    expect(firstThing(null, NOW)).toBeNull();
+    expect(firstThing(board(), NOW)).toBeNull();
+  });
+
+  it("puts homework due within 24 h first, then missing, then an unplanned one", () => {
+    const missing = item({ title: "Essay 1", state: "missing", due_at: new Date(NOW - 50 * H).toISOString() });
+    const all = board({ soon: [item()], missing: [missing], week: [week("Essay 2")] });
+    expect(firstThing(all, NOW)).toMatchObject({ kind: "soon", text: "还剩 3 小时：Journal 4（ENGL 1000）还没交" });
+    expect(firstThing({ ...all, soon: [] }, NOW)).toMatchObject({
+      kind: "missing",
+      text: "缺交：Essay 1（ENGL 1000），已过 2 天",
+    });
+    expect(firstThing({ ...all, soon: [], missing: [] }, NOW)).toMatchObject({
+      kind: "plan",
+      text: "还剩 2 天：Essay 2（ENGL 1000），还没排时间",
+    });
+  });
+
+  it("leaves the time out for missing work with no due date", () => {
+    const b = board({ missing: [item({ title: "Essay 1", state: "missing", due_at: null })] });
+    expect(firstThing(b, NOW)?.text).toBe("缺交：Essay 1（ENGL 1000）");
+  });
+
+  it("skips homework that already has time set aside", () => {
+    const b = board({ week: [week("Essay 2", true), week("Essay 3")] });
+    expect(firstThing(b, NOW)?.item.title).toBe("Essay 3");
+    expect(firstThing(board({ week: [week("Essay 2", true)] }), NOW)).toBeNull();
   });
 });

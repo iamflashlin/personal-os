@@ -185,7 +185,8 @@ export function App({ api }: { api: Api }) {
             api={api}
             onConnect={() => setView("connections")}
             onHomework={() => setView("homework")}
-            reminder={homework?.reminder ?? null}
+            homework={homework}
+            onHomeworkChanged={loadHomework}
           />
         )}
         {view === "homework" && <HomeworkView api={api} onBoard={showHomework} />}
