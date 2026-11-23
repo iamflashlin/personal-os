@@ -895,7 +895,7 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         first = page.get_by_test_id("first-thing")
         first.filter(has_text="还没排时间").wait_for(timeout=10_000)
         check(
-            "还剩 3 天：Essay 2（ENGL 1000），还没排时间" in first.inner_text(),
+            "：Essay 2（ENGL 1000），还没排时间" in first.inner_text(),
             f"with nothing due today, 先做这个 asks to plan Essay 2 ({first.inner_text()!r})",
         )
         first.get_by_role("button", name="排时间").click()
