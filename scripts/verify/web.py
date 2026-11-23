@@ -710,7 +710,37 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
     missing.get_by_role("status").filter(has_text="电脑助手").wait_for(timeout=10_000)
     check(True, "去提交 without an agent says the agent is not connected")
     check(api.get("/actions").json() == [], "and nothing was stored")
+    # T-0067: 排时间 against the real Hub's free time, then the block shows on 日程.
+    missing.get_by_role("button", name="排时间").click()
+    suggestion = missing.get_by_test_id("homework-slot")
+    suggestion.wait_for(timeout=10_000)
+    check(
+        "建议：" in suggestion.inner_text(), f"排时间 suggests a block ({suggestion.inner_text()})"
+    )
+    missing.get_by_role("button", name="排进日程").click()
+    planned = missing.get_by_test_id("homework-planned")
+    planned.wait_for(timeout=10_000)
+    check(planned.inner_text().startswith("已排："), f"the row says when ({planned.inner_text()})")
     shot(page, out, "31-homework")
+    open_view(page, "日程")
+    page.get_by_test_id("schedule").get_by_text("写作业：Lab 3 实验报告").first.wait_for(
+        timeout=10_000
+    )
+    check(True, "the block is on 日程 as 写作业：Lab 3 实验报告")
+    shot(page, out, "31b-homework-on-schedule")
+    events = api.get(
+        "/schedule",
+        params={
+            "start": datetime.now(UTC).isoformat(),
+            "end": (datetime.now(UTC) + timedelta(days=8)).isoformat(),
+        },
+    ).json()["entries"]
+    blocks = [e for e in events if e["title"] == "写作业：Lab 3 实验报告"]
+    check(len(blocks) == 1 and blocks[0]["kind"] == "task", "the Hub stored one task block")
+    with contextlib.suppress(Exception):  # leave 日程 as verify_schedule_view expects it
+        api.delete(f"/schedule/events/{blocks[0]['event_id']}")
+    open_view(page, "作业")
+    page.get_by_test_id("homework").wait_for(timeout=10_000)
 
     now = datetime.now(UTC)
 

@@ -288,4 +288,14 @@ def agenda(
     )
 
 
-__all__ = ["agenda", "create", "delete", "update"]
+def events(session: Session, actor: Actor) -> list[ScheduleEvent]:
+    """Every event the user stored (a few dozen), for modules that link to their own."""
+    rows = session.scalars(
+        select(ScheduleEventRow)
+        .where(ScheduleEventRow.owner_id == actor.owner_id)
+        .order_by(ScheduleEventRow.starts_at, ScheduleEventRow.id)
+    )
+    return [_read(r) for r in rows]
+
+
+__all__ = ["agenda", "create", "delete", "events", "update"]

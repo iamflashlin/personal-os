@@ -5,13 +5,16 @@ import {
   ApiError,
   type HomeworkBoard,
   type HomeworkItem,
+  type HomeworkSlot,
   type Job,
   newKey,
+  type PlannedTime,
 } from "./api";
 import { safeLink } from "./ConnectionsView";
 import { courseIn } from "./GpaView";
 import { pollUntil } from "./poll";
 import { STEP_WORD, stepReason } from "./StudyCard";
+import { browserZone } from "./TodayView";
 
 const HOUR = 3_600_000;
 const CHECK_MS = 3000;
@@ -40,6 +43,15 @@ export function stamp(at: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** "周二 11/24 19:00–20:00" in the browser's zone: a planned block, as the user reads it. */
+export function blockText(b: Pick<PlannedTime, "starts_at" | "ends_at">): string {
+  const start = new Date(b.starts_at);
+  const weekday = start.toLocaleDateString("zh-CN", { weekday: "short" });
+  const day = `${weekday} ${start.getMonth() + 1}/${start.getDate()}`;
+  const hm = (d: Date) => d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day} ${hm(start)}–${hm(new Date(b.ends_at))}`;
 }
 
 /** "ENGL 1000" from Canvas's course code or name, else the name as it is. */
@@ -131,7 +143,108 @@ function OpenButton({ api, item }: { api: Api; item: HomeworkItem }) {
   );
 }
 
-function Row({ api, item, now }: { api: Api; item: HomeworkItem; now: number }) {
+const PLAN_MINUTES = 60;
+
+/**
+ * 排时间 (T-0067): the Hub suggests the earliest free hour before the homework is due;
+ * 排进日程 puts it on 日程 as a task block. Once planned, the row says when.
+ */
+function PlanButton({ api, item, onPlanned }: { api: Api; item: HomeworkItem; onPlanned: () => void }) {
+  const [slot, setSlot] = useState<HomeworkSlot | null>(null);
+  const [planned, setPlanned] = useState<PlannedTime | null>(item.planned ?? null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => setPlanned(item.planned ?? null), [item.planned]);
+
+  const failed = (e: unknown) => (e instanceof ApiError ? `（${e.status}）${e.detail}` : String(e));
+  const ask = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const found = await api.homeworkSlot(item.id, PLAN_MINUTES, browserZone());
+      if (mounted.current) setSlot(found);
+    } catch (e) {
+      if (mounted.current) setErr(failed(e));
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+  const confirm = async () => {
+    if (!slot?.starts_at || !slot.ends_at) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const block = await api.planHomework(item.id, slot.starts_at, slot.ends_at, browserZone());
+      if (!mounted.current) return;
+      setPlanned(block);
+      setSlot(null);
+      onPlanned();
+    } catch (e) {
+      if (mounted.current) setErr(failed(e));
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+
+  if (planned)
+    return (
+      <span className="hw-plan hw-planned" data-testid="homework-planned">
+        已排：{blockText(planned)}
+      </span>
+    );
+  return (
+    <span className="hw-plan">
+      {!slot && (
+        <button type="button" className="g-more" onClick={() => void ask()} disabled={busy}>
+          排时间
+        </button>
+      )}
+      {slot?.starts_at && slot.ends_at && (
+        <>
+          <span data-testid="homework-slot">建议：{blockText({ starts_at: slot.starts_at, ends_at: slot.ends_at })}</span>
+          <button type="button" className="g-more" onClick={() => void confirm()} disabled={busy}>
+            排进日程
+          </button>
+          <button type="button" className="g-more" onClick={() => setSlot(null)} disabled={busy}>
+            取消
+          </button>
+        </>
+      )}
+      {slot && !slot.starts_at && (
+        <span className="muted" role="status">
+          {slot.reason}
+          <button type="button" className="g-more" onClick={() => setSlot(null)}>
+            知道了
+          </button>
+        </span>
+      )}
+      {err && (
+        <span className="hw-open-text step-failed" role="status">
+          {err}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Row({
+  api,
+  item,
+  now,
+  onPlanned,
+}: {
+  api: Api;
+  item: HomeworkItem;
+  now: number;
+  onPlanned: () => void;
+}) {
   const link = safeLink(item.url);
   const done = item.state === "submitted";
   return (
@@ -159,6 +272,7 @@ function Row({ api, item, now }: { api: Api; item: HomeworkItem; now: number }) 
             .join(" · ")}
         </span>
         {!done && link && <OpenButton api={api} item={item} />}
+        {!done && <PlanButton api={api} item={item} onPlanned={onPlanned} />}
       </span>
       <span className="t-from">{courseOf(item)}</span>
     </li>
@@ -172,6 +286,7 @@ function Group({
   api,
   now,
   empty,
+  onPlanned,
 }: {
   title: string;
   items: HomeworkItem[];
@@ -179,6 +294,7 @@ function Group({
   api: Api;
   now: number;
   empty?: string;
+  onPlanned: () => void;
 }) {
   if (items.length === 0 && !empty) return null;
   return (
@@ -189,7 +305,7 @@ function Group({
       ) : (
         <ul>
           {items.map((h) => (
-            <Row key={h.id} api={api} item={h} now={now} />
+            <Row key={h.id} api={api} item={h} now={now} onPlanned={onPlanned} />
           ))}
         </ul>
       )}
@@ -259,11 +375,15 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
     [onBoard],
   );
 
+  const latest = useRef(0);
   const reload = useCallback(async () => {
+    const ticket = ++latest.current; // an older, slower answer must not undo a newer one
     try {
-      show(await api.homework());
+      const b = await api.homework();
+      if (ticket === latest.current) show(b);
     } catch (err) {
-      if (alive.current) setError(err instanceof ApiError ? `（${err.status}）${err.detail}` : String(err));
+      if (alive.current && ticket === latest.current)
+        setError(err instanceof ApiError ? `（${err.status}）${err.detail}` : String(err));
     }
   }, [api, show]);
 
@@ -302,6 +422,7 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
   if (!board) return <p>加载中…</p>;
   if (!board.canvas) return <p className="muted">还没有连接 Canvas。连上以后，这里会列出每份作业交没交。</p>;
 
+  const replan = () => void reload();
   const now = Date.now();
   const left = board.missing.length + board.soon.length + board.week.length;
   return (
@@ -320,8 +441,8 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
             (board.synced_at ? `Canvas 记录更新于 ${stamp(board.synced_at)}` : "还没从 Canvas 同步过")}
         </span>
       </p>
-      <Group title="缺交" items={board.missing} testId="homework-missing" api={api} now={now} />
-      <Group
+      <Group onPlanned={replan} title="缺交" items={board.missing} testId="homework-missing" api={api} now={now} />
+      <Group onPlanned={replan}
         title="24 小时内要交"
         items={board.soon}
         testId="homework-soon"
@@ -329,8 +450,8 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
         now={now}
         empty="24 小时内没有要交的"
       />
-      <Group title="这周要交" items={board.week} testId="homework-week" api={api} now={now} />
-      <Group
+      <Group onPlanned={replan} title="这周要交" items={board.week} testId="homework-week" api={api} now={now} />
+      <Group onPlanned={replan}
         title="最近交了"
         items={board.submitted}
         testId="homework-submitted"

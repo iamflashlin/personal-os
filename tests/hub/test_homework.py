@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001  (user-facing Chinese text uses full-width punctuation on purpose)
 """作业 (ADR 0044): submission state from Canvas, open the page on the PC, sync now."""
 
 from collections.abc import Iterator
@@ -10,10 +11,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from apps.hub.core.domain import Actor
 from apps.hub.core.settings import Settings
+from apps.hub.homework import service as homework
 from apps.hub.integrations.models import IntegrationRow, SyncedItemRow
+from apps.hub.schedule import service as schedule
 from packages.contracts.actions import ActionStatus
 from packages.contracts.agent_protocol import ActionRequestMsg
+from packages.contracts.homework import HomeworkPlan
+from packages.contracts.schedule import EventKind, NewEvent
 from tests.hub.agent_support import connect, heartbeat, hello, pair, receive
 from tests.hub.support import hub_client
 from tests.hub.test_actions import answer
@@ -313,3 +319,145 @@ def test_check_asks_canvas_to_sync_now(hub) -> None:
     job_ids = r.json()["job_ids"]
     assert len(job_ids) == 1
     assert client.get(f"/jobs/{job_ids[0]}").status_code == 200
+
+
+# --- T-0067: 排时间 ---------------------------------------------------------------------
+
+UTC_NAME = "UTC"
+# A fixed Monday 09:00 UTC, so free time (08:00-22:00 in the zone) is predictable.
+MONDAY = datetime(2026, 11, 23, 9, 0, tzinfo=UTC)
+OWNER = Actor(owner_id="local", source="test")
+
+
+def plan_seed(engine: Engine, due: datetime) -> str:
+    return item(engine, canvas(engine), A, "5:1", "Essay 2", due, course_code="ENGL C1000")
+
+
+def busy(session: Session, start: datetime, hours: float, title: str = "Class") -> None:
+    schedule.create(
+        session,
+        OWNER,
+        NewEvent(
+            title=title, kind="class", starts_at=start, ends_at=start + timedelta(hours=hours)
+        ),
+        UTC_NAME,
+    )
+    session.commit()
+
+
+def test_the_suggestion_is_the_earliest_free_slot_before_the_due_time(hub) -> None:
+    _, engine = hub
+    hid = plan_seed(engine, MONDAY + timedelta(days=1))
+    with Session(engine) as s:
+        busy(s, MONDAY, 2)  # 09:00-11:00 class
+        busy(s, MONDAY + timedelta(hours=2, minutes=30), 1)  # 11:30-12:30: 30 min gap only
+        slot = homework.suggest(s, OWNER, hid, 60, UTC, UTC_NAME, now=MONDAY)
+    assert slot.reason == ""
+    assert slot.starts_at == MONDAY + timedelta(hours=3, minutes=30)  # 12:30
+    assert slot.ends_at == MONDAY + timedelta(hours=4, minutes=30)
+
+
+def test_the_suggestion_starts_on_a_quarter_hour(hub) -> None:
+    _, engine = hub
+    hid = plan_seed(engine, MONDAY + timedelta(days=1))
+    with Session(engine) as s:
+        slot = homework.suggest(s, OWNER, hid, 45, UTC, UTC_NAME, now=MONDAY + timedelta(minutes=7))
+    assert slot.starts_at == MONDAY + timedelta(minutes=15)
+
+
+def test_no_suggestion_when_nothing_fits_before_the_due_time(hub) -> None:
+    _, engine = hub
+    hid = plan_seed(engine, MONDAY + timedelta(hours=3))
+    with Session(engine) as s:
+        busy(s, MONDAY, 3)
+        slot = homework.suggest(s, OWNER, hid, 60, UTC, UTC_NAME, now=MONDAY)
+    assert slot.starts_at is None
+    assert slot.reason == "截止前没有连续 60 分钟的空闲时间"
+
+
+def test_planning_puts_one_block_on_the_schedule_and_the_board_shows_it(hub) -> None:
+    client, engine = hub
+    hid = plan_seed(engine, NOW + timedelta(days=2))
+    start = (NOW + timedelta(hours=5)).replace(microsecond=0)
+    body = {"starts_at": start.isoformat(), "ends_at": (start + timedelta(hours=1)).isoformat()}
+    r = client.post(f"/homework/{hid}/plan", json=body)
+    assert r.status_code == 201, r.text
+    planned = r.json()
+    again = client.post(f"/homework/{hid}/plan", json=body)  # one block per homework
+    assert again.status_code == 200
+    assert again.json()["event_id"] == planned["event_id"]
+    with Session(engine) as s:
+        (event,) = schedule.events(s, OWNER)
+    assert event.title == "写作业：Essay 2"
+    assert event.kind == "task"
+    assert f"homework:{hid}" in event.notes and "https://c/5:1" in event.notes
+    row = client.get("/homework").json()["week"][0]
+    assert row["planned"]["event_id"] == planned["event_id"]
+    # deleting the block on 日程 clears it here too
+    assert client.delete(f"/schedule/events/{planned['event_id']}").status_code == 204
+    assert client.get("/homework").json()["week"][0]["planned"] is None
+
+
+def test_submitted_unknown_or_bad_blocks_cannot_be_planned(hub) -> None:
+    client, engine = hub
+    ids = seed(engine)
+    start = NOW + timedelta(hours=1)
+    body = {"starts_at": start.isoformat(), "ends_at": (start + timedelta(hours=1)).isoformat()}
+    assert client.post(f"/homework/{ids['handed']}/plan", json=body).status_code == 409
+    assert client.get(f"/homework/{ids['handed']}/slot").status_code == 409
+    assert client.post("/homework/nope/plan", json=body).status_code == 404
+    assert client.post(f"/homework/{other_owners(engine)}/plan", json=body).status_code == 404
+    past = NOW - timedelta(hours=3)
+    old = {"starts_at": past.isoformat(), "ends_at": (past + timedelta(hours=1)).isoformat()}
+    assert client.post(f"/homework/{ids['week']}/plan", json=old).status_code == 422
+    naive = {"starts_at": "2026-11-23T10:00:00", "ends_at": "2026-11-23T11:00:00"}
+    assert client.post(f"/homework/{ids['week']}/plan", json=naive).status_code == 422
+    long = {"starts_at": start.isoformat(), "ends_at": (start + timedelta(hours=9)).isoformat()}
+    assert client.post(f"/homework/{ids['week']}/plan", json=long).status_code == 422
+    with Session(engine) as s:
+        assert schedule.events(s, OWNER) == []
+
+
+def test_a_block_that_has_passed_lets_the_user_plan_again(hub) -> None:
+    _, engine = hub
+    hid = plan_seed(engine, MONDAY + timedelta(days=3))
+    first = HomeworkPlan(starts_at=MONDAY + timedelta(hours=1), ends_at=MONDAY + timedelta(hours=2))
+    with Session(engine) as s:
+        block, created = homework.plan(s, OWNER, hid, first, UTC_NAME, now=MONDAY)
+        s.commit()
+        assert created
+        assert homework.board(s, OWNER, now=MONDAY).week[0].planned == block
+        later = MONDAY + timedelta(hours=3)  # the block is over and the work is not handed in
+        assert homework.board(s, OWNER, now=later).week[0].planned is None
+        again = HomeworkPlan(
+            starts_at=later + timedelta(hours=1), ends_at=later + timedelta(hours=2)
+        )
+        new_block, created = homework.plan(s, OWNER, hid, again, UTC_NAME, now=later)
+        s.commit()
+    assert created and new_block.event_id != block.event_id
+
+
+def test_only_a_task_block_with_the_exact_marker_counts(hub) -> None:
+    client, engine = hub
+    hid = plan_seed(engine, NOW + timedelta(days=2))
+    start = NOW + timedelta(hours=2)
+    blocks: list[tuple[EventKind, str]] = [
+        ("other", f"homework:{hid}"),
+        ("task", f"homework: read {hid}"),
+    ]
+    with Session(engine) as s:
+        for kind, notes in blocks:
+            schedule.create(
+                s,
+                OWNER,
+                NewEvent(
+                    title="mine",
+                    kind=kind,
+                    starts_at=start,
+                    ends_at=start + timedelta(hours=1),
+                    notes=notes,
+                ),
+                UTC_NAME,
+            )
+        s.commit()
+    assert client.get("/homework").json()["week"][0]["planned"] is None

@@ -628,6 +628,18 @@ export interface HomeworkItem {
   state: HomeworkState;
   submitted_at: string | null;
   late: boolean;
+  /** The schedule block set aside for it (T-0067). */
+  planned?: PlannedTime | null;
+}
+export interface PlannedTime {
+  event_id: string;
+  starts_at: string;
+  ends_at: string;
+}
+export interface HomeworkSlot {
+  starts_at: string | null;
+  ends_at: string | null;
+  reason: string;
 }
 export interface HomeworkBoard {
   generated_at: string;
@@ -903,6 +915,19 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
       }),
+    homeworkSlot: (itemId: string, minutes: number, timeZone: string) =>
+      call<HomeworkSlot>(
+        `/homework/${encodeURIComponent(itemId)}/slot?${new URLSearchParams({
+          minutes: String(minutes),
+          time_zone: timeZone,
+        })}`,
+      ),
+    /** One block per homework: planning it again returns the block already there. */
+    planHomework: (itemId: string, startsAt: string, endsAt: string, timeZone: string) =>
+      call<PlannedTime>(
+        `/homework/${encodeURIComponent(itemId)}/plan?${new URLSearchParams({ time_zone: timeZone })}`,
+        { method: "POST", body: JSON.stringify({ starts_at: startsAt, ends_at: endsAt }) },
+      ),
     checkHomework: () => call<{ job_ids: string[] }>("/homework/check", { method: "POST" }),
     action: (id: string) => call<ActionRun>(`/actions/${encodeURIComponent(id)}`),
     askMail: (ask: ChatAsk) =>

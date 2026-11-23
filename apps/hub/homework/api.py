@@ -1,13 +1,30 @@
+from datetime import tzinfo
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 
+from apps.hub.core import zones
 from apps.hub.core.http import ActorDep, SessionDep, acall, call
 from apps.hub.devices import service as devices
 from apps.hub.homework import service
-from packages.contracts.homework import HomeworkBoard, HomeworkCheck, HomeworkOpened
+from packages.contracts.homework import (
+    HomeworkBoard,
+    HomeworkCheck,
+    HomeworkOpened,
+    HomeworkPlan,
+    HomeworkSlot,
+    PlannedTime,
+)
 
 IDEMPOTENT_REPLAYED = "Idempotent-Replayed"
+ZoneQuery = Annotated[str, Query(max_length=64)]
+
+
+def _zone(name: str) -> tzinfo:
+    try:
+        return zones.zone_or_local(name)
+    except zones.UnknownZone:
+        raise HTTPException(status_code=422, detail="unknown time zone") from None
 
 
 def build_router() -> APIRouter:
@@ -36,5 +53,31 @@ def build_router() -> APIRouter:
         if opened.replayed:
             response.headers[IDEMPOTENT_REPLAYED] = "true"
         return opened
+
+    @router.get("/{item_id}/slot", name="suggest_homework_slot")
+    def slot(
+        item_id: str,
+        session: SessionDep,
+        actor: ActorDep,
+        minutes: Annotated[int, Query(ge=30, le=480)] = 60,
+        time_zone: ZoneQuery = "",
+    ) -> HomeworkSlot:
+        zone = _zone(time_zone)
+        return call(lambda: service.suggest(session, actor, item_id, minutes, zone, time_zone))
+
+    @router.post("/{item_id}/plan", status_code=201, name="plan_homework")
+    def plan(
+        item_id: str,
+        body: HomeworkPlan,
+        response: Response,
+        session: SessionDep,
+        actor: ActorDep,
+        time_zone: ZoneQuery = "",
+    ) -> PlannedTime:
+        _zone(time_zone)
+        planned, created = call(lambda: service.plan(session, actor, item_id, body, time_zone))
+        if not created:
+            response.status_code = 200  # already on the schedule: the block that is there
+        return planned
 
     return router
