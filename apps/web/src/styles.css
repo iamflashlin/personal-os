@@ -1976,9 +1976,8 @@ ul.memories {
 
 .wk-bars {
   display: flex;
-  gap: 14px;
-  align-items: flex-end;
-  height: 72px;
+  gap: 10px;
+  align-items: flex-start;
   margin: 10px 0 4px;
 }
 
@@ -1986,9 +1985,22 @@ ul.memories {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  width: 56px;
-  height: 100%;
+  width: 64px;
+}
+
+.wk-plot {
+  display: flex;
+  align-items: flex-end;
+  height: 56px;
+}
+
+.wk-counts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.7rem;
+  color: var(--text-2);
+  line-height: 1.3;
 }
 
 .wk-bar {

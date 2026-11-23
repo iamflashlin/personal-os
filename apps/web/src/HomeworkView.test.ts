@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { type ActionRun, ApiError, type HomeworkBoard, type HomeworkItem, type Job } from "./api";
-import { attention, blockText, courseOf, firstThing, weekLabel, weekText, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
+import { attention, blockText, courseOf, firstThing, weekLabel, weekText, WeeksStrip, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
 import { pollUntil } from "./poll";
 
 const NOW = Date.parse("2026-11-22T10:00:00Z");
@@ -225,5 +227,21 @@ describe("weekText and weekLabel", () => {
   it("names the week by its Monday, or 这周", () => {
     expect(weekLabel(w, false)).toBe("11/16 那周");
     expect(weekLabel(w, true)).toBe("这周");
+  });
+});
+
+describe("WeeksStrip", () => {
+  it("draws a column per week with its counts in words and an empty-week baseline", () => {
+    const weeks = [
+      { start: "2026-10-26", on_time: 0, late: 0, missing: 0, open: 0 },
+      { start: "2026-11-02", on_time: 2, late: 1, missing: 0, open: 0 },
+      { start: "2026-11-09", on_time: 1, late: 0, missing: 0, open: 0 },
+      { start: "2026-11-16", on_time: 0, late: 0, missing: 1, open: 0 },
+    ];
+    const html = renderToStaticMarkup(createElement(WeeksStrip, { weeks }));
+    expect(html.match(/role="listitem"/g)).toHaveLength(4);
+    expect(html).toContain('aria-label="这周：按时 0 · 缺交 1"');
+    expect(html).toContain("wk-bar wk-empty");
+    expect(html).toContain("迟交 1"); // the count under the 11/2 bar, not only its colour
   });
 });

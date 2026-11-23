@@ -409,6 +409,7 @@ export function WeeksStrip({ weeks }: { weeks: HomeworkWeek[] }) {
           const total = w.on_time + w.late + w.missing + w.open;
           return (
             <div className="wk-col" role="listitem" key={w.start} aria-label={`${label}：${weekText(w)}`}>
+              <div className="wk-plot">
               <div className={total ? "wk-bar" : "wk-bar wk-empty"} style={{ height: `${(total / most) * 100}%` }}>
                 {WEEK_PARTS.filter((p) => w[p.key] > 0).map((p) => (
                   <span
@@ -419,7 +420,16 @@ export function WeeksStrip({ weeks }: { weeks: HomeworkWeek[] }) {
                   />
                 ))}
               </div>
+              </div>
               <span className="wk-label">{label}</span>
+              {/* the counts in words too, so no one has to tell the colours apart */}
+              <span className="wk-counts">
+                {WEEK_PARTS.filter((p) => w[p.key] > 0).map((p) => (
+                  <span key={p.key}>
+                    {p.label} {w[p.key]}
+                  </span>
+                ))}
+              </span>
             </div>
           );
         })}
@@ -475,6 +485,7 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
     return () => {
       live = false;
     };
+    // Reloaded when Canvas's record changes (a sync), not on every board reload.
   }, [api, board?.synced_at]);
 
   useEffect(() => {

@@ -165,6 +165,8 @@ def weeks(
     on time, late, missing, still open. Excused work and combined-class copies are left
     out, as on the board; past work Canvas neither has a submission for nor marks missing
     (paper, in class) is not counted."""
+    if not 1 <= count <= 12:
+        raise Invalid("一次看 1 到 12 周")
     now = now or datetime.now(UTC)
     today = now.astimezone(zone).date()
     first = today - timedelta(days=today.weekday() + 7 * (count - 1))
@@ -176,7 +178,10 @@ def weeks(
         data = item.data
         if item.starts_at is None or data.get("excused"):
             continue
-        handed = data.get("submission_state") in DONE_STATES and data.get("submitted_at")
+        done = data.get("submission_state") in DONE_STATES
+        handed = done and _when(data.get("submitted_at")) is not None
+        if done and not handed:
+            continue  # graded with no hand-in (paper, in class): not homework handed in
         if not handed and item.id in copies:
             continue
         if handed:

@@ -838,6 +838,15 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
             },
         )
 
+    weeks = {
+        "weeks": [
+            {"start": "2026-11-02", "on_time": 0, "late": 0, "missing": 0, "open": 0},
+            {"start": "2026-11-09", "on_time": 0, "late": 0, "missing": 0, "open": 0},
+            {"start": "2026-11-16", "on_time": 0, "late": 1, "missing": 0, "open": 0},
+            {"start": "2026-11-23", "on_time": 0, "late": 0, "missing": 0, "open": 2},
+        ]
+    }
+    page.route("**/homework/weeks*", lambda route: route.fulfill(status=200, json=weeks))
     page.route("**/homework", fake_board)
     page.route("**/homework/*/open", fake_open)
     page.route("**/actions/01JVERIFYHWRUN000000000000", fake_action)
@@ -924,6 +933,7 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         page.unroute("**/actions/01JVERIFYHWRUN000000000000")
         page.unroute("**/homework/*/open")
         page.unroute("**/homework")
+        page.unroute("**/homework/weeks*")
 
 
 def verify_email_view(
