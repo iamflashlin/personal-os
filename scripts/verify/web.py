@@ -741,6 +741,17 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         api.delete(f"/schedule/events/{blocks[0]['event_id']}")
     open_view(page, "作业")
     page.get_by_test_id("homework").wait_for(timeout=10_000)
+    # T-0068: 今日 opens with one answer, the missing lab, and its 去提交 button.
+    open_view(page, "今日")
+    first = page.get_by_test_id("first-thing")
+    first.wait_for(timeout=10_000)
+    check(
+        "先做这个" in first.inner_text()
+        and "缺交：Lab 3 实验报告（CIS 22A）" in first.inner_text(),
+        f"今日 starts with 先做这个: the missing lab ({first.inner_text()!r})",
+    )
+    check(first.get_by_role("button", name="去提交").count() == 1, "with its 去提交 button")
+    shot(page, out, "34-first-thing")
 
     now = datetime.now(UTC)
 
@@ -830,7 +841,7 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
             f"今日 reminds of homework due within 24 h ({text!r})",
         )
         shot(page, out, "32-homework-reminder")
-        reminder.get_by_role("button", name="去作业页").click()
+        page.get_by_test_id("first-thing").get_by_role("button", name="去作业页").click()
         soon = page.get_by_test_id("homework-soon")
         soon.wait_for(timeout=10_000)
         check(

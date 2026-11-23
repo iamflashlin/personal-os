@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Api, ApiError, type EntrySummary, type HomeworkItem, type TodayEntry, type TodayView as Today } from "./api";
+import { type Api, ApiError, type EntrySummary, type HomeworkBoard, type TodayEntry, type TodayView as Today } from "./api";
 import { safeLink } from "./ConnectionsView";
 import { courseIn } from "./GpaView";
-import { HomeworkReminder } from "./HomeworkView";
+import { FirstThing } from "./HomeworkView";
 import { StudyCard } from "./StudyCard";
 import { SUMMARY_LABEL } from "./Summary";
 
@@ -162,13 +162,15 @@ export function TodayView({
   api,
   onConnect,
   onHomework = () => undefined,
-  reminder = null,
+  homework = null,
+  onHomeworkChanged = () => undefined,
 }: {
   api: Api;
   onConnect: () => void;
   onHomework?: () => void;
-  /** The homework due within 24 h, from the board App loads (ADR 0044). */
-  reminder?: HomeworkItem | null;
+  /** The homework board App loads (ADR 0044), for 先做这个 at the top. */
+  homework?: HomeworkBoard | null;
+  onHomeworkChanged?: () => void;
 }) {
   const [today, setToday] = useState<Today | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +219,7 @@ export function TodayView({
       <p className="headline" data-testid="today-headline">
         {today.headline}
       </p>
-      <HomeworkReminder item={reminder} onOpen={onHomework} />
+      <FirstThing api={api} board={homework} onOpen={onHomework} onPlanned={onHomeworkChanged} />
       <StudyCard api={api} code={null} />
       {nothingConnected && (
         <p className="muted">

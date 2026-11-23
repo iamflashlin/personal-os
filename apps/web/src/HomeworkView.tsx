@@ -466,15 +466,72 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
   );
 }
 
-/** The 今日 reminder: the nearest unsubmitted homework due within 24 h, if any. */
-export function HomeworkReminder({ item, onOpen }: { item: HomeworkItem | null; onOpen: () => void }) {
-  if (!item) return null;
+export type FirstKind = "soon" | "missing" | "plan";
+export interface First {
+  kind: FirstKind;
+  item: HomeworkItem;
+  text: string;
+}
+
+/**
+ * 先做这个 (T-0068): the one homework thing to do now, or null (then 开始学习 is the answer).
+ * In order: due within 24 h and not handed in; marked missing by Canvas; due this week with
+ * no time set aside yet. Computed from the board, no model.
+ */
+export function firstThing(board: HomeworkBoard | null, now: number): First | null {
+  if (!board) return null;
+  const course = (h: HomeworkItem) => (courseOf(h) ? `（${courseOf(h)}）` : "");
+  const soon = board.soon[0];
+  if (soon) return { kind: "soon", item: soon, text: reminderText(soon, now) };
+  const missing = board.missing[0];
+  if (missing)
+    return {
+      kind: "missing",
+      item: missing,
+      text: `缺交：${missing.title}${course(missing)}，${dueText(missing.due_at, now).replace("过了", "已过")}`,
+    };
+  const unplanned = board.week.find((h) => !h.planned);
+  if (unplanned)
+    return {
+      kind: "plan",
+      item: unplanned,
+      text: `${dueText(unplanned.due_at, now)}：${unplanned.title}${course(unplanned)}，还没排时间`,
+    };
+  return null;
+}
+
+/** The top of 今日: one homework thing to do now, with its button (先做这个, T-0068). */
+export function FirstThing({
+  api,
+  board,
+  onOpen,
+  onPlanned,
+}: {
+  api: Api;
+  board: HomeworkBoard | null;
+  onOpen: () => void;
+  onPlanned: () => void;
+}) {
+  const first = firstThing(board, Date.now());
+  if (!first) return null;
+  const link = safeLink(first.item.url);
   return (
-    <p className="hw-reminder" data-testid="homework-reminder">
-      <span>{reminderText(item, Date.now())}</span>
-      <button type="button" className="g-more" onClick={onOpen}>
-        去作业页
-      </button>
-    </p>
+    // keyed by the item, so a new first thing starts with fresh buttons
+    <div key={first.item.id} className={`hw-first hw-first-${first.kind}`} data-testid="first-thing">
+      <p className="hw-first-head">
+        <span className="hw-first-label">先做这个</span>
+        <span data-testid={first.kind === "soon" ? "homework-reminder" : undefined}>{first.text}</span>
+      </p>
+      <p className="hw-first-actions">
+        {first.kind === "plan" ? (
+          <PlanButton api={api} item={first.item} onPlanned={onPlanned} />
+        ) : (
+          link && <OpenButton api={api} item={first.item} />
+        )}
+        <button type="button" className="g-more" onClick={onOpen}>
+          去作业页
+        </button>
+      </p>
+    </div>
   );
 }
