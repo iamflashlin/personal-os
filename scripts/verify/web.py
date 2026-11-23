@@ -730,12 +730,6 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
     planned.wait_for(timeout=10_000)
     check(planned.inner_text().startswith("已排："), f"the row says when ({planned.inner_text()})")
     shot(page, out, "31-homework")
-    open_view(page, "日程")
-    page.get_by_test_id("schedule").get_by_text("写作业：Lab 3 实验报告").first.wait_for(
-        timeout=10_000
-    )
-    check(True, "the block is on 日程 as 写作业：Lab 3 实验报告")
-    shot(page, out, "31b-homework-on-schedule")
     events = api.get(
         "/schedule",
         params={
@@ -745,6 +739,21 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
     ).json()["entries"]
     blocks = [e for e in events if e["title"] == "写作业：Lab 3 实验报告"]
     check(len(blocks) == 1 and blocks[0]["kind"] == "task", "the Hub stored one task block")
+    # 日程 opens on this week (Monday to Sunday): late on a Sunday the first free hour is
+    # next week, so the block is looked for on the page only when it falls in this week.
+    local_now = datetime.now().astimezone()
+    next_monday = (local_now + timedelta(days=7 - local_now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    open_view(page, "日程")
+    if datetime.fromisoformat(blocks[0]["starts_at"]) < next_monday:
+        page.get_by_test_id("schedule").get_by_text("写作业：Lab 3 实验报告").first.wait_for(
+            timeout=10_000
+        )
+        check(True, "the block is on 日程 as 写作业：Lab 3 实验报告")
+    else:
+        print(f"note  the block starts next week ({blocks[0]['starts_at']}); 日程 shows this week")
+    shot(page, out, "31b-homework-on-schedule")
     with contextlib.suppress(Exception):  # leave 日程 as verify_schedule_view expects it
         api.delete(f"/schedule/events/{blocks[0]['event_id']}")
     open_view(page, "作业")
@@ -942,6 +951,43 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         page.unroute("**/homework/*/open")
         page.unroute("**/homework")
         page.unroute("**/homework/weeks*")
+
+
+def verify_today_plan(page: Page, api: httpx.Client, out: Path) -> None:
+    """T-0071: 今天的安排 on 今日 lists today's events in time order and marks what is on
+    now. A class running right now is added over HTTP and removed afterwards."""
+    now = datetime.now().astimezone()
+    midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = now - timedelta(minutes=30)
+    end = min(now + timedelta(minutes=30), midnight - timedelta(minutes=1))
+    made = api.post(
+        "/schedule/events",
+        json={
+            "title": "核对：现在这节课",
+            "kind": "class",
+            "starts_at": start.isoformat(),
+            "ends_at": end.isoformat(),
+        },
+    )
+    check(made.status_code == 201, f"seed a class running now ({made.status_code})")
+    try:
+        open_view(page, "日程")
+        open_view(page, "今日")
+        plan = page.get_by_test_id("today-plan")
+        plan.wait_for(timeout=10_000)
+        row = plan.get_by_test_id("plan-row").filter(has_text="核对：现在这节课")
+        row.wait_for(timeout=10_000)
+        check(
+            "现在" in row.inner_text(), f"今天的安排 marks the class on now ({row.inner_text()!r})"
+        )
+        check("上课" in row.inner_text(), "and says it is a class")
+        shot(page, out, "36-today-plan")
+        page.set_viewport_size({"width": 390, "height": 900})
+        wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+        check(not wide, "今日 with 今天的安排 fits a phone screen")
+        page.set_viewport_size({"width": 1200, "height": 800})
+    finally:
+        api.delete(f"/schedule/events/{made.json()['id']}")
 
 
 def verify_email_view(
@@ -1469,6 +1515,7 @@ def run(out: Path, headed: bool) -> None:
             verify_email_view(page, api, out, service, hub_log)
             verify_summaries_view(page, api, out, service, hub_log, errors)
             verify_schedule_view(page, out)
+            verify_today_plan(page, api, out)
             verify_digest_view(page, out)
             verify_data_kinds(page, out)
             # The 503s made on purpose: verify_canvas_view's (重试 must recover from it), and
