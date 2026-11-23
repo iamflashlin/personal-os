@@ -188,6 +188,16 @@ def verify(
             last = client.get("/study/plans/MATH D001A").json()["last"]
             check(last is not None and last["finished_at"] is not None, "plan shows last session")
             out["finished"] = done.json()
+            remembered = [
+                m
+                for m in client.get("/memories").json()
+                if m["source_ref"] == f"study:{session['id']}"
+            ]
+            out["memory"] = remembered
+            check(
+                len(remembered) == 1 and "学完了 MATH D001A" in remembered[0]["body"],
+                "the finished session is in 记忆 (T-0072)",
+            )
         finally:
             client.post(f"/devices/{device['id']}/revoke")
             try:

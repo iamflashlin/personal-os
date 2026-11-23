@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 from apps.hub.actions import service as actions_service
 from apps.hub.core.domain import Unavailable
 from apps.hub.core.settings import Settings
+from apps.hub.study import service as study_service
 from packages.contracts.actions import ActionStatus
 from packages.contracts.agent_protocol import ActionRequestMsg
 from tests.hub.agent_support import connect, heartbeat, hello, pair, receive
@@ -142,6 +143,12 @@ def test_finish_checks_the_version_and_the_next_plan_moves_on(hub) -> None:
     assert plan["next"]["key"] not in ("3.4", "")  # 3.4 was just studied
     assert plan["last"]["finished_at"] is not None
 
+    # T-0072: the finished session is remembered once, as it happened (raw, no model)
+    (memory,) = [m for m in client.get("/memories").json() if m["source_ref"].startswith("study:")]
+    assert memory["source_ref"] == f"study:{session['id']}"
+    assert memory["kind"] == "experience" and memory["provenance"] == "raw"
+    assert "学完了 MATH D001A「复习 3.4 Chain rule」，备注：链式法则做了 5 题" in memory["body"]
+
 
 def test_next_picks_the_course_with_the_nearest_exam(hub) -> None:
     client, engine = hub
@@ -245,3 +252,22 @@ def test_a_start_cut_short_shows_what_was_sent_and_a_replay_sends_the_rest(
         assert isinstance(resent, ActionRequestMsg)
         assert resent.request.idempotency_key == "study:s-1:1"  # only the unsent step
         heartbeat(ws)
+
+
+def test_a_memory_that_cannot_be_stored_does_not_undo_the_finish(hub, monkeypatch) -> None:
+    client, _ = hub
+    _, token = pair(client)
+    with connect(client, token) as ws:
+        hello(ws)
+        session = start(client).json()
+        receive(ws)
+        receive(ws)
+
+    def refuse(*_: Any, **__: Any) -> None:
+        raise Unavailable("memory store is busy")
+
+    monkeypatch.setattr(study_service.memories, "create", refuse)
+    url = f"/study/sessions/{session['id']}/finish"
+    done = client.post(url, json={"version": session["version"]})
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "finished"

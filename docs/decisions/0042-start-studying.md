@@ -49,3 +49,12 @@ already opens URLs and verifies the window (ADR 0014-0016). Nothing joined the t
   T-0063): start 开始学习 for MATH and read each step's message and window evidence.
 - `scripts/verify/study.py` proves the whole chain on this PC with a page served
   locally.
+
+## T-0072: a finished session is remembered
+
+When the user clicks 学完了, the Hub also stores one memory (kind `experience`,
+provenance `raw`, `source_ref` `study:<session id>`): 「11月22日 学完了 <course>「<what>」」 plus
+the user's note. It is what happened, written by the Hub, not a model's guess, so it is
+`raw`, not `ai_inferred`; it shows on 记忆 where the user can correct or delete it. No
+grade or score goes into it. Storing it is best effort: the session is already finished,
+so a failure is logged and the finish still succeeds. Second brain, 14-system list #1.
