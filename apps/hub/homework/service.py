@@ -5,7 +5,7 @@ assignments; open an assignment's page on the PC; ask Canvas to sync now.
 Submitted means Canvas recorded it. Nothing here writes or submits work."""
 
 import re
-from datetime import UTC, datetime, timedelta, tzinfo
+from datetime import UTC, datetime, time, timedelta, tzinfo
 
 from pydantic import ValidationError
 from sqlalchemy import Engine
@@ -27,6 +27,8 @@ from packages.contracts.homework import (
     HomeworkPlan,
     HomeworkSlot,
     HomeworkState,
+    HomeworkWeek,
+    HomeworkWeeks,
     PlannedTime,
 )
 from packages.contracts.integrations import SyncedItem
@@ -152,6 +154,47 @@ def board(session: Session, actor: Actor, now: datetime | None = None) -> Homewo
     )
 
 
+def weeks(
+    session: Session,
+    actor: Actor,
+    count: int,
+    zone: tzinfo,
+    now: datetime | None = None,
+) -> HomeworkWeeks:
+    """The last `count` weeks of homework by due week (local Monday to Sunday): handed in
+    on time, late, missing, still open. Excused work and combined-class copies are left
+    out, as on the board; past work Canvas neither has a submission for nor marks missing
+    (paper, in class) is not counted."""
+    now = now or datetime.now(UTC)
+    today = now.astimezone(zone).date()
+    first = today - timedelta(days=today.weekday() + 7 * (count - 1))
+    start = datetime.combine(first, time(), zone).astimezone(UTC)
+    end = datetime.combine(first + timedelta(days=7 * count), time(), zone).astimezone(UTC)
+    copies = gpa.missing_copies(session, actor, now, include_open=True)
+    tally = [{"on_time": 0, "late": 0, "missing": 0, "open": 0} for _ in range(count)]
+    for item in integrations.items_between(session, actor, start, end, item_type=ITEM_TYPE):
+        data = item.data
+        if item.starts_at is None or data.get("excused"):
+            continue
+        handed = data.get("submission_state") in DONE_STATES and data.get("submitted_at")
+        if not handed and item.id in copies:
+            continue
+        if handed:
+            kind = "late" if data.get("late") else "on_time"
+        elif data.get("missing"):
+            kind = "missing"
+        elif item.starts_at >= now:
+            kind = "open"
+        else:
+            continue
+        index = (item.starts_at.astimezone(zone).date() - first).days // 7
+        if 0 <= index < count:
+            tally[index][kind] += 1
+    return HomeworkWeeks(
+        weeks=[HomeworkWeek(start=first + timedelta(days=7 * i), **t) for i, t in enumerate(tally)]
+    )
+
+
 def _assignment(session: Session, actor: Actor, item_id: str) -> SyncedItem:
     found = integrations.items_by_id(session, actor, [item_id]).get(item_id)
     if found is None or found.item_type != ITEM_TYPE:
@@ -271,4 +314,4 @@ def check(session: Session, actor: Actor, now: datetime | None = None) -> Homewo
     )
 
 
-__all__ = ["action_key", "board", "check", "open_page", "plan", "suggest"]
+__all__ = ["action_key", "board", "check", "open_page", "plan", "suggest", "weeks"]

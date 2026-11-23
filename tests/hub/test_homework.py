@@ -461,3 +461,59 @@ def test_only_a_task_block_with_the_exact_marker_counts(hub) -> None:
             )
         s.commit()
     assert client.get("/homework").json()["week"][0]["planned"] is None
+
+
+# --- T-0069: 这几周交作业情况 ---------------------------------------------------------
+
+
+def test_weeks_count_on_time_late_missing_and_open_by_due_week(hub) -> None:
+    _, engine = hub
+    c = canvas(engine)
+    d = timedelta(days=1)
+    code = {"course_code": "ENGL C1000"}
+
+    def handed(ext: str, due: datetime, late: bool = False) -> None:
+        item(
+            engine,
+            c,
+            A,
+            ext,
+            ext,
+            due,
+            submission_state="submitted",
+            submitted_at=iso(due - timedelta(hours=1)),
+            late=late,
+            **code,
+        )
+
+    handed("w1-a", MONDAY - 13 * d)  # two weeks ago, Tuesday
+    handed("w1-b", MONDAY - 12 * d, late=True)
+    item(engine, c, A, "w2-miss", "w2-miss", MONDAY - 5 * d, missing=True, **code)  # last week
+    handed("w2-a", MONDAY - 1 * d)  # last Sunday
+    item(
+        engine, c, A, "w2-paper", "w2-paper", MONDAY - 4 * d, **code
+    )  # past, not missing: not counted
+    item(engine, c, A, "w2-exc", "w2-exc", MONDAY - 3 * d, excused=True, **code)
+    handed("w3-a", MONDAY - timedelta(hours=1))  # this week, Monday 08:00
+    item(engine, c, A, "w3-open", "w3-open", MONDAY + 2 * d, **code)
+    item(engine, c, A, "old", "old", MONDAY - 40 * d, missing=True, **code)  # before the window
+    with Session(engine) as s:
+        got = homework.weeks(s, OWNER, 4, UTC, now=MONDAY)
+    rows = [(w.start.isoformat(), w.on_time, w.late, w.missing, w.open) for w in got.weeks]
+    assert rows == [
+        ("2026-11-02", 0, 0, 0, 0),
+        ("2026-11-09", 1, 1, 0, 0),
+        ("2026-11-16", 1, 0, 1, 0),
+        ("2026-11-23", 1, 0, 0, 1),
+    ]
+
+
+def test_weeks_endpoint_uses_the_browsers_zone(hub) -> None:
+    client, _ = hub
+    r = client.get("/homework/weeks", params={"count": 2, "time_zone": "America/Los_Angeles"})
+    assert r.status_code == 200, r.text
+    weeks = r.json()["weeks"]
+    assert len(weeks) == 2
+    assert all(datetime.fromisoformat(w["start"]).weekday() == 0 for w in weeks)
+    assert client.get("/homework/weeks", params={"time_zone": "Nope/Zone"}).status_code == 422
+    assert client.get("/homework/weeks", params={"count": 13}).status_code == 422

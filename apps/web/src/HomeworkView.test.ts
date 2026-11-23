@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type ActionRun, ApiError, type HomeworkBoard, type HomeworkItem, type Job } from "./api";
-import { attention, blockText, courseOf, firstThing, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
+import { attention, blockText, courseOf, firstThing, weekLabel, weekText, dueText, openText, reminderText, waitForJobs } from "./HomeworkView";
 import { pollUntil } from "./poll";
 
 const NOW = Date.parse("2026-11-22T10:00:00Z");
@@ -213,5 +213,17 @@ describe("firstThing", () => {
     const b = board({ week: [week("Essay 2", true), week("Essay 3")] });
     expect(firstThing(b, NOW)?.item.title).toBe("Essay 3");
     expect(firstThing(board({ week: [week("Essay 2", true)] }), NOW)).toBeNull();
+  });
+});
+
+describe("weekText and weekLabel", () => {
+  const w = { start: "2026-11-16", on_time: 3, late: 1, missing: 0, open: 2 };
+  it("says the counts in words, leaving out zeros except 按时", () => {
+    expect(weekText(w)).toBe("按时 3 · 迟交 1 · 还没交 2");
+    expect(weekText({ ...w, on_time: 0, late: 0, open: 0 })).toBe("按时 0");
+  });
+  it("names the week by its Monday, or 这周", () => {
+    expect(weekLabel(w, false)).toBe("11/16 那周");
+    expect(weekLabel(w, true)).toBe("这周");
   });
 });

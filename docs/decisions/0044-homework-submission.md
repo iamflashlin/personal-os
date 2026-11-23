@@ -47,3 +47,11 @@ a submission after the user makes it.
    Canvas link and a `homework:<item id>` line; the board finds the block by that line, so
    no table or migration is needed and a moved or deleted event is reflected. One block per
    homework: planning it again returns the block already there.
+
+## T-0069: 这几周交作业情况
+
+8. **Weekly counts by due week, computed, read-only.** `GET /homework/weeks?count=4`
+   counts each local Monday-to-Sunday week's assignments as on time, late, missing or
+   open, from Canvas's own flags; the same exclusions as the board. Shown on 作业 as one
+   line for this week and a small stacked bar per week (status colours with a legend and
+   per-segment titles).

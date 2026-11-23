@@ -6,6 +6,7 @@ import {
   type HomeworkBoard,
   type HomeworkItem,
   type HomeworkSlot,
+  type HomeworkWeek,
   type Job,
   newKey,
   type PlannedTime,
@@ -366,11 +367,81 @@ export async function waitForJobs(
   return "slow";
 }
 
+const WEEK_PARTS = [
+  { key: "on_time", label: "按时", cls: "wk-ok" },
+  { key: "late", label: "迟交", cls: "wk-late" },
+  { key: "missing", label: "缺交", cls: "wk-miss" },
+  { key: "open", label: "还没交", cls: "wk-open" },
+] as const;
+
+/** "按时 3 · 迟交 1 · 缺交 0 · 还没交 2", leaving out what is 0 except 按时. */
+export function weekText(w: HomeworkWeek): string {
+  const parts = WEEK_PARTS.filter((p) => p.key === "on_time" || w[p.key] > 0).map(
+    (p) => `${p.label} ${w[p.key]}`,
+  );
+  return parts.join(" · ");
+}
+
+/** "11/16 那周" or "这周" for the last one. */
+export function weekLabel(w: HomeworkWeek, isThisWeek: boolean): string {
+  if (isThisWeek) return "这周";
+  const [, m, d] = w.start.split("-").map(Number);
+  return `${m}/${d} 那周`;
+}
+
+/**
+ * 这几周交作业情况 (T-0069): this week's counts as one line, and a stacked bar per week
+ * (oldest first) so the trend shows at a glance. Status colours with a legend and a
+ * hover title on each segment; the line and each bar's label say the same in words.
+ */
+export function WeeksStrip({ weeks }: { weeks: HomeworkWeek[] }) {
+  if (weeks.length === 0) return null;
+  const most = Math.max(1, ...weeks.map((w) => w.on_time + w.late + w.missing + w.open));
+  const last = weeks[weeks.length - 1];
+  return (
+    <div className="wk" data-testid="homework-weeks">
+      <p className="wk-now">
+        <span className="wk-title">这周</span> {weekText(last)}
+      </p>
+      <div className="wk-bars" role="list">
+        {weeks.map((w, i) => {
+          const label = weekLabel(w, i === weeks.length - 1);
+          const total = w.on_time + w.late + w.missing + w.open;
+          return (
+            <div className="wk-col" role="listitem" key={w.start} aria-label={`${label}：${weekText(w)}`}>
+              <div className={total ? "wk-bar" : "wk-bar wk-empty"} style={{ height: `${(total / most) * 100}%` }}>
+                {WEEK_PARTS.filter((p) => w[p.key] > 0).map((p) => (
+                  <span
+                    key={p.key}
+                    className={`wk-seg ${p.cls}`}
+                    style={{ flexGrow: w[p.key] }}
+                    title={`${label} ${p.label} ${w[p.key]} 份`}
+                  />
+                ))}
+              </div>
+              <span className="wk-label">{label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="wk-legend" aria-hidden="true">
+        {WEEK_PARTS.map((p) => (
+          <span key={p.key}>
+            <i className={`wk-dot ${p.cls}`} />
+            {p.label}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
 /** 作业 (ADR 0044): what is missing, due soon and handed in. Submitted = Canvas says so. */
 export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: HomeworkBoard) => void }) {
   const [board, setBoard] = useState<HomeworkBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [check, setCheck] = useState<Check>("idle");
+  const [weeks, setWeeks] = useState<HomeworkWeek[]>([]);
   const alive = useRef(true);
 
   const show = useCallback(
@@ -394,6 +465,17 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
         setError(err instanceof ApiError ? `（${err.status}）${err.detail}` : String(err));
     }
   }, [api, show]);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .homeworkWeeks(4, browserZone())
+      .then((r) => live && setWeeks(r.weeks))
+      .catch(() => undefined); // the board above still answers what to do
+    return () => {
+      live = false;
+    };
+  }, [api, board?.synced_at]);
 
   useEffect(() => {
     alive.current = true;
@@ -440,6 +522,7 @@ export function HomeworkView({ api, onBoard }: { api: Api; onBoard?: (b: Homewor
           ? "这周没有要交的作业。"
           : `还有 ${left} 份没交${board.missing.length ? `，其中 ${board.missing.length} 份缺交` : ""}。`}
       </p>
+      <WeeksStrip weeks={weeks} />
       <p className="hw-check">
         <button type="button" onClick={() => void askCanvas()} disabled={check === "asking"}>
           我交了，查一下
