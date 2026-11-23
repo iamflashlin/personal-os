@@ -13,6 +13,7 @@ from packages.contracts.homework import (
     HomeworkOpened,
     HomeworkPlan,
     HomeworkSlot,
+    HomeworkWeeks,
     PlannedTime,
 )
 
@@ -33,6 +34,16 @@ def build_router() -> APIRouter:
     @router.get("", name="get_homework_board")
     def board(session: SessionDep, actor: ActorDep) -> HomeworkBoard:
         return call(lambda: service.board(session, actor))
+
+    @router.get("/weeks", name="get_homework_weeks")
+    def weeks(
+        session: SessionDep,
+        actor: ActorDep,
+        count: Annotated[int, Query(ge=1, le=12)] = 4,
+        time_zone: ZoneQuery = "",
+    ) -> HomeworkWeeks:
+        zone = _zone(time_zone)
+        return call(lambda: service.weeks(session, actor, count, zone))
 
     @router.post("/check", status_code=202, name="check_homework")
     def check(session: SessionDep, actor: ActorDep) -> HomeworkCheck:

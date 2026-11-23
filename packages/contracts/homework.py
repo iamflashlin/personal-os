@@ -1,6 +1,6 @@
 """作业 (ADR 0044): each Canvas assignment's submission state, computed from synced items."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -74,3 +74,17 @@ class HomeworkOpened(BaseModel):
 
 class HomeworkCheck(BaseModel):
     job_ids: list[str]
+
+
+class HomeworkWeek(BaseModel):
+    """One week (Monday to Sunday, local) of homework, by due date (T-0069)."""
+
+    start: date  # the Monday
+    on_time: int  # handed in, Canvas did not mark it late
+    late: int  # handed in late
+    missing: int  # Canvas marks it missing
+    open: int  # not handed in and not due yet
+
+
+class HomeworkWeeks(BaseModel):
+    weeks: list[HomeworkWeek]  # oldest first; the last one is this week

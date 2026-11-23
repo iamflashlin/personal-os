@@ -2894,6 +2894,57 @@
         "title": "HomeworkSlot",
         "type": "object"
       },
+      "HomeworkWeek": {
+        "description": "One week (Monday to Sunday, local) of homework, by due date (T-0069).",
+        "properties": {
+          "late": {
+            "title": "Late",
+            "type": "integer"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "on_time": {
+            "title": "On Time",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "on_time",
+          "late",
+          "missing",
+          "open"
+        ],
+        "title": "HomeworkWeek",
+        "type": "object"
+      },
+      "HomeworkWeeks": {
+        "properties": {
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/HomeworkWeek"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weeks"
+        ],
+        "title": "HomeworkWeeks",
+        "type": "object"
+      },
       "Importance": {
         "enum": [
           "high",
@@ -7732,6 +7783,62 @@
           }
         },
         "summary": "Check Homework",
+        "tags": [
+          "homework"
+        ]
+      }
+    },
+    "/homework/weeks": {
+      "get": {
+        "operationId": "get_homework_weeks_homework_weeks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "count",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeworkWeeks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Homework Weeks",
         "tags": [
           "homework"
         ]

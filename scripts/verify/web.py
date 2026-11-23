@@ -704,6 +704,14 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
     count = nav.get_by_test_id("homework-count")
     count.wait_for(timeout=10_000)
     check(count.inner_text().endswith("1"), f"the sidebar counts it ({count.inner_text()!r})")
+    # T-0069: this week's counts and four weekly bars, from the real board.
+    strip = page.get_by_test_id("homework-weeks")
+    strip.wait_for(timeout=10_000)
+    bars = strip.get_by_role("listitem")
+    check(bars.count() == 4, f"作业 shows four weeks ({bars.count()})")
+    check(
+        "缺交 1" in strip.inner_text(), f"and the missing lab is counted ({strip.inner_text()!r})"
+    )
     submitted = page.get_by_test_id("homework-submitted")
     check("最近 7 天" in submitted.inner_text(), "no dated submission: 最近交了 says so")
     missing.get_by_role("button", name="去提交").click()
@@ -830,6 +838,15 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
             },
         )
 
+    weeks = {
+        "weeks": [
+            {"start": "2026-11-02", "on_time": 0, "late": 0, "missing": 0, "open": 0},
+            {"start": "2026-11-09", "on_time": 0, "late": 0, "missing": 0, "open": 0},
+            {"start": "2026-11-16", "on_time": 0, "late": 1, "missing": 0, "open": 0},
+            {"start": "2026-11-23", "on_time": 0, "late": 0, "missing": 0, "open": 2},
+        ]
+    }
+    page.route("**/homework/weeks*", lambda route: route.fulfill(status=200, json=weeks))
     page.route("**/homework", fake_board)
     page.route("**/homework/*/open", fake_open)
     page.route("**/actions/01JVERIFYHWRUN000000000000", fake_action)
@@ -916,6 +933,7 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         page.unroute("**/actions/01JVERIFYHWRUN000000000000")
         page.unroute("**/homework/*/open")
         page.unroute("**/homework")
+        page.unroute("**/homework/weeks*")
 
 
 def verify_email_view(

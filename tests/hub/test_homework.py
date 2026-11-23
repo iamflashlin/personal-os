@@ -5,13 +5,14 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from apps.hub.core.domain import Actor
+from apps.hub.core.domain import Actor, Invalid
 from apps.hub.core.settings import Settings
 from apps.hub.homework import service as homework
 from apps.hub.integrations.models import IntegrationRow, SyncedItemRow
@@ -461,3 +462,111 @@ def test_only_a_task_block_with_the_exact_marker_counts(hub) -> None:
             )
         s.commit()
     assert client.get("/homework").json()["week"][0]["planned"] is None
+
+
+# --- T-0069: 这几周交作业情况 ---------------------------------------------------------
+
+
+def test_weeks_count_on_time_late_missing_and_open_by_due_week(hub) -> None:
+    _, engine = hub
+    c = canvas(engine)
+    d = timedelta(days=1)
+    code = {"course_code": "ENGL C1000"}
+
+    def handed(ext: str, due: datetime, late: bool = False) -> None:
+        item(
+            engine,
+            c,
+            A,
+            ext,
+            ext,
+            due,
+            submission_state="submitted",
+            submitted_at=iso(due - timedelta(hours=1)),
+            late=late,
+            **code,
+        )
+
+    handed("w1-a", MONDAY - 13 * d)  # two weeks ago, Tuesday
+    handed("w1-b", MONDAY - 12 * d, late=True)
+    item(engine, c, A, "w2-miss", "w2-miss", MONDAY - 5 * d, missing=True, **code)  # last week
+    handed("w2-a", MONDAY - 1 * d)  # last Sunday
+    item(
+        engine, c, A, "w2-paper", "w2-paper", MONDAY - 4 * d, **code
+    )  # past, not missing: not counted
+    item(engine, c, A, "w2-exc", "w2-exc", MONDAY - 3 * d, excused=True, **code)
+    handed("w3-a", MONDAY - timedelta(hours=1))  # this week, Monday 08:00
+    item(engine, c, A, "w3-open", "w3-open", MONDAY + 2 * d, **code)
+    item(engine, c, A, "old", "old", MONDAY - 40 * d, missing=True, **code)  # before the window
+    with Session(engine) as s:
+        got = homework.weeks(s, OWNER, 4, UTC, now=MONDAY)
+    rows = [(w.start.isoformat(), w.on_time, w.late, w.missing, w.open) for w in got.weeks]
+    assert rows == [
+        ("2026-11-02", 0, 0, 0, 0),
+        ("2026-11-09", 1, 1, 0, 0),
+        ("2026-11-16", 1, 0, 1, 0),
+        ("2026-11-23", 1, 0, 0, 1),
+    ]
+
+
+def test_weeks_endpoint_uses_the_browsers_zone(hub) -> None:
+    client, _ = hub
+    r = client.get("/homework/weeks", params={"count": 2, "time_zone": "America/Los_Angeles"})
+    assert r.status_code == 200, r.text
+    weeks = r.json()["weeks"]
+    assert len(weeks) == 2
+    assert all(datetime.fromisoformat(w["start"]).weekday() == 0 for w in weeks)
+    assert client.get("/homework/weeks", params={"time_zone": "Nope/Zone"}).status_code == 422
+    assert client.get("/homework/weeks", params={"count": 13}).status_code == 422
+
+
+def test_weeks_follow_the_local_week_not_utc(hub) -> None:
+    """Sunday 23:00 in Los Angeles is Monday 07:00 UTC: it belongs to the Sunday's week."""
+    _, engine = hub
+    la = ZoneInfo("America/Los_Angeles")
+    c = canvas(engine)
+    sunday_night = datetime(2026, 11, 22, 23, 0, tzinfo=la).astimezone(UTC)
+    item(engine, c, A, "la-1", "Sunday essay", sunday_night, missing=True)
+    now = datetime(2026, 11, 25, 12, 0, tzinfo=UTC)  # Wednesday
+    with Session(engine) as s:
+        got = homework.weeks(s, OWNER, 2, la, now=now)
+    assert [(w.start.isoformat(), w.missing) for w in got.weeks] == [
+        ("2026-11-16", 1),
+        ("2026-11-23", 0),
+    ]
+
+
+def test_weeks_leave_out_copies_and_graded_paper_work(hub) -> None:
+    _, engine = hub
+    c = canvas(engine)
+    code = {"course_code": "CIS D022A"}
+    due = MONDAY - timedelta(days=3)
+    item(
+        engine,
+        c,
+        A,
+        "c-1",
+        "Lab 1",
+        due,
+        submission_state="submitted",
+        submitted_at=iso(due - timedelta(hours=2)),
+        group_id=1,
+        **code,
+    )
+    item(engine, c, A, "c-2", "Lab 1", due, missing=True, group_id=2, **code)  # its copy
+    item(
+        engine,
+        c,
+        A,
+        "c-3",
+        "Quiz",
+        MONDAY + timedelta(days=2),
+        submission_state="graded",
+        score=9,
+        **code,
+    )  # graded early on paper, no hand-in
+    with Session(engine) as s:
+        got = homework.weeks(s, OWNER, 2, UTC, now=MONDAY)
+    assert [(w.on_time, w.missing, w.open) for w in got.weeks] == [(1, 0, 0), (0, 0, 0)]
+    with Session(engine) as s, pytest.raises(Invalid):
+        homework.weeks(s, OWNER, 0, UTC, now=MONDAY)

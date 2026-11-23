@@ -641,6 +641,14 @@ export interface HomeworkSlot {
   ends_at: string | null;
   reason: string;
 }
+/** One week (Monday to Sunday, local) of homework by due date (T-0069). */
+export interface HomeworkWeek {
+  start: string;
+  on_time: number;
+  late: number;
+  missing: number;
+  open: number;
+}
 export interface HomeworkBoard {
   generated_at: string;
   canvas: boolean;
@@ -927,6 +935,10 @@ export function createApi(fetchImpl: Fetch = (input, init) => fetch(input, init)
       call<PlannedTime>(
         `/homework/${encodeURIComponent(itemId)}/plan?${new URLSearchParams({ time_zone: timeZone })}`,
         { method: "POST", body: JSON.stringify({ starts_at: startsAt, ends_at: endsAt }) },
+      ),
+    homeworkWeeks: (count: number, timeZone: string) =>
+      call<{ weeks: HomeworkWeek[] }>(
+        `/homework/weeks?${new URLSearchParams({ count: String(count), time_zone: timeZone })}`,
       ),
     checkHomework: () => call<{ job_ids: string[] }>("/homework/check", { method: "POST" }),
     action: (id: string) => call<ActionRun>(`/actions/${encodeURIComponent(id)}`),
