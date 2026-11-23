@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type AgendaEntry } from "./api";
-import { planRows } from "./TodayPlan";
+import { allDayOn, planRows } from "./TodayPlan";
 
 const at = (h: number, m = 0) => new Date(2026, 10, 23, h, m).toISOString();
 
@@ -25,10 +25,34 @@ function entry(over: Partial<AgendaEntry>): AgendaEntry {
 
 describe("planRows", () => {
   const entries = [
-    entry({ title: "ENGL 上课", starts_at: at(9), ends_at: at(10, 15) }),
+    entry({ title: "ENGL 上课", starts_at: at(9), ends_at: at(10, 15), location: "L 201" }),
     entry({ title: "写作业：Essay 2", kind: "task", starts_at: at(13), ends_at: at(14) }),
     entry({ title: "Journal", kind: "deadline", source: "canvas", starts_at: at(23, 59), ends_at: null, location: "F26 ENGL C1000 Reading", blocks: false }),
-    entry({ title: "Holiday", kind: "calendar", source: "calendar", all_day: true, starts_at: at(0), ends_at: at(23, 59) }),
+    entry({
+      title: "Holiday",
+      kind: "calendar",
+      source: "calendar",
+      all_day: true,
+      starts_at: new Date(Date.UTC(2026, 10, 23)).toISOString(),
+      ends_at: new Date(Date.UTC(2026, 10, 24)).toISOString(),
+      url: "https://calendar.example/holiday",
+    }),
+    entry({
+      title: "Yesterday off",
+      kind: "calendar",
+      source: "calendar",
+      all_day: true,
+      starts_at: new Date(Date.UTC(2026, 10, 22)).toISOString(),
+      ends_at: new Date(Date.UTC(2026, 10, 23)).toISOString(),
+    }),
+    entry({
+      title: "Tomorrow off",
+      kind: "calendar",
+      source: "calendar",
+      all_day: true,
+      starts_at: new Date(Date.UTC(2026, 10, 24)).toISOString(),
+      ends_at: new Date(Date.UTC(2026, 10, 25)).toISOString(),
+    }),
     entry({ title: "MATH 上课", starts_at: at(15), ends_at: at(16) }),
   ];
   const free = [{ starts_at: at(10, 15), ends_at: at(13), minutes: 165 }];
@@ -41,8 +65,20 @@ describe("planRows", () => {
       "空闲 2 小时 45 分",
       "写作业：Essay 2",
       "MATH 上课",
-      "Journal",
     ]);
+  });
+
+  it("leaves out a neighbouring day's all-day item and Canvas deadlines (今天截止 has them)", () => {
+    const titles = planRows(entries, free, new Date(2026, 10, 23, 9, 30).getTime()).map((r) => r.title);
+    expect(titles).not.toContain("Yesterday off");
+    expect(titles).not.toContain("Tomorrow off");
+    expect(titles).not.toContain("Journal");
+  });
+
+  it("keeps the room and the link", () => {
+    const rows = planRows(entries, free, new Date(2026, 10, 23, 9, 30).getTime());
+    expect(rows.find((r) => r.title === "ENGL 上课")?.place).toBe("L 201");
+    expect(rows.find((r) => r.title === "Holiday")?.url).toBe("https://calendar.example/holiday");
   });
 
   it("marks what is on now and the next thing to go to (never a free slot)", () => {
@@ -54,12 +90,11 @@ describe("planRows", () => {
     expect(state["Holiday"]).toBe("later");
   });
 
-  it("names homework blocks and Canvas courses on the right", () => {
+  it("names homework blocks and classes on the right", () => {
     const rows = planRows(entries, free, new Date(2026, 10, 23, 8).getTime());
     const sideOf = Object.fromEntries(rows.map((r) => [r.title, r.side]));
     expect(sideOf["写作业：Essay 2"]).toBe("写作业");
     expect(sideOf["ENGL 上课"]).toBe("上课");
-    expect(sideOf["Journal"]).toBe("ENGL 1000");
   });
 
   it("passes what is over, and a deadline once it has gone by", () => {
@@ -69,8 +104,17 @@ describe("planRows", () => {
       "ENGL 上课",
       "写作业：Essay 2",
       "MATH 上课",
-      "Journal",
     ]);
     expect(rows.some((r) => r.state === "next")).toBe(false);
+  });
+});
+
+describe("allDayOn", () => {
+  const day = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString();
+  it("compares the item's UTC dates with the local day", () => {
+    expect(allDayOn({ starts_at: day(2026, 10, 23), ends_at: day(2026, 10, 24) }, "2026-11-23")).toBe(true);
+    expect(allDayOn({ starts_at: day(2026, 10, 23), ends_at: day(2026, 10, 24) }, "2026-11-24")).toBe(false);
+    expect(allDayOn({ starts_at: day(2026, 10, 21), ends_at: day(2026, 10, 24) }, "2026-11-23")).toBe(true);
+    expect(allDayOn({ starts_at: day(2026, 10, 23), ends_at: null }, "2026-11-23")).toBe(true);
   });
 });

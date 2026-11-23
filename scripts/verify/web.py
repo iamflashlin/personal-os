@@ -958,7 +958,11 @@ def verify_today_plan(page: Page, api: httpx.Client, out: Path) -> None:
     now. A class running right now is added over HTTP and removed afterwards."""
     now = datetime.now().astimezone()
     midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = now - timedelta(minutes=30)
+    if midnight - now < timedelta(minutes=3):
+        time.sleep((midnight - now).total_seconds() + 5)  # let the day turn: a class needs room
+        now = datetime.now().astimezone()
+        midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = max(now - timedelta(minutes=30), now.replace(hour=0, minute=0, second=0, microsecond=0))
     end = min(now + timedelta(minutes=30), midnight - timedelta(minutes=1))
     made = api.post(
         "/schedule/events",
@@ -985,9 +989,11 @@ def verify_today_plan(page: Page, api: httpx.Client, out: Path) -> None:
         page.set_viewport_size({"width": 390, "height": 900})
         wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
         check(not wide, "今日 with 今天的安排 fits a phone screen")
+        shot(page, out, "36b-today-plan-phone")
         page.set_viewport_size({"width": 1200, "height": 800})
     finally:
-        api.delete(f"/schedule/events/{made.json()['id']}")
+        if made.status_code == 201:
+            api.delete(f"/schedule/events/{made.json()['id']}")
 
 
 def verify_email_view(

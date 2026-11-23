@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { type Agenda, type AgendaEntry, type Api } from "./api";
+import { safeLink } from "./ConnectionsView";
+import { placeText, sideText, timeText } from "./ScheduleView";
 
 type FreeSlot = Agenda["free"][number];
-import { sideText, timeText } from "./ScheduleView";
 
 export type PlanState = "past" | "now" | "next" | "later";
 
@@ -12,13 +13,35 @@ export interface PlanRow {
   ends_at: string | null;
   title: string;
   when: string; // "10:30–11:20", "截止 23:59", "全天", "空闲 14:00–16:00"
-  side: string; // "上课", "任务", "ENGL 1000", ""
+  side: string; // "上课", "写作业", "日历", ""
+  place: string; // a room such as "ATC 203", or ""
+  url: string; // a link to open the entry (calendar event), or ""
   state: PlanState;
   free: boolean;
 }
 
 function hm(at: string): string {
   return new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** "2026-11-23" for the local day of `now`. */
+function localKey(now: number): string {
+  const d = new Date(now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Whether an all-day entry is on the local day `key`. All-day items are stored at UTC
+ * midnight of their date (as the briefing reads them), so their UTC date range is
+ * compared, not their instants: a neighbouring day's holiday overlaps the local day's
+ * window in any zone but UTC.
+ */
+export function allDayOn(e: Pick<AgendaEntry, "starts_at" | "ends_at">, key: string): boolean {
+  const startMs = new Date(e.starts_at).getTime();
+  const endMs = e.ends_at ? new Date(e.ends_at).getTime() : startMs + 86_400_000;
+  const first = new Date(startMs).toISOString().slice(0, 10);
+  const last = new Date(Math.max(endMs - 1, startMs)).toISOString().slice(0, 10); // end is exclusive
+  return first <= key && key <= last;
 }
 
 /** A planned homework block reads as what it is ("写作业：…" is stored as a task). */
@@ -29,18 +52,25 @@ function side(e: AgendaEntry): string {
 
 /**
  * 今天的安排 (T-0071): today's agenda as one list in time order, free time included, each
- * row marked past / now / next / later against `now`. All-day entries come first and are
- * never "now"; a deadline is a point in time (past once it has passed).
+ * row marked past / now / next / later against `now`. All-day entries of today come first
+ * and are never "now"; a deadline is a point in time (past once it has passed). Canvas
+ * deadlines are left out: 今天截止 on the same page already lists them.
  */
 export function planRows(entries: AgendaEntry[], free: FreeSlot[], now: number): PlanRow[] {
+  const today = localKey(now);
+  const kept = entries.filter(
+    (e) => !(e.source === "canvas" && e.kind === "deadline") && (!e.all_day || allDayOn(e, today)),
+  );
   const rows: (Omit<PlanRow, "state"> & { allDay: boolean })[] = [
-    ...entries.map((e) => ({
+    ...kept.map((e) => ({
       key: e.key,
       starts_at: e.starts_at,
       ends_at: e.ends_at,
       title: e.title,
       when: timeText(e),
       side: side(e),
+      place: placeText(e),
+      url: e.url,
       free: false,
       allDay: e.all_day,
     })),
@@ -51,11 +81,12 @@ export function planRows(entries: AgendaEntry[], free: FreeSlot[], now: number):
       title: `空闲 ${f.minutes >= 60 ? `${Math.floor(f.minutes / 60)} 小时${f.minutes % 60 ? ` ${f.minutes % 60} 分` : ""}` : `${f.minutes} 分钟`}`,
       when: `${hm(f.starts_at)}–${hm(f.ends_at)}`,
       side: "",
+      place: "",
+      url: "",
       free: true,
       allDay: false,
     })),
-  ]
-    .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.starts_at.localeCompare(b.starts_at));
+  ].sort((a, b) => Number(b.allDay) - Number(a.allDay) || Date.parse(a.starts_at) - Date.parse(b.starts_at));
   let nextTaken = false;
   return rows.map(({ allDay, ...r }) => {
     const start = new Date(r.starts_at).getTime();
@@ -112,9 +143,17 @@ export function TodayPlan({ api, zone, refresh }: { api: Api; zone: string; refr
           <li key={r.key} className={`t-row plan-row plan-${r.state}${r.free ? " plan-free" : ""}`} data-testid="plan-row">
             <span className="t-when">{r.when}</span>
             <span className="t-what">
-              {r.title}
+              {safeLink(r.url) ? (
+                <a href={safeLink(r.url) ?? undefined} target="_blank" rel="noreferrer noopener">
+                  {r.title}
+                </a>
+              ) : (
+                r.title
+              )}
+              {r.place && <span className="t-todo">{r.place}</span>}
+              {r.state === "past" && <span className="sr-only">，已结束</span>}
               {STATE_WORD[r.state] && (
-                <span className={r.state === "now" ? "t-tag ok" : "t-tag"}>
+                <span className={r.state === "now" && !r.free ? "t-tag ok" : "t-tag"}>
                   <span className="sr-only">，</span>
                   {STATE_WORD[r.state]}
                 </span>
