@@ -838,12 +838,20 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
             },
         )
 
+    # Mondays of the last 4 local weeks (the page runs in this PC's zone), so 这周 is this
+    # week and matches the routed board: Journal 3 handed in late, two still open.
+    today = datetime.now().astimezone().date()
+    monday = today - timedelta(days=today.weekday())
     weeks = {
         "weeks": [
-            {"start": "2026-11-02", "on_time": 0, "late": 0, "missing": 0, "open": 0},
-            {"start": "2026-11-09", "on_time": 0, "late": 0, "missing": 0, "open": 0},
-            {"start": "2026-11-16", "on_time": 0, "late": 1, "missing": 0, "open": 0},
-            {"start": "2026-11-23", "on_time": 0, "late": 0, "missing": 0, "open": 2},
+            {
+                "start": (monday - timedelta(weeks=3 - i)).isoformat(),
+                "on_time": 0,
+                "late": 1 if i == 3 else 0,
+                "missing": 0,
+                "open": 2 if i == 3 else 0,
+            }
+            for i in range(4)
         ]
     }
     page.route("**/homework/weeks*", lambda route: route.fulfill(status=200, json=weeks))

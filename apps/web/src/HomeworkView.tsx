@@ -410,16 +410,16 @@ export function WeeksStrip({ weeks }: { weeks: HomeworkWeek[] }) {
           return (
             <div className="wk-col" role="listitem" key={w.start} aria-label={`${label}：${weekText(w)}`}>
               <div className="wk-plot">
-              <div className={total ? "wk-bar" : "wk-bar wk-empty"} style={{ height: `${(total / most) * 100}%` }}>
-                {WEEK_PARTS.filter((p) => w[p.key] > 0).map((p) => (
-                  <span
-                    key={p.key}
-                    className={`wk-seg ${p.cls}`}
-                    style={{ flexGrow: w[p.key] }}
-                    title={`${label} ${p.label} ${w[p.key]} 份`}
-                  />
-                ))}
-              </div>
+                <div className={total ? "wk-bar" : "wk-bar wk-empty"} style={{ height: `${(total / most) * 100}%` }}>
+                  {WEEK_PARTS.filter((p) => w[p.key] > 0).map((p) => (
+                    <span
+                      key={p.key}
+                      className={`wk-seg ${p.cls}`}
+                      style={{ flexGrow: w[p.key] }}
+                      title={`${label} ${p.label} ${w[p.key]} 份`}
+                    />
+                  ))}
+                </div>
               </div>
               <span className="wk-label">{label}</span>
               {/* the counts in words too, so no one has to tell the colours apart */}
