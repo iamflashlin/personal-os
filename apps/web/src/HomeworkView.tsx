@@ -149,7 +149,15 @@ const PLAN_MINUTES = 60;
  * 排时间 (T-0067): the Hub suggests the earliest free hour before the homework is due;
  * 排进日程 puts it on 日程 as a task block. Once planned, the row says when.
  */
-function PlanButton({ api, item, onPlanned }: { api: Api; item: HomeworkItem; onPlanned: () => void }) {
+function PlanButton({
+  api,
+  item,
+  onPlanned,
+}: {
+  api: Api;
+  item: HomeworkItem;
+  onPlanned: (block: PlannedTime) => void;
+}) {
   const [slot, setSlot] = useState<HomeworkSlot | null>(null);
   const [planned, setPlanned] = useState<PlannedTime | null>(item.planned ?? null);
   const [err, setErr] = useState("");
@@ -185,7 +193,7 @@ function PlanButton({ api, item, onPlanned }: { api: Api; item: HomeworkItem; on
       if (!mounted.current) return;
       setPlanned(block);
       setSlot(null);
-      onPlanned();
+      onPlanned(block);
     } catch (e) {
       if (mounted.current) setErr(failed(e));
     } finally {
@@ -488,7 +496,7 @@ export function firstThing(board: HomeworkBoard | null, now: number): First | nu
     return {
       kind: "missing",
       item: missing,
-      text: `缺交：${missing.title}${course(missing)}，${dueText(missing.due_at, now).replace("过了", "已过")}`,
+      text: `缺交：${missing.title}${course(missing)}${missing.due_at ? `，${dueText(missing.due_at, now).replace("过了", "已过")}` : ""}`,
     };
   const unplanned = board.week.find((h) => !h.planned);
   if (unplanned)
@@ -512,10 +520,23 @@ export function FirstThing({
   onOpen: () => void;
   onPlanned: () => void;
 }) {
+  // What was just put on 日程 stays said after the board moves on to the next pick.
+  const [done, setDone] = useState("");
   const first = firstThing(board, Date.now());
-  if (!first) return null;
-  const link = safeLink(first.item.url);
+  const link = first ? safeLink(first.item.url) : null;
+  const planned = (title: string) => (block: PlannedTime) => {
+    setDone(`已排进日程：${title} ${blockText(block)}`);
+    onPlanned();
+  };
+  if (!first && !done) return null;
   return (
+    <>
+      {done && (
+        <p className="hw-first-done" role="status" data-testid="first-done">
+          {done}
+        </p>
+      )}
+      {first && (
     // keyed by the item, so a new first thing starts with fresh buttons
     <div key={first.item.id} className={`hw-first hw-first-${first.kind}`} data-testid="first-thing">
       <p className="hw-first-head">
@@ -524,7 +545,7 @@ export function FirstThing({
       </p>
       <p className="hw-first-actions">
         {first.kind === "plan" ? (
-          <PlanButton api={api} item={first.item} onPlanned={onPlanned} />
+          <PlanButton api={api} item={first.item} onPlanned={planned(first.item.title)} />
         ) : (
           link && <OpenButton api={api} item={first.item} />
         )}
@@ -533,5 +554,7 @@ export function FirstThing({
         </button>
       </p>
     </div>
+      )}
+    </>
   );
 }

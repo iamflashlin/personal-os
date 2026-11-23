@@ -204,6 +204,11 @@ describe("firstThing", () => {
     });
   });
 
+  it("leaves the time out for missing work with no due date", () => {
+    const b = board({ missing: [item({ title: "Essay 1", state: "missing", due_at: null })] });
+    expect(firstThing(b, NOW)?.text).toBe("缺交：Essay 1（ENGL 1000）");
+  });
+
   it("skips homework that already has time set aside", () => {
     const b = board({ week: [week("Essay 2", true), week("Essay 3")] });
     expect(firstThing(b, NOW)?.item.title).toBe("Essay 3");

@@ -752,6 +752,11 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
     )
     check(first.get_by_role("button", name="去提交").count() == 1, "with its 去提交 button")
     shot(page, out, "34-first-thing")
+    page.set_viewport_size({"width": 390, "height": 900})
+    wide = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    check(not wide, "今日 with 先做这个 fits a phone screen")
+    shot(page, out, "34b-first-thing-phone")
+    page.set_viewport_size({"width": 1200, "height": 800})
 
     now = datetime.now(UTC)
 
@@ -866,6 +871,45 @@ def verify_homework_view(page: Page, api: httpx.Client, out: Path) -> None:
         check(not wide, "作业 fits a phone screen")
         shot(page, out, "33b-homework-phone")
         page.set_viewport_size({"width": 1200, "height": 800})
+        # T-0068: nothing due within a day, so 先做这个 asks for time for Essay 2.
+        board["soon"], board["reminder"] = [], None
+        essay = board["week"][0]
+        planned_block = {
+            "event_id": "01JVERIFYHWEVENT0000000000",
+            "starts_at": at(5),
+            "ends_at": at(6),
+        }
+
+        def fake_slot(route) -> None:
+            slot = {"starts_at": at(5), "ends_at": at(6), "reason": ""}
+            route.fulfill(status=200, json=slot)
+
+        def fake_plan(route) -> None:
+            essay["planned"] = planned_block  # the next board has it set aside
+            route.fulfill(status=201, json=planned_block)
+
+        page.route("**/homework/*/slot*", fake_slot)
+        page.route("**/homework/*/plan*", fake_plan)
+        open_view(page, "日程")
+        open_view(page, "今日")
+        first = page.get_by_test_id("first-thing")
+        first.filter(has_text="还没排时间").wait_for(timeout=10_000)
+        check(
+            "还剩 3 天：Essay 2（ENGL 1000），还没排时间" in first.inner_text(),
+            f"with nothing due today, 先做这个 asks to plan Essay 2 ({first.inner_text()!r})",
+        )
+        first.get_by_role("button", name="排时间").click()
+        first.get_by_role("button", name="排进日程").click()
+        done_line = page.get_by_test_id("first-done")
+        done_line.wait_for(timeout=10_000)
+        check(
+            done_line.inner_text().startswith("已排进日程：Essay 2 "),
+            f"and says what was put on 日程 after the board moves on ({done_line.inner_text()!r})",
+        )
+        check(page.get_by_test_id("first-thing").count() == 0, "with nothing left to pick")
+        shot(page, out, "35-first-thing-planned")
+        page.unroute("**/homework/*/plan*")
+        page.unroute("**/homework/*/slot*")
     finally:
         page.unroute("**/jobs/01JVERIFYJOB00000000000000")
         page.unroute("**/homework/check")
