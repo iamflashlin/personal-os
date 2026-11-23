@@ -374,9 +374,10 @@ def finish(
     return _read(session, actor, row)
 
 
-def memory_text(row: StudySessionRow, zone: tzinfo) -> str:
-    """「11月22日 学完了 ENGL C1000「复习 S5 主题句与过渡词」」, plus the user's note."""
-    day = (row.finished_at or datetime.now(UTC)).astimezone(zone)
+def _memory_text(row: StudySessionRow, finished_at: datetime, zone: tzinfo) -> str:
+    """「11月22日 学完了 ENGL C1000「复习 S5 主题句与过渡词」」, plus the user's note. The
+    date is the Hub PC's local day (the Hub runs on the user's own PC)."""
+    day = finished_at.astimezone(zone)
     title = str((row.next or {}).get("title") or "").strip()
     text = f"{day.month}月{day.day}日 学完了 {row.course_code}「{title}」"
     return f"{text}，备注：{row.note.strip()}" if row.note.strip() else text
@@ -386,16 +387,18 @@ def _remember(session: Session, actor: Actor, row: StudySessionRow) -> None:
     """A finished study session becomes an experience memory (T-0072, second brain): what
     was studied and when, as it happened (raw, no model). Best effort: the session is
     already finished, so a failure here is logged, never turned into an error."""
+    assert row.finished_at is not None  # finish() set it
+    body = _memory_text(row, row.finished_at, zones.zone_or_local(""))
     try:
         memories.create(
             session,
             actor,
             MemoryCreate(
                 kind=MemoryKind.experience,
-                body=memory_text(row, zones.zone_or_local("")),
+                body=body,
                 provenance=Provenance.raw,
                 source_ref=f"study:{row.id}",
             ),
         )
-    except (DomainError, ValidationError):
+    except Exception:  # best effort: whatever went wrong, the finish already stands
         log.warning("study session %s finished; its memory was not stored", row.id, exc_info=True)

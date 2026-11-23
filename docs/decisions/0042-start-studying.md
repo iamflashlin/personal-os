@@ -57,4 +57,5 @@ provenance `raw`, `source_ref` `study:<session id>`): 「11月22日 学完了 <c
 the user's note. It is what happened, written by the Hub, not a model's guess, so it is
 `raw`, not `ai_inferred`; it shows on 记忆 where the user can correct or delete it. No
 grade or score goes into it. Storing it is best effort: the session is already finished,
-so a failure is logged and the finish still succeeds. Second brain, 14-system list #1.
+so any failure is logged and the finish still succeeds. The date is the Hub PC's local
+day (the Hub runs on the user's own PC). Second brain, 14-system list #1.
