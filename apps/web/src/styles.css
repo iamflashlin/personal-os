@@ -2061,3 +2061,16 @@ ul.memories {
 .wk-open {
   background: var(--border-strong);
 }
+
+/* 今天的安排 (T-0071): what is over fades, free time is quiet, now stands out. */
+.plan-past {
+  opacity: 0.55;
+}
+
+.plan-free .t-what {
+  color: var(--muted);
+}
+
+.plan-now {
+  background: var(--ok-soft);
+}

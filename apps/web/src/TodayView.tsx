@@ -4,6 +4,7 @@ import { safeLink } from "./ConnectionsView";
 import { courseIn } from "./GpaView";
 import { FirstThing } from "./HomeworkView";
 import { StudyCard } from "./StudyCard";
+import { TodayPlan } from "./TodayPlan";
 import { SUMMARY_LABEL } from "./Summary";
 
 function errorText(err: unknown): string {
@@ -239,7 +240,8 @@ export function TodayView({
       )}
       <Section title="缺交 / 逾期" entries={today.missing} testId="today-missing" withDay />
       <Section title="今天截止" entries={today.due_today} testId="today-due" />
-      <Section title="今日日程" entries={today.events} testId="today-events" />
+      {/* 今天的安排 (T-0071) lists today's events with classes, homework blocks and free time */}
+      <TodayPlan api={api} zone={browserZone()} refresh={today.generated_at} />
       <Section
         title="邮件里要你做的"
         entries={today.mail_actions ?? []}
