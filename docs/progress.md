@@ -3,30 +3,30 @@
 <!-- today:start -->
 ## 今天
 
-2026-11-22（你睡觉时做的，醒来看这里）
+2026-11-25（补上 11/22–11/25 做完的事）
 
-- **做完了**（已合并并装到 Hub 上，打开 http://127.0.0.1:8765）：
-  - **「开始学习」**：「今日」和「课程」页最上面多了一张卡，写着现在该学什么、为什么（离考试最近、最没把握的那一节），以及上次学到哪。现在算出来的是：英语期末还有 11 天，先复习“S5 主题句与过渡词”。
-  - 点「开始学习」→ 列出要在电脑上打开的东西 →「确认打开」后，电脑助手替你打开 Canvas 上的对应资料，每一项显示“已打开”或“没打开成功”（原因用中文说）。学完点「学完了」，自动换到下一节。
-  - 电脑助手可以跟 Hub 一起常驻（开机自动启动、崩了自己重启），但**默认关着**，要你自己打开一次（见下面）。
-  - 11/12 下午到 11/14 的页面简化（成绩、今日、课程、日程、邮件、连接各自先给一个答案）也都在线上。
-- **等你**：
-  - 决定要不要让电脑助手常驻（推荐：要）。要的话，在 PowerShell 里运行下面这一行（作用：让 Hub 配对电脑助手，并打开常驻开关），最后一行应该是“电脑助手已连上……”：
-    `powershell -NoProfile -ExecutionPolicy Bypass -File D:\dev\personal-os\scripts\run\enable-agent.ps1`
-    以后想关掉：同一行末尾加上 ` -Disable`。
-  - 打开之后，在「今日」点「开始学习」→「确认打开」试一次，告诉我浏览器打开的页面对不对、卡片上显示的是“已打开”还是“没打开成功”。（Canvas 页面的标题能不能被认出来，我没法在你睡觉时验证，因为要用你浏览器里的 Canvas 登录。）
+- **做完了**（都已合并并装到 Hub 上，打开 http://127.0.0.1:8765）：
+  - **电脑助手已常驻**：你同意后打开了。「开始学习」和「去提交」都在真机上用 Edge 打开过真实的 Canvas 页面，窗口也认出来了。
+  - **「作业」页**（左边「学业 → 作业」）：缺交、24 小时内要交、这周要交、最近交了（迟交标红）。「去提交」让电脑助手打开作业的 Canvas 页面；「我交了，查一下」让 Hub 马上去 Canvas 同步，只有 Canvas 记下了提交时间才算交了。
+  - **「排时间」**：没交的作业点「排时间」，Hub 在截止前找你最早的一小时空闲，点「排进日程」就进了「日程」页。
+  - **「先做这个」**：「今日」最上面只给一件事和一个按钮（24 小时内要交的 → 缺交的 → 这周还没排时间的）。
+  - **「这几周交作业情况」**：「作业」页最上面写这周按时、迟交、缺交、还没交各几份，下面是最近 4 周的小柱子，柱子下面也写着数字。
+  - **「今天的安排」**：「今日」里把今天的课、排好的写作业时间和空闲时间按时间排成一列，标出"现在"和"下一项"。
+  - **学完会进记忆**：在「开始学习」点「学完了」，「记忆」页会自动多一条"哪天学完了哪一节"，你可以改或删。
+  - 按你的要求，GPA 不再管，学业只管作业提交；提醒只在 Hub 上显示。GitHub 免费检查额度用完后，你同意把仓库改成公开。
+- **等你**：无。想试的话，看看「作业」页的数字和 Canvas 对不对得上。
 - **下一步**：
-  - 你试过之后，根据真实的 Canvas 页面标题修正“认窗口”的规则。
-  - 本地课件文件夹：给每门课设一个文件夹，「开始学习」时一起打开。
-  - 「连接」页第二步、CIS 的知识地图、考后错题分析（需要你上传批改后的试卷照片）。
+  - 「今日」第一行的统计也算上「日程」里的事，和「今天的安排」对得上（T-0073）。
+  - 每天早上主动告诉你今天先做什么（只在 Hub 上）。
+  - 学期目标 → 每周目标 → 每日任务（需要你先定目标）。
 <!-- today:end -->
 
-> 由 `uv run python -m tools.report --today 2026-11-22` 生成，「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。
-> 统计依据：origin/main @ e8c5fc6（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
+> 由 `uv run python -m tools.report --today 2026-11-25` 生成，「今天」以外请不要手改。进度只按“合并进 main 的、验证过的改动”计算。
+> 统计依据：origin/main @ 617a447（如果刚在 GitHub 上合并过 PR，先运行 `git fetch` 再生成）。
 
 ## 现在做到哪
 
-共 76 张任务卡：已完成 74，进行中 0，待审核 0，卡住 0，未开始 2。
+共 84 张任务卡：已完成 81，进行中 0，待审核 0，卡住 0，未开始 3。
 
 ### 已完成
 
@@ -104,26 +104,31 @@
 - **T-0063** The always-on Hub keeps the desktop agent running, once the user enables it
 - **T-0064** 开始学习 polish - offline sentence fits the page, agent reasons in plain Chinese
 - **T-0065** 开始学习 - step reasons anchored to the agent's exact messages (T-0064 review nits)
+- **T-0066** 作业 - every homework's submission state, one click to its Canvas page, Hub reminders
+- **T-0067** 排时间 - put an unsubmitted homework into the next free slot before it is due
+- **T-0068** 先做这个 - 今日 opens with the one homework thing to do now, with its button
+- **T-0069** 这几周交作业情况 - on time, late, missing and open per week on 作业
+- **T-0070** T-0069 review nits - the routed weekly fake follows today; bar markup indented
+- **T-0071** 今天的安排 - 今日 lists today's classes, homework blocks, deadlines and free time, marking now and next
+- **T-0072** 学完了 is remembered - a finished study session becomes a memory
 
 ## 下一步
 
 前置任务都已完成、可以马上开始的卡：
 
 - **D0-02** Reconcile pstack poteto-mode principles with project rules
+- **T-0073** 今日 headline counts today's agenda, so it agrees with 今天的安排
 
 还在等前置任务的卡：
 
 - **D0-04** Project skills (task-card, evidence, verify-hub, verify-desktop-agent) and PR template（等 D0-02）
 
-## 本周合并（2026-11-16 至 2026-11-22）
+## 本周合并（2026-11-23 至 2026-11-29）
 
-本周合并了 5 张任务卡：T-0061, T-0062, T-0063, T-0064, T-0065。
+本周合并了 2 张任务卡：T-0071, T-0072。
 
-- 2026-11-22 fix(web): step reasons anchored to the agent's exact messages (T-0065) (#79)
-- 2026-11-22 feat(run): the always-on supervisor keeps the desktop agent running, once enabled (T-0063) (#77)
-- 2026-11-22 fix(web): 开始学习 offline sentence fits the page, agent reasons in plain Chinese (T-0064) (#78)
-- 2026-11-22 feat(web): 开始学习 - next step on 今日 and 课程, confirm, see each step open, 学完了 (T-0062) (#76)
-- 2026-11-22 feat(hub): 开始学习 - study plan per course, start it on the PC, finish, next (T-0061) (#75)
+- 2026-11-25 feat(study): 学完了 is remembered - a finished study session becomes a memory (T-0072) (#87)
+- 2026-11-25 feat(web): 今天的安排 - today's classes, homework blocks, deadlines, free time (T-0071) (#86)
 
 ## 返工
 
@@ -195,3 +200,10 @@
 - `docs/tasks/T-0063.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0064.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
 - `docs/tasks/T-0065.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0066.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0067.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0068.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0069.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0070.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0071.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
+- `docs/tasks/T-0072.md`：已经合并进 main，但第 4 行还写着 status: review（打开这个文件，改成 status: done）
