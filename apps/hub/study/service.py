@@ -6,9 +6,10 @@ weakest section first. Each step is a whitelisted `open_url`, dispatched through
 actions module, so the agent verifies every window and nothing runs twice per key.
 """
 
+import logging
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from pydantic import ValidationError
 from sqlalchemy import Engine, select
@@ -18,12 +19,15 @@ from sqlalchemy.orm import Session
 from apps.hub.academic import service as academic
 from apps.hub.actions import service as actions
 from apps.hub.audit import service as audit
+from apps.hub.core import zones
 from apps.hub.core.db import run_in_session
 from apps.hub.core.domain import Actor, Conflict, DomainError, Invalid, NotFound, Unavailable
 from apps.hub.devices import service as devices
+from apps.hub.memory import service as memories
 from apps.hub.study.models import StudySessionRow
 from packages.contracts.actions import TITLE_MAX, ActionCreate, ActionName, OpenUrlParams
 from packages.contracts.course_map import ConceptView, CourseMap, ExamView
+from packages.contracts.memory import MemoryCreate, MemoryKind, Provenance
 from packages.contracts.study import (
     LastSession,
     NextUp,
@@ -38,6 +42,7 @@ from packages.contracts.study import (
     step_status,
 )
 
+log = logging.getLogger(__name__)
 ENTITY = "study_session"
 # A section finished this recently is not suggested again for the same course.
 RECENT = timedelta(days=3)
@@ -365,4 +370,35 @@ def finish(
         return audit.Outcome(row.id, row)
 
     row = audit.audited(session, actor, ENTITY, "finish", session_id, {"note": body.note}, op)
+    _remember(session, actor, row)
     return _read(session, actor, row)
+
+
+def _memory_text(row: StudySessionRow, finished_at: datetime, zone: tzinfo) -> str:
+    """「11月22日 学完了 ENGL C1000「复习 S5 主题句与过渡词」」, plus the user's note. The
+    date is the Hub PC's local day (the Hub runs on the user's own PC)."""
+    day = finished_at.astimezone(zone)
+    title = str((row.next or {}).get("title") or "").strip()
+    text = f"{day.month}月{day.day}日 学完了 {row.course_code}「{title}」"
+    return f"{text}，备注：{row.note.strip()}" if row.note.strip() else text
+
+
+def _remember(session: Session, actor: Actor, row: StudySessionRow) -> None:
+    """A finished study session becomes an experience memory (T-0072, second brain): what
+    was studied and when, as it happened (raw, no model). Best effort: the session is
+    already finished, so a failure here is logged, never turned into an error."""
+    assert row.finished_at is not None  # finish() set it
+    body = _memory_text(row, row.finished_at, zones.zone_or_local(""))
+    try:
+        memories.create(
+            session,
+            actor,
+            MemoryCreate(
+                kind=MemoryKind.experience,
+                body=body,
+                provenance=Provenance.raw,
+                source_ref=f"study:{row.id}",
+            ),
+        )
+    except Exception:  # best effort: whatever went wrong, the finish already stands
+        log.warning("study session %s finished; its memory was not stored", row.id, exc_info=True)
