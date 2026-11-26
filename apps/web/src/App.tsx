@@ -22,6 +22,7 @@ import { TodayView } from "./TodayView";
 import { HomeworkView, attention } from "./HomeworkView";
 import type { HomeworkBoard } from "./api";
 import { Icon } from "./Icon";
+import logo from "./logo.svg";
 
 const TASK_STATUS: Record<TaskStatus, string> = {
   todo: "未开始",
@@ -146,7 +147,7 @@ export function App({ api }: { api: Api }) {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">P</span>
+          <img className="brand-mark" src={logo} alt="" />
           <span className="brand-name">Personal OS</span>
         </div>
         <nav className="views" aria-label="切换页面">
