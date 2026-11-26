@@ -1442,7 +1442,7 @@ def verify_changelog(page: Page, out: Path) -> None:
     page.screenshot(path=str(out / "00-changelog-dialog.png"))
     page.keyboard.press("Escape")
     dialog.wait_for(state="hidden")
-    check(True, "Esc closes the 版本记录 dialog")
+    check(not dialog.is_visible(), "Esc closes the 版本记录 dialog")
     page.mouse.move(700, 500)
 
 

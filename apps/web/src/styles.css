@@ -153,8 +153,7 @@ body {
 }
 
 @media (hover: hover) {
-  .brand-wrap:hover .brand-pop,
-  .brand:focus-visible + .brand-pop {
+  .brand-wrap:hover .brand-pop {
     opacity: 1;
     visibility: visible;
     transform: none;

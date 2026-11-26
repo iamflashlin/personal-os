@@ -1,25 +1,30 @@
 import { useRef } from "react";
 import { CHANGELOG, CURRENT } from "./releases";
-import logo from "./logo.svg";
+import logo from "./logo.png";
 
-// The sidebar brand. Hover (or keyboard focus) shows what the newest version changed;
-// a click opens every version in a dialog (native <dialog>: Esc and focus come free).
+// The sidebar brand. Hovering it shows what the newest version changed (screen readers
+// get the same card as the button's description); a click opens every version in a
+// dialog (native <dialog>: Esc and focus come free).
 export function Brand() {
   const dialog = useRef<HTMLDialogElement>(null);
   const close = () => dialog.current?.close();
+  // Close on a backdrop click only when the press also started there, so a text
+  // selection dragged out of the dialog does not close it.
+  const pressedBackdrop = useRef(false);
 
   return (
     <div className="brand-wrap">
       <button
         type="button"
         className="brand"
+        aria-describedby="brand-pop"
         aria-label={`Personal OS v${CURRENT.version}，查看版本记录`}
         onClick={() => dialog.current?.showModal()}
       >
         <img className="brand-mark" src={logo} alt="" />
         <span className="brand-name">Personal OS</span>
       </button>
-      <div className="brand-pop" role="tooltip">
+      <div id="brand-pop" className="brand-pop" role="tooltip">
         <div className="release-head">
           <span className="release-version">v{CURRENT.version}</span>
           <span className="release-date">{CURRENT.date}</span>
@@ -35,8 +40,11 @@ export function Brand() {
         ref={dialog}
         className="changelog"
         aria-labelledby="changelog-title"
+        onMouseDown={(e) => {
+          pressedBackdrop.current = e.target === e.currentTarget;
+        }}
         onClick={(e) => {
-          if (e.target === e.currentTarget) close(); // click on the backdrop
+          if (pressedBackdrop.current && e.target === e.currentTarget) close();
         }}
       >
         <div className="changelog-body">
