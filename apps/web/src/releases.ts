@@ -10,6 +10,11 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.8.2",
+    date: "2026-11-26",
+    items: ["logo 换成浅色底的紫蓝渐变新版"],
+  },
+  {
     version: "0.8.1",
     date: "2026-11-26",
     items: ["logo 改用你给的原图，不再用临摹版"],
