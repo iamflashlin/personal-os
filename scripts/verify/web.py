@@ -1425,6 +1425,27 @@ def open_view(page: Page, name: str) -> None:
     page.get_by_role("navigation", name="切换页面").get_by_role("button", name=name).click()
 
 
+def verify_changelog(page: Page, out: Path) -> None:
+    """版本记录 (T-0075): hover the logo for the newest version, click it for all."""
+    brand = page.get_by_role("button", name=re.compile("查看版本记录"))
+    brand.hover()
+    pop = page.get_by_role("tooltip")
+    pop.wait_for(state="visible")
+    check("点击看全部版本记录" in pop.inner_text(), "hovering the logo shows the newest version")
+    page.wait_for_timeout(300)  # let the fade-in finish before the screenshot
+    page.screenshot(path=str(out / "00-changelog-hover.png"))
+    brand.click()
+    dialog = page.get_by_role("dialog", name="版本记录")
+    dialog.wait_for()
+    check(dialog.get_by_text("当前").count() == 1, "one version is marked current")
+    check(dialog.locator("li.release").count() >= 2, "older versions are listed too")
+    page.screenshot(path=str(out / "00-changelog-dialog.png"))
+    page.keyboard.press("Escape")
+    dialog.wait_for(state="hidden")
+    check(not dialog.is_visible(), "Esc closes the 版本记录 dialog")
+    page.mouse.move(700, 500)
+
+
 def verify_today_empty(page: Page, out: Path) -> None:
     nav = page.get_by_role("navigation", name="切换页面")
     check(
@@ -1469,6 +1490,7 @@ def run(out: Path, headed: bool) -> None:
 
             page.goto(str(api.base_url))
             verify_today_empty(page, out)
+            verify_changelog(page, out)
             open_view(page, "任务")
             page.get_by_text("通过 CIS 课程").first.wait_for()
             check(

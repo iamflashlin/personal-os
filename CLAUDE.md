@@ -101,6 +101,8 @@ Gate green locally and in CI (windows-latest + ubuntu-latest), real verification
 with evidence, reviewer findings resolved, PR starts with 「给 Flash 看的」 and includes
 acceptance table, evidence summary, open questions, and a 3–5 sentence plain-language
 "what I learned" in Chinese.
+A change the user can see also adds its line(s) to 版本记录 (`apps/web/src/releases.ts`,
+newest first, plain Chinese; a feature bumps the middle number, a fix the last).
 Your own report is never evidence; command output, screenshots and tests are.
 
 ## Never
