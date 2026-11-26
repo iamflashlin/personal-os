@@ -46,6 +46,17 @@ eight-phase roadmap (`docs/decisions/0012-*`, `0026-*`); HANDOFF decides **how**
    Until card T-0020 makes `tools.report` keep that section, run `tools.report` first,
    then write 「今天」 by hand.
 
+## Proportional process (the user, 2026-11-26: "像狙击手一样精准有意义")
+
+Every step must earn its place: before a step, name what it could catch in *this* diff;
+if nothing, skip it. CI on both OSes still gates every merge.
+- **Asset/text-only change** (images, wording, a `releases.ts` line, docs): no task card,
+  no local gate, no reviewer. Build, look at it on the page (screenshot), PR, merge when
+  CI is green.
+- **Local gate**: run only what the diff touches. Web-only → `pnpm exec tsc --noEmit -p .`,
+  vitest, `verify/web.py`; Python touched → pytest too. CI still runs everything.
+- **Reviewer**: for code that changes behaviour, data, security or rules; not for assets/text.
+
 ## Merging (ADR 0030, replaces ADR 0024's categories)
 
 The user does not read code; their check is trying the feature. You merge every PR
@@ -55,7 +66,8 @@ head commit:
 - every check in `gh pr checks <n>` passed on windows-latest and ubuntu-latest (none
   pending, failed or cancelled);
 - the `reviewer` subagent's latest verdict on that exact diff is APPROVE (or, in the
-  fast lane below, its one review's findings are all fixed);
+  fast lane below, its one review's findings are all fixed; not needed for an
+  asset/text-only change, see Proportional process);
 - the PR targets `main` (not stacked on an unmerged branch).
 The full rule includes migrations, new dependencies, CI and rule changes. For those, the PR's
 「给 Flash 看的」 says plainly what changed, so the user can still object afterwards.
@@ -97,7 +109,7 @@ below it; the user may skip it.
 
 ## Definition of done
 
-Gate green locally and in CI (windows-latest + ubuntu-latest), real verification run
+Gate green in CI (windows-latest + ubuntu-latest) and locally for what the diff touches, real verification run
 with evidence, reviewer findings resolved, PR starts with 「给 Flash 看的」 and includes
 acceptance table, evidence summary, open questions, and a 3–5 sentence plain-language
 "what I learned" in Chinese.
